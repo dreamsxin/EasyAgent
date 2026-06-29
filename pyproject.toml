@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "easyagent"
+version = "0.1.0"
+description = "The easiest way to build AI agents in Python — 10 lines of code, zero framework concepts."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [
+    { name = "EasyAgent Contributors" },
+]
+keywords = ["ai", "agent", "llm", "scaffold", "openai", "anthropic", "ollama"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "httpx>=0.25",
+    "typing_extensions>=4.7",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0"]
+anthropic = ["anthropic>=0.18"]
+ollama = ["ollama>=0.1"]
+memory = ["chromadb>=0.4", "numpy>=1.24"]
+visual = ["streamlit>=1.30", "streamlit-agraph>=0.0.45"]
+all = [
+    "openai>=1.0",
+    "anthropic>=0.18",
+    "chromadb>=0.4",
+    "numpy>=1.24",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+    "black>=23.0",
+    "ruff>=0.1",
+    "mypy>=1.0",
+]
+
+[project.scripts]
+easyagent = "easyagent.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/your-org/easyagent"
+Documentation = "https://github.com/your-org/easyagent#readme"
+Repository = "https://github.com/your-org/easyagent"
+Issues = "https://github.com/your-org/easyagent/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
