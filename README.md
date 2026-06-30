@@ -2,7 +2,9 @@
 
 > The easiest way to build AI agents in Python — 10 lines of code, zero framework concepts.
 
+[![PyPI version](https://img.shields.io/pypi/v/easyagent.svg)](https://pypi.org/project/easyagent/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/dreamsxin/EasyAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/dreamsxin/EasyAgent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 

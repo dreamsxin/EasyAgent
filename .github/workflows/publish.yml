@@ -1,0 +1,69 @@
+name: Publish to PyPI
+
+# Trusted Publisher (OIDC) 发布流程：
+# 当推送 v* 标签时触发，通过 GitHub Actions 向 PyPI 索取临时令牌，
+# 无需手动上传、无需 API token。
+#
+# 前置条件：
+#   1. 在 https://pypi.org/manage/account/publishing/ 添加 pending publisher
+#      PyPI Project Name = easyagent
+#      Owner             = dreamsxin
+#      Repository        = EasyAgent
+#      Workflow name     = publish.yml
+#      Environment       = pypi
+#   2. 仓库 Settings → Actions → General → Workflow permissions 设为
+#      "Read and write permissions"（打标签需要）
+#
+# 发布方式：git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tool
+        run: pip install build
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # 必须与 PyPI pending publisher 里的 Environment name 一致
+    environment: pypi
+    # OIDC 认证所需权限 —— 不要删除
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # 无需 password —— Trusted Publisher 通过 OIDC 自动认证
+        with:
+          print-hash: true

@@ -55,10 +55,11 @@ dev = [
 easyagent = "easyagent.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/your-org/easyagent"
-Documentation = "https://github.com/your-org/easyagent#readme"
-Repository = "https://github.com/your-org/easyagent"
-Issues = "https://github.com/your-org/easyagent/issues"
+Homepage = "https://github.com/dreamsxin/EasyAgent"
+Documentation = "https://github.com/dreamsxin/EasyAgent#readme"
+Repository = "https://github.com/dreamsxin/EasyAgent"
+Issues = "https://github.com/dreamsxin/EasyAgent/issues"
+Changelog = "https://github.com/dreamsxin/EasyAgent/releases"
 
 [tool.setuptools.packages.find]
 where = ["src"]
