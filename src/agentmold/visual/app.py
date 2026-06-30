@@ -2,16 +2,14 @@
 
 Launch with::
 
-    agentmold visual
+    easyagent visual
 
 The app lets you configure an Agent in the browser (name, instructions,
-LLM, tools, iterations), chat with it, and watch the execution flow
-rendered as an interactive graph in real time.
+LLM, tools, iterations), build it with a clear button, then chat with it
+and watch the execution flow rendered as an interactive graph in real time.
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import List
 
 # Streamlit is imported lazily so that importing this module for the
@@ -43,6 +41,11 @@ def _build_agent(
     )
 
 
+def _agent_signature(name, llm, selected_tools, max_iterations):
+    """A hashable fingerprint of the config, to detect changes."""
+    return (name, llm, tuple(sorted(selected_tools)), max_iterations)
+
+
 def _run_app() -> None:
     """The actual Streamlit application body."""
     import streamlit as st
@@ -53,28 +56,28 @@ def _run_app() -> None:
 
     st.set_page_config(page_title="EasyAgent Visual Editor", page_icon="🚀", layout="wide")
     st.title("🚀 EasyAgent Visual Editor")
-    st.caption("Configure, run, and visualise your AI agent — no code required.")
+    st.caption("配置 → 生成 Agent → 提问，全程可视化，无需写代码。")
 
     # ------------------------------------------------------------------
     # Sidebar: Agent configuration
     # ------------------------------------------------------------------
-    st.sidebar.header("⚙️ Agent Configuration")
+    st.sidebar.header("⚙️ Agent 配置")
 
-    name = st.sidebar.text_input("Agent name", value="Assistant")
+    name = st.sidebar.text_input("Agent 名称", value="Assistant")
     instructions = st.sidebar.text_area(
-        "Instructions (system prompt)",
+        "指令（系统提示）",
         value="You are a helpful assistant. Use tools when useful.",
         height=100,
     )
     llm = st.sidebar.selectbox(
         "LLM",
         options=["mock", "gpt-4o-mini", "gpt-4o", "ollama/llama3", "claude-3-5-sonnet"],
-        help="Choose 'mock' to run without any API key (great for demos).",
+        help="选 'mock' 无需任何 API Key 即可体验。",
     )
-    max_iterations = st.sidebar.slider("Max iterations", min_value=1, max_value=20, value=10)
+    max_iterations = st.sidebar.slider("最大迭代次数", min_value=1, max_value=20, value=10)
 
     st.sidebar.divider()
-    st.sidebar.header("🛠️ Tools")
+    st.sidebar.header("🛠️ 工具")
     tool_names = [t.name for t in BUILTIN_TOOLS]
     tool_help = {t.name: t.description for t in BUILTIN_TOOLS}
     selected_tools = []
@@ -83,63 +86,95 @@ def _run_app() -> None:
             selected_tools.append(tn)
 
     st.sidebar.divider()
-    if st.sidebar.button("🔄 Reset conversation"):
+    build_clicked = st.sidebar.button("🔨 生成 Agent", type="primary", use_container_width=True)
+    if st.sidebar.button("🔄 重置会话", use_container_width=True):
         st.session_state.clear()
-
-    # Initialise conversation history.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "last_steps" not in st.session_state:
-        st.session_state.last_steps = []
-    if "last_user_input" not in st.session_state:
-        st.session_state.last_user_input = None
+        st.rerun()
 
     # ------------------------------------------------------------------
-    # Main area: chat + execution graph
+    # Build the Agent when the button is pressed.
+    # ------------------------------------------------------------------
+    # Track the config that the current agent was built from, so we can
+    # tell the user "your config changed, rebuild".
+    if "agent_signature" not in st.session_state:
+        st.session_state.agent_signature = None
+    if "agent" not in st.session_state:
+        st.session_state.agent = None
+
+    current_sig = _agent_signature(name, llm, selected_tools, max_iterations)
+    config_changed = st.session_state.agent_signature != current_sig
+
+    if build_clicked:
+        try:
+            st.session_state.agent = _build_agent(
+                name, instructions, llm, selected_tools, max_iterations
+            )
+            st.session_state.agent_signature = current_sig
+            st.session_state.messages = []  # fresh conversation for the new agent
+            st.session_state.last_steps = []
+            st.session_state.last_user_input = None
+            st.toast(f"✅ Agent「{name}」已生成！", icon="🚀")
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001
+            st.sidebar.error(f"生成失败: {exc}")
+
+    agent = st.session_state.agent
+
+    # ------------------------------------------------------------------
+    # Main area: Agent status + chat + execution graph
     # ------------------------------------------------------------------
     col_chat, col_graph = st.columns([1, 1])
 
     with col_chat:
-        st.subheader("💬 Conversation")
+        # ---- Agent status / overview card ----
+        if agent is None:
+            st.warning("👆 还没有 Agent。请在左侧配置后点击 **🔨 生成 Agent**。")
+            st.stop()
+        elif config_changed:
+            st.warning("⚙️ 配置已变更，请重新点击 **🔨 生成 Agent** 以应用新配置。")
+            # Show what changed but allow continued chat with old agent? No—stop to rebuild.
+            st.stop()
+
+        with st.container(border=True):
+            tool_list = ", ".join(t.name for t in agent.tools) if agent.tools else "（无）"
+            st.markdown(f"**🤖 Agent「{agent.name}」已就绪**")
+            st.markdown(f"- **LLM:** `{agent.llm.model}`")
+            st.markdown(f"- **工具:** {tool_list}")
+            st.markdown(f"- **最大迭代:** {agent.max_iterations}")
+
+        st.subheader("💬 对话")
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-        user_input = st.chat_input("Ask your agent anything…")
+        user_input = st.chat_input("向你的 Agent 提问…")
         if user_input:
             # Show the user message immediately.
             st.session_state.messages.append({"role": "user", "content": user_input})
             with st.chat_message("user"):
                 st.markdown(user_input)
 
-            # Build a fresh agent per run (config may have changed).
-            try:
-                agent = _build_agent(
-                    name, instructions, llm, selected_tools, max_iterations
-                )
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"Failed to build agent: {exc}")
-                st.stop()
-
             # Stream the execution, collecting steps for the graph.
             steps: List[dict] = []
             answer_text = ""
             with st.chat_message("assistant"):
-                status = st.status("Thinking…", expanded=True)
+                status = st.status("思考中…", expanded=True)
                 try:
                     for step in agent.run_stream(user_input):
                         steps.append(step)
                         if step["type"] == "tool_call":
-                            status.update(label=f"🔧 Calling {step['name']}…")
-                            st.write(f"🔧 **Tool call:** `{step['name']}({step['arguments']})`")
+                            status.update(label=f"🔧 调用 {step['name']}…")
+                            st.write(f"🔧 **工具调用:** `{step['name']}({step['arguments']})`")
                         elif step["type"] == "tool_result":
-                            st.write(f"✅ **Result:** `{step['content'][:200]}`")
+                            st.write(f"✅ **结果:** `{step['content'][:200]}`")
                         elif step["type"] == "answer":
                             answer_text = step["content"]
-                            status.update(label="Done!", state="complete", expanded=False)
+                            status.update(label="完成！", state="complete", expanded=False)
                 except Exception as exc:  # noqa: BLE001
-                    status.update(label="Error", state="error")
-                    st.error(f"Agent error: {exc}")
+                    status.update(label="出错", state="error")
+                    st.error(f"Agent 出错: {exc}")
                     st.stop()
 
                 if answer_text:
@@ -151,11 +186,11 @@ def _run_app() -> None:
             st.rerun()
 
     with col_graph:
-        st.subheader("📊 Execution Flow")
-        steps = st.session_state.last_steps
-        user_input = st.session_state.last_user_input
+        st.subheader("📊 执行流程")
+        steps = st.session_state.get("last_steps", [])
+        user_input = st.session_state.get("last_user_input")
         if not steps:
-            st.info("Run a query to see the agent's execution flow visualised here.")
+            st.info("提问后，Agent 的执行流程会在此实时可视化。")
         else:
             nodes, edges = trace_to_graph(steps, user_input=user_input)
             config = Config(
@@ -169,7 +204,7 @@ def _run_app() -> None:
             agraph(nodes=nodes, edges=edges, config=config)
 
             # Legend
-            st.caption("Legend:")
+            st.caption("图例:")
             legend_cols = st.columns(len(STEP_COLORS))
             for col, (stype, color) in zip(legend_cols, STEP_COLORS.items()):
                 col.markdown(
