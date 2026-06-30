@@ -86,6 +86,32 @@ response = agent.run("Hello! What can you do?")
 
 > 💡 想换一个模型？把 `llama3` 替换为已拉取的模型名即可，如 `ollama/qwen2.5`。
 
+### 可视化编排（浏览器中配置与运行）
+
+不想写代码？用内置的 Streamlit 可视化编辑器：在侧边栏配置 Agent（名称/指令/模型/工具勾选），在聊天框提问，右侧实时渲染执行流程图。
+
+```bash
+# 1. 安装可视化依赖
+pip install "easyagent[visual]"
+
+# 2. 启动可视化编辑器（自动打开浏览器）
+easyagent visual
+```
+
+选择 `mock` 模型即可零配置体验——无需任何 API Key。流程图中：
+
+- 👤 蓝色节点 = 用户输入
+- 🔧 橙色节点 = 工具调用
+- ✅ 绿色节点 = 工具返回结果
+- 💬 紫色节点（更大）= 最终回答
+
+> 💡 想用代码控制执行流？`Agent.run_stream()` 会逐步 yield 每个执行步骤，方便你自定义可视化或日志：
+> ```python
+> for step in agent.run_stream("问题"):
+>     if step["type"] == "tool_call":
+>         print(f"调用工具: {step['name']}")
+> ```
+
 ### 交互式创建项目
 
 ```bash
@@ -288,11 +314,11 @@ pip install "easyagent[all]"
 
 - [x] 核心引擎（Agent、Tool、Memory）
 - [x] 多 LLM 支持（OpenAI、Anthropic、Ollama）
-- [x] CLI 工具（init / run，含 3 个项目模板）
+- [x] CLI 工具（init / run / visual，含 3 个项目模板）
 - [x] 内置可观测性
 - [x] 长期向量记忆（VectorMemory，支持自定义 embedder）
 - [x] 内置工具库（read_file / write_file / list_directory / http_get / calculate）
-- [ ] 可视化编排界面
+- [x] 可视化编排界面（Streamlit 编辑器 + run_stream 流式 API + 执行流程图）
 - [ ] 多代理协作（可选扩展）
 - [ ] 工具市场与模板库
 

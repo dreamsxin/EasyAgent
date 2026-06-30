@@ -169,12 +169,19 @@ def main(argv: list[str] | None = None) -> int:
         "--chat", action="store_true", help="Start an interactive chat session."
     )
 
+    sub.add_parser(
+        "visual",
+        help="Launch the Streamlit visual editor (requires 'easyagent[visual]').",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "init":
         return _cmd_init(args)
     if args.command == "run":
         return _cmd_run(args)
+    if args.command == "visual":
+        return _cmd_visual(args)
     return 1  # unreachable
 
 
@@ -234,3 +241,10 @@ def _cmd_run(args) -> int:
         answer = agent.run("Hello! What can you do?")
         print(answer)
     return 0
+
+
+def _cmd_visual(args) -> int:  # noqa: ARG001
+    """Launch the Streamlit visual editor."""
+    from easyagent.visual import launch
+
+    return launch()

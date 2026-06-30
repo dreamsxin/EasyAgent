@@ -136,10 +136,68 @@ class Agent:
 
         This is the main entry point — think of it as calling a function.
         """
+        last_content = ""
+        for step in self.run_stream(user_input):
+            if step["type"] == "answer":
+                last_content = step["content"]
+        return last_content
+
+    def run_stream(self, user_input: str):
+        """Run the agent and *yield* each trace step as it happens.
+
+        This is the streaming variant of :meth:`run`: it produces the same
+        steps (``tool_call`` / ``tool_result`` / ``answer``) but one at a
+        time, so a UI can render the execution live.
+
+        Example::
+
+            for step in agent.run_stream("What is 2+2?"):
+                if step["type"] == "tool_call":
+                    print(f"Calling {step['name']}…")
+        """
         self.log.answer(f"Running agent {self.name!r}…")
         self.memory.add(Message(role="user", content=user_input))
-        trace = self._loop()
-        return trace.steps[-1].get("content", "") if trace.steps else ""
+        tool_schemas = self.registry.schemas()
+        for iteration in range(1, self.max_iterations + 1):
+            messages = self.memory.messages()
+            response = self.llm.complete(messages, tools=tool_schemas or None)
+
+            if not response.tool_calls:
+                # No tool calls → this is the final answer.
+                self.log.answer(response.content)
+                self.memory.add(Message(role="assistant", content=response.content))
+                yield {"type": "answer", "content": response.content}
+                return
+
+            # The model wants to call one or more tools.
+            self.memory.add(
+                Message(
+                    role="assistant",
+                    content=response.content or "",
+                    tool_calls=response.tool_calls,
+                )
+            )
+            for call in response.tool_calls:
+                tool_name = call["name"]
+                arguments = call.get("arguments", {})
+                self.log.thought(
+                    f"Iteration {iteration}: calling tool {tool_name}({arguments})"
+                )
+                yield {"type": "tool_call", "name": tool_name, "arguments": arguments}
+                try:
+                    result = self.registry.call(tool_name, arguments)
+                except ToolError as exc:
+                    result = f"Error: {exc}"
+                self.log.observation(f"{tool_name} → {result}")
+                yield {"type": "tool_result", "name": tool_name, "content": result}
+                self.memory.add(
+                    Message(role="tool", name=tool_name, content=result)
+                )
+
+        raise MaxIterationsError(
+            f"Agent {self.name!r} exceeded max_iterations={self.max_iterations} "
+            "without producing a final answer. Increase max_iterations or simplify the task."
+        )
 
     def chat(self) -> None:
         """Start an interactive REPL session with the agent."""
@@ -181,63 +239,17 @@ class Agent:
         return "\n".join(parts)
 
     def _loop(self) -> AgentTrace:
-        """Run the think-act loop until the agent produces a final answer."""
-        trace = AgentTrace()
-        tool_schemas = self.registry.schemas()
-        for iteration in range(1, self.max_iterations + 1):
-            messages = self.memory.messages()
-            response = self.llm.complete(messages, tools=tool_schemas or None)
+        """Run the think-act loop and return the full trace.
 
-            if not response.tool_calls:
-                # No tool calls → this is the final answer.
-                self.log.answer(response.content)
-                self.memory.add(
-                    Message(role="assistant", content=response.content)
-                )
-                trace.add({"type": "answer", "content": response.content})
-                return trace
-
-            # Record the assistant's tool-call intent BEFORE the tool results
-            # so the message order is: assistant(tool_calls) → tool(result).
-            self.memory.add(
-                Message(
-                    role="assistant",
-                    content=response.content or "",
-                    tool_calls=response.tool_calls,
-                )
-            )
-            # The model wants to call one or more tools.
-            for call in response.tool_calls:
-                tool_name = call["name"]
-                arguments = call.get("arguments", {})
-                self.log.thought(
-                    f"Iteration {iteration}: calling tool {tool_name}({arguments})"
-                )
-                trace.add(
-                    {"type": "tool_call", "name": tool_name, "arguments": arguments}
-                )
-                try:
-                    result = self.registry.call(tool_name, arguments)
-                except ToolError as exc:
-                    result = f"Error: {exc}"
-                self.log.observation(f"{tool_name} → {result}")
-                trace.add({"type": "tool_result", "name": tool_name, "content": result})
-                # Feed the tool result back into the conversation as a tool message.
-                # This is added LAST so the next LLM call sees the result and can
-                # produce a final answer.
-                self.memory.add(
-                    Message(
-                        role="tool",
-                        name=tool_name,
-                        content=result,
-                    )
-                )
-            # Loop back: let the model react to the tool results.
-            continue
-
-        raise MaxIterationsError(
-            f"Agent {self.name!r} exceeded max_iterations={self.max_iterations} "
-            "without producing a final answer. Increase max_iterations or simplify the task."
+        Deprecated thin wrapper kept for backwards compatibility; new code
+        should use :meth:`run_stream` directly.  Note that :meth:`run`
+        no longer calls this method — it consumes :meth:`run_stream`.
+        """
+        # _loop is rarely needed now; if called directly, it cannot replay
+        # run_stream (which needs a user_input).  Raise a clear error.
+        raise NotImplementedError(
+            "_loop() is no longer called directly. Use run_stream(user_input) "
+            "to iterate over steps, or run(user_input) for the final answer."
         )
 
 
