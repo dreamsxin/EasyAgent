@@ -50,10 +50,32 @@ print(response)
 
 ### 使用本地模型（无需 API Key）
 
+EasyAgent 通过 [Ollama](https://ollama.com) 支持本地模型。EasyAgent **不会自动下载或部署模型**——你需要先安装 Ollama 并拉取一个模型，之后 EasyAgent 才能调用它。
+
+**第一步：安装 Ollama 并拉取模型**（仅需做一次）
+
+```bash
+# 1. 安装 Ollama
+#    macOS / Linux:
+curl -fsSL https://ollama.com/install.sh | sh
+#    Windows: 从 https://ollama.com/download 下载安装包
+
+# 2. 拉取一个模型（首次会下载，约 4GB）
+ollama pull llama3
+#    其他可选模型：ollama pull qwen2.5  /  ollama pull phi3
+
+# 3. 确认 Ollama 服务正在运行（默认监听 localhost:11434）
+ollama serve
+```
+
+> 拉取完成后，模型会常驻在本地。EasyAgent 通过 `ollama/模型名` 的写法自动连接本地 Ollama 服务。
+
+**第二步：在 EasyAgent 中使用**
+
 ```python
 from easyagent import Agent
 
-# 通过 Ollama 运行本地模型
+# "ollama/llama3" 表示：通过 Ollama 调用本地 llama3 模型
 agent = Agent(
     name="Local Agent",
     llm="ollama/llama3",
@@ -61,6 +83,8 @@ agent = Agent(
 
 response = agent.run("Hello! What can you do?")
 ```
+
+> 💡 想换一个模型？把 `llama3` 替换为已拉取的模型名即可，如 `ollama/qwen2.5`。
 
 ### 交互式创建项目
 
@@ -108,13 +132,13 @@ answer = agent.run("What is 123 * 456?")
 EasyAgent 通过统一的接口支持多个 LLM 提供商：
 
 ```python
-# OpenAI
+# OpenAI（需设置 OPENAI_API_KEY 环境变量）
 agent = Agent(llm="gpt-4o-mini")
 
-# Anthropic
+# Anthropic（需设置 ANTHROPIC_API_KEY 环境变量）
 agent = Agent(llm="claude-3-5-sonnet")
 
-# Ollama（本地模型，完全免费）
+# Ollama（本地模型，免费；需先安装 Ollama 并拉取模型，见上文"使用本地模型"）
 agent = Agent(llm="ollama/llama3")
 
 # 通过完整配置自定义
@@ -124,6 +148,8 @@ agent = Agent(llm={
     "temperature": 0.7,
 })
 ```
+
+> 每个提供商需要安装对应的可选依赖，例如 `pip install "easyagent[ollama]"`。详见下方[安装选项](#-安装选项)。
 
 ## 🛠️ 工具系统
 
@@ -150,6 +176,36 @@ def read_file(file_path: str) -> str:
 ```
 
 EasyAgent 会自动从函数的**类型注解**和**docstring**生成工具描述，无需手动维护 JSON Schema。
+
+### 内置工具库
+
+EasyAgent 自带 5 个常用工具，开箱即用：
+
+| 工具 | 说明 |
+|------|------|
+| `read_file` | 读取文本文件（支持截断长文件） |
+| `write_file` | 写入文件（自动创建父目录） |
+| `list_directory` | 列出目录内容 |
+| `http_get` | 发起 HTTP GET 请求 |
+| `calculate` | 安全求值数学表达式（AST 白名单，禁止变量/函数调用） |
+
+```python
+from easyagent import Agent
+from easyagent.tools import read_file, write_file, list_directory, calculate
+
+agent = Agent(
+    name="Coder Assistant",
+    instructions="You are a coding assistant.",
+    tools=[read_file, write_file, list_directory, calculate],
+    llm="gpt-4o-mini",
+)
+
+# 或一次性导入全部
+from easyagent.tools import BUILTIN_TOOLS
+agent = Agent(tools=BUILTIN_TOOLS, llm="gpt-4o-mini")
+```
+
+> 💡 `calculate` 使用 AST 白名单安全求值，仅允许 `+ - * / // % **` 和括号，拒绝变量与函数调用，可放心交给 Agent 使用。
 
 ## 🧠 记忆管理
 
@@ -232,9 +288,10 @@ pip install "easyagent[all]"
 
 - [x] 核心引擎（Agent、Tool、Memory）
 - [x] 多 LLM 支持（OpenAI、Anthropic、Ollama）
-- [x] CLI 工具（init / run）
+- [x] CLI 工具（init / run，含 3 个项目模板）
 - [x] 内置可观测性
-- [ ] 长期向量记忆
+- [x] 长期向量记忆（VectorMemory，支持自定义 embedder）
+- [x] 内置工具库（read_file / write_file / list_directory / http_get / calculate）
 - [ ] 可视化编排界面
 - [ ] 多代理协作（可选扩展）
 - [ ] 工具市场与模板库

@@ -80,6 +80,13 @@ class VectorMemory(BaseMemory):
     the conversation.
 
     Requires ``chromadb`` and ``numpy``: ``pip install 'easyagent[memory]'``.
+
+    Parameters
+    ----------
+    embedder:
+        Optional callable ``str -> list[float]`` used to embed text.  When
+        omitted, the default OpenAI embedder is used.  Inject a custom
+        embedder (e.g. a hash-based fake) to test offline.
     """
 
     def __init__(
@@ -90,6 +97,7 @@ class VectorMemory(BaseMemory):
         top_k: int = 4,
         api_key: Optional[str] = None,
         system: Optional[str] = None,
+        embedder: Optional[Any] = None,
     ) -> None:
         self.max_messages = max_messages
         self.top_k = top_k
@@ -111,6 +119,10 @@ class VectorMemory(BaseMemory):
         )
         self._api_key = api_key or _env("OPENAI_API_KEY")
         self._counter = 0
+        # Track stored ids so clear() can delete them portably across chromadb versions.
+        self._stored_ids: List[str] = []
+        # An injectable embedder lets tests run without network access.
+        self._embedder = embedder
 
     def add(self, message: Message) -> None:
         if message.role == "system" and self._system is None:
@@ -121,13 +133,15 @@ class VectorMemory(BaseMemory):
             self._recent = self._recent[-self.max_messages :]
         # Persist non-system messages to the vector store.
         if message.role in ("user", "assistant") and message.content:
+            msg_id = f"msg-{self._counter}"
             embedding = self._embed(message.content)
             self._collection.add(
-                ids=[f"msg-{self._counter}"],
+                ids=[msg_id],
                 embeddings=[embedding],
                 documents=[message.content],
                 metadatas=[{"role": message.role}],
             )
+            self._stored_ids.append(msg_id)
             self._counter += 1
 
     def messages(self) -> List[Message]:
@@ -138,7 +152,7 @@ class VectorMemory(BaseMemory):
         last_user = next(
             (m for m in reversed(self._recent) if m.role == "user"), None
         )
-        if last_user and len(self._collection) > 0:
+        if last_user and self._collection.count() > 0:
             query_embedding = self._embed(last_user.content)
             results = self._collection.query(
                 query_embeddings=[query_embedding], n_results=self.top_k
@@ -153,6 +167,9 @@ class VectorMemory(BaseMemory):
 
     def _embed(self, text: str) -> List[float]:
         """Embed text using the configured model (OpenAI by default)."""
+        # Prefer an injected embedder (used by tests / custom backends).
+        if self._embedder is not None:
+            return self._embedder(text)
         try:
             import openai
         except ImportError as exc:  # pragma: no cover
@@ -164,8 +181,11 @@ class VectorMemory(BaseMemory):
         return resp.data[0].embedding
 
     def clear(self) -> None:
+        """Reset both the short-term window and the long-term vector store."""
         self._recent.clear()
-        self._collection.delete(where={})
+        if self._stored_ids:
+            self._collection.delete(ids=self._stored_ids)
+            self._stored_ids.clear()
 
 
 def _env(key: str) -> Optional[str]:

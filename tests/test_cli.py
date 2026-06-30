@@ -22,6 +22,34 @@ def test_cli_init_creates_project(tmp_path, capsys):
     assert "build_agent" in content
 
 
+def test_cli_init_coder_template(tmp_path):
+    project = tmp_path / "coder-agent"
+    rc = cli_main(["init", str(project), "--template", "coder", "--llm", "gpt-4o"])
+    assert rc == 0
+    content = (project / "agent.py").read_text(encoding="utf-8")
+    assert "Coder Assistant" in content
+    assert "read_file" in content
+    assert "write_file" in content
+    assert "gpt-4o" in content
+
+
+def test_cli_init_chatbot_template(tmp_path):
+    project = tmp_path / "chatbot"
+    rc = cli_main(["init", str(project), "--template", "chatbot"])
+    assert rc == 0
+    content = (project / "agent.py").read_text(encoding="utf-8")
+    assert "ChatBot" in content
+    assert "agent.chat()" in content
+
+
+def test_cli_init_rejects_bad_template(tmp_path):
+    project = tmp_path / "bad"
+    # argparse rejects invalid choices by calling sys.exit(2).
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["init", str(project), "--template", "nonexistent"])
+    assert exc_info.value.code != 0
+
+
 def test_cli_init_refuses_existing_dir(tmp_path):
     project = tmp_path / "existing"
     project.mkdir()

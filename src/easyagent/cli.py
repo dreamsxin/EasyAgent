@@ -49,6 +49,62 @@ if __name__ == "__main__":
     print(answer)
 '''
 
+_CODER_TEMPLATE = '''"""Coder agent project scaffolded by EasyAgent."""
+from easyagent import Agent
+from easyagent.tools import read_file, write_file, list_directory, calculate
+
+
+def build_agent() -> Agent:
+    """Create a coding assistant agent with file & math tools."""
+    return Agent(
+        name="Coder Assistant",
+        instructions=(
+            "You are a helpful coding assistant. You can read and write files, "
+            "list directories, and evaluate math expressions. "
+            "Always explain what you are about to do before using a tool."
+        ),
+        tools=[read_file, write_file, list_directory, calculate],
+        llm="__LLM_PLACEHOLDER__",
+    )
+
+
+if __name__ == "__main__":
+    agent = build_agent()
+    answer = agent.run("What files are in the current directory?")
+    print(answer)
+'''
+
+_CHATBOT_TEMPLATE = '''"""Chatbot agent project scaffolded by EasyAgent."""
+from easyagent import Agent, Memory
+
+
+def build_agent() -> Agent:
+    """Create a simple conversational chatbot."""
+    return Agent(
+        name="ChatBot",
+        instructions=(
+            "You are a friendly conversational assistant. "
+            "Remember the context of the conversation and respond naturally."
+        ),
+        tools=[],
+        llm="__LLM_PLACEHOLDER__",
+        memory=Memory(max_messages=50),
+    )
+
+
+if __name__ == "__main__":
+    agent = build_agent()
+    # Start an interactive chat session in the terminal.
+    agent.chat()
+'''
+
+# template name → (agent.py body, description shown in --help)
+TEMPLATES: dict[str, tuple[str, str]] = {
+    "default": (_AGENT_TEMPLATE, "A research assistant with a custom search tool."),
+    "coder": (_CODER_TEMPLATE, "A coding assistant with file & math tools."),
+    "chatbot": (_CHATBOT_TEMPLATE, "A conversational chatbot with larger memory."),
+}
+
 _README_TEMPLATE = '''# {name}
 
 An AI agent built with [EasyAgent](https://github.com/your-org/easyagent).
@@ -96,6 +152,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Default LLM shorthand (default: gpt-4o-mini).",
     )
     p_init.add_argument(
+        "--template",
+        default="default",
+        choices=sorted(TEMPLATES),
+        help="Project template (default: default).",
+    )
+    p_init.add_argument(
         "--force", action="store_true", help="Overwrite existing directory."
     )
 
@@ -123,15 +185,17 @@ def _cmd_init(args) -> int:
         return 1
     project_dir.mkdir(parents=True, exist_ok=True)
 
+    template_body, template_desc = TEMPLATES[args.template]
     (project_dir / "agent.py").write_text(
-        _AGENT_TEMPLATE.replace("__LLM_PLACEHOLDER__", args.llm), encoding="utf-8"
+        template_body.replace("__LLM_PLACEHOLDER__", args.llm), encoding="utf-8"
     )
     (project_dir / "README.md").write_text(
         _README_TEMPLATE.replace("{name}", args.name), encoding="utf-8"
     )
     (project_dir / ".gitignore").write_text(_GITIGNORE, encoding="utf-8")
 
-    print(f"✅ Created agent project in {project_dir}")
+    print(f"✅ Created agent project ({args.template!r} template) in {project_dir}")
+    print(f"   {template_desc}")
     print(f"\nNext steps:")
     print(f"  cd {args.name}")
     print(f"  pip install -e .   # or: pip install easyagent")
