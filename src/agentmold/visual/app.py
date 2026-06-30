@@ -92,10 +92,14 @@ def _run_app() -> None:
         st.rerun()
 
     # ------------------------------------------------------------------
-    # Build the Agent when the button is pressed.
+    # Build / rebuild the Agent.
+    #
+    # - First time (no agent yet): requires the "🔨 生成 Agent" button.
+    # - Config changed afterwards: auto-rebuild silently + show a soft
+    #   hint, so the user is never blocked from chatting. This mirrors
+    #   the code model where you can tweak config and call run() again
+    #   without any "rebuild" ceremony.
     # ------------------------------------------------------------------
-    # Track the config that the current agent was built from, so we can
-    # tell the user "your config changed, rebuild".
     if "agent_signature" not in st.session_state:
         st.session_state.agent_signature = None
     if "agent" not in st.session_state:
@@ -103,6 +107,7 @@ def _run_app() -> None:
 
     current_sig = _agent_signature(name, llm, selected_tools, max_iterations)
     config_changed = st.session_state.agent_signature != current_sig
+    auto_rebuilt = False  # set True if we silently rebuilt this render
 
     if build_clicked:
         try:
@@ -110,7 +115,8 @@ def _run_app() -> None:
                 name, instructions, llm, selected_tools, max_iterations
             )
             st.session_state.agent_signature = current_sig
-            st.session_state.messages = []  # fresh conversation for the new agent
+            # Fresh conversation for the new agent.
+            st.session_state.messages = []
             st.session_state.last_steps = []
             st.session_state.last_user_input = None
             st.toast(f"✅ Agent「{name}」已生成！", icon="🚀")
@@ -119,6 +125,21 @@ def _run_app() -> None:
             st.sidebar.error(f"生成失败: {exc}")
 
     agent = st.session_state.agent
+
+    # If an agent already exists but the config changed, rebuild it
+    # automatically so the overview card always reflects reality — no
+    # "please rebuild" blocking prompt.
+    if agent is not None and config_changed:
+        try:
+            st.session_state.agent = _build_agent(
+                name, instructions, llm, selected_tools, max_iterations
+            )
+            st.session_state.agent_signature = current_sig
+            # Keep existing conversation history — only the agent changed.
+            agent = st.session_state.agent
+            auto_rebuilt = True
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"自动重建失败: {exc}")
 
     # ------------------------------------------------------------------
     # Main area: Agent status + chat + execution graph
@@ -130,10 +151,6 @@ def _run_app() -> None:
         if agent is None:
             st.warning("👆 还没有 Agent。请在左侧配置后点击 **🔨 生成 Agent**。")
             st.stop()
-        elif config_changed:
-            st.warning("⚙️ 配置已变更，请重新点击 **🔨 生成 Agent** 以应用新配置。")
-            # Show what changed but allow continued chat with old agent? No—stop to rebuild.
-            st.stop()
 
         with st.container(border=True):
             tool_list = ", ".join(t.name for t in agent.tools) if agent.tools else "（无）"
@@ -141,6 +158,8 @@ def _run_app() -> None:
             st.markdown(f"- **LLM:** `{agent.llm.model}`")
             st.markdown(f"- **工具:** {tool_list}")
             st.markdown(f"- **最大迭代:** {agent.max_iterations}")
+            if auto_rebuilt:
+                st.caption("🔄 配置已变更，已自动用新配置重建 Agent。")
 
         st.subheader("💬 对话")
         if "messages" not in st.session_state:
