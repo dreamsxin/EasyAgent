@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "easyagent"
+name = "agentmold"
 version = "0.1.0"
 description = "The easiest way to build AI agents in Python — 10 lines of code, zero framework concepts."
 readme = "README.md"
@@ -52,7 +52,7 @@ dev = [
 ]
 
 [project.scripts]
-easyagent = "easyagent.cli:main"
+easyagent = "agentmold.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/dreamsxin/EasyAgent"

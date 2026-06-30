@@ -1,12 +1,12 @@
 """Built-in tools that ship with EasyAgent.
 
-These are ready-to-use :func:`~easyagent.tool` instances covering common
+These are ready-to-use :func:`~agentmold.tool` instances covering common
 needs: file I/O, directory listing, HTTP requests and safe arithmetic.
 
 Usage::
 
-    from easyagent import Agent
-    from easyagent.tools.builtin import read_file, write_file, calculate
+    from agentmold import Agent
+    from agentmold.tools.builtin import read_file, write_file, calculate
 
     agent = Agent(tools=[read_file, write_file, calculate], llm="gpt-4o-mini")
 
@@ -23,7 +23,7 @@ from typing import Any, Dict, List
 
 import httpx
 
-from easyagent.tool import Tool, tool
+from agentmold.tool import Tool, tool
 
 __all__ = [
     "read_file",

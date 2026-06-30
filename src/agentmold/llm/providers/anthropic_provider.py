@@ -1,14 +1,14 @@
 """Anthropic Messages API provider.
 
-Requires the ``anthropic`` package: ``pip install 'easyagent[anthropic]'``.
+Requires the ``anthropic`` package: ``pip install 'agentmold[anthropic]'``.
 """
 from __future__ import annotations
 
 import os
 from typing import Any, Dict, List, Optional
 
-from easyagent.exceptions import ConfigurationError
-from easyagent.llm import LLM, LlmResponse, Message, register_provider
+from agentmold.exceptions import ConfigurationError
+from agentmold.llm import LLM, LlmResponse, Message, register_provider
 
 try:  # pragma: no cover
     import anthropic
@@ -31,7 +31,7 @@ class AnthropicLLM(LLM):
         if anthropic is None:  # pragma: no cover
             raise ConfigurationError(
                 "The 'anthropic' package is required. "
-                "Install it with: pip install 'easyagent[anthropic]'"
+                "Install it with: pip install 'agentmold[anthropic]'"
             )
         self._client = anthropic.Anthropic(
             api_key=api_key or os.environ.get("ANTHROPIC_API_KEY")

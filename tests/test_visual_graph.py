@@ -1,7 +1,7 @@
 """Tests for the visual graph builder (pure function, no Streamlit needed)."""
 from __future__ import annotations
 
-from easyagent.visual.graph import STEP_COLORS, trace_to_graph
+from agentmold.visual.graph import STEP_COLORS, trace_to_graph
 
 
 def test_empty_steps_produces_no_nodes():

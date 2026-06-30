@@ -1,14 +1,14 @@
 """OpenAI Chat Completions provider.
 
-Requires the ``openai`` package: ``pip install 'easyagent[openai]'``.
+Requires the ``openai`` package: ``pip install 'agentmold[openai]'``.
 """
 from __future__ import annotations
 
 import os
 from typing import Any, Dict, List, Optional
 
-from easyagent.exceptions import ConfigurationError
-from easyagent.llm import LLM, LlmResponse, Message, register_provider
+from agentmold.exceptions import ConfigurationError
+from agentmold.llm import LLM, LlmResponse, Message, register_provider
 
 try:  # pragma: no cover - exercised only when openai is installed
     import openai
@@ -31,7 +31,7 @@ class OpenAILLM(LLM):
         if openai is None:  # pragma: no cover
             raise ConfigurationError(
                 "The 'openai' package is required. "
-                "Install it with: pip install 'easyagent[openai]'"
+                "Install it with: pip install 'agentmold[openai]'"
             )
         self._client = openai.OpenAI(
             api_key=api_key or os.environ.get("OPENAI_API_KEY"),

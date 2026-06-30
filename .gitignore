@@ -33,7 +33,7 @@ htmlcov/
 .env.local
 
 # EasyAgent runtime
-.easyagent/
+.agentmold/
 
 # OS
 .DS_Store

@@ -1,13 +1,13 @@
 """Ollama provider for running local models.
 
-Requires the ``ollama`` package: ``pip install 'easyagent[ollama]'``.
+Requires the ``ollama`` package: ``pip install 'agentmold[ollama]'``.
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from easyagent.exceptions import ConfigurationError
-from easyagent.llm import LLM, LlmResponse, Message, register_provider
+from agentmold.exceptions import ConfigurationError
+from agentmold.llm import LLM, LlmResponse, Message, register_provider
 
 try:  # pragma: no cover
     import ollama
@@ -29,7 +29,7 @@ class OllamaLLM(LLM):
         if ollama is None:  # pragma: no cover
             raise ConfigurationError(
                 "The 'ollama' package is required. "
-                "Install it with: pip install 'easyagent[ollama]'"
+                "Install it with: pip install 'agentmold[ollama]'"
             )
         self._client = ollama.Client(host=host) if host else ollama.Client()
 

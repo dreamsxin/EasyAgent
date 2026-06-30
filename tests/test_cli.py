@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from easyagent.cli import main as cli_main
+from agentmold.cli import main as cli_main
 
 
 def test_cli_init_creates_project(tmp_path, capsys):
@@ -70,7 +70,7 @@ def test_cli_init_force_overwrites(tmp_path):
 def test_cli_run_executes_agent(tmp_path, capsys):
     agent_file = tmp_path / "agent.py"
     agent_file.write_text(
-        "from easyagent import Agent\n"
+        "from agentmold import Agent\n"
         "def build_agent():\n"
         "    return Agent(name='CLI', llm='mock')\n",
         encoding="utf-8",

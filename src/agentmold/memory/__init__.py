@@ -6,14 +6,14 @@ Two tiers of memory are provided:
   This is the default and has no external dependencies.
 * :class:`VectorMemory` — long-term, persists embeddings to a local vector
   store so the agent can recall facts across sessions.  Requires the
-  ``easyagent[memory]`` extra.
+  ``agentmold[memory]`` extra.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
-from easyagent.llm import Message
+from agentmold.llm import Message
 
 __all__ = ["Memory", "BaseMemory", "VectorMemory"]
 
@@ -42,7 +42,7 @@ class Memory(BaseMemory):
 
     Keeps the most recent ``max_messages`` messages (plus the system
     prompt, which is never evicted).  This is the default memory for
-    :class:`~easyagent.Agent`.
+    :class:`~agentmold.Agent`.
     """
 
     def __init__(self, max_messages: int = 20, system: Optional[str] = None) -> None:
@@ -79,7 +79,7 @@ class VectorMemory(BaseMemory):
     call the most relevant past messages are retrieved and prepended to
     the conversation.
 
-    Requires ``chromadb`` and ``numpy``: ``pip install 'easyagent[memory]'``.
+    Requires ``chromadb`` and ``numpy``: ``pip install 'agentmold[memory]'``.
 
     Parameters
     ----------
@@ -91,7 +91,7 @@ class VectorMemory(BaseMemory):
 
     def __init__(
         self,
-        storage_path: str = "./.easyagent/memory",
+        storage_path: str = "./.agentmold/memory",
         embed_model: str = "text-embedding-3-small",
         max_messages: int = 20,
         top_k: int = 4,
@@ -110,12 +110,12 @@ class VectorMemory(BaseMemory):
         except ImportError as exc:  # pragma: no cover
             raise ImportError(
                 "VectorMemory requires chromadb and numpy. "
-                "Install with: pip install 'easyagent[memory]'"
+                "Install with: pip install 'agentmold[memory]'"
             ) from exc
 
         self._client = chromadb.PersistentClient(path=storage_path)
         self._collection = self._client.get_or_create_collection(
-            name="easyagent_memory"
+            name="agentmold_memory"
         )
         self._api_key = api_key or _env("OPENAI_API_KEY")
         self._counter = 0

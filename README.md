@@ -2,7 +2,7 @@
 
 > The easiest way to build AI agents in Python — 10 lines of code, zero framework concepts.
 
-[![PyPI version](https://img.shields.io/pypi/v/easyagent.svg)](https://pypi.org/project/easyagent/)
+[![PyPI version](https://img.shields.io/pypi/v/agentmold.svg)](https://pypi.org/project/agentmold/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/dreamsxin/EasyAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/dreamsxin/EasyAgent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -26,13 +26,13 @@
 ### 安装
 
 ```bash
-pip install easyagent
+pip install agentmold
 ```
 
 ### 10 行代码创建你的第一个 Agent
 
 ```python
-from easyagent import Agent, tool
+from agentmold import Agent, tool
 
 @tool
 def search_web(query: str) -> str:
@@ -75,7 +75,7 @@ ollama serve
 **第二步：在 EasyAgent 中使用**
 
 ```python
-from easyagent import Agent
+from agentmold import Agent
 
 # "ollama/llama3" 表示：通过 Ollama 调用本地 llama3 模型
 agent = Agent(
@@ -94,10 +94,10 @@ response = agent.run("Hello! What can you do?")
 
 ```bash
 # 1. 安装可视化依赖
-pip install "easyagent[visual]"
+pip install "agentmold[visual]"
 
 # 2. 启动可视化编辑器（自动打开浏览器）
-easyagent visual
+agentmold visual
 ```
 
 选择 `mock` 模型即可零配置体验——无需任何 API Key。流程图中：
@@ -117,10 +117,10 @@ easyagent visual
 ### 交互式创建项目
 
 ```bash
-pip install easyagent
-easyagent init my-agent-project
+pip install agentmold
+agentmold init my-agent-project
 cd my-agent-project
-easyagent run
+agentmold run
 ```
 
 ## 🧩 核心概念
@@ -134,7 +134,7 @@ EasyAgent 只有三个核心概念，全部使用标准 Python 原语：
 | **Memory** | 管理对话上下文的对象 | `agent.memory` |
 
 ```python
-from easyagent import Agent, tool, Memory
+from agentmold import Agent, tool, Memory
 
 # 1. 定义工具 —— 就是一个普通函数
 @tool
@@ -177,14 +177,14 @@ agent = Agent(llm={
 })
 ```
 
-> 每个提供商需要安装对应的可选依赖，例如 `pip install "easyagent[ollama]"`。详见下方[安装选项](#-安装选项)。
+> 每个提供商需要安装对应的可选依赖，例如 `pip install "agentmold[ollama]"`。详见下方[安装选项](#-安装选项)。
 
 ## 🛠️ 工具系统
 
 任何函数加上 `@tool` 装饰器就能成为 Agent 可调用的工具：
 
 ```python
-from easyagent import tool
+from agentmold import tool
 import datetime
 
 @tool
@@ -218,8 +218,8 @@ EasyAgent 自带 5 个常用工具，开箱即用：
 | `calculate` | 安全求值数学表达式（AST 白名单，禁止变量/函数调用） |
 
 ```python
-from easyagent import Agent
-from easyagent.tools import read_file, write_file, list_directory, calculate
+from agentmold import Agent
+from agentmold.tools import read_file, write_file, list_directory, calculate
 
 agent = Agent(
     name="Coder Assistant",
@@ -229,7 +229,7 @@ agent = Agent(
 )
 
 # 或一次性导入全部
-from easyagent.tools import BUILTIN_TOOLS
+from agentmold.tools import BUILTIN_TOOLS
 agent = Agent(tools=BUILTIN_TOOLS, llm="gpt-4o-mini")
 ```
 
@@ -238,15 +238,15 @@ agent = Agent(tools=BUILTIN_TOOLS, llm="gpt-4o-mini")
 ## 🧠 记忆管理
 
 ```python
-from easyagent import Agent, Memory
+from agentmold import Agent, Memory
 
 # 短期记忆（对话历史，默认）
 agent = Agent(memory=Memory(max_messages=20))
 
 # 长期记忆（向量存储，需要安装扩展）
-from easyagent.memory import VectorMemory
+from agentmold.memory import VectorMemory
 agent = Agent(memory=VectorMemory(
-    storage_path="./.easyagent/memory",
+    storage_path="./.agentmold/memory",
     embed_model="text-embedding-3-small",
 ))
 ```
@@ -256,7 +256,7 @@ agent = Agent(memory=VectorMemory(
 EasyAgent 内置轻量级日志与追踪，无需配置任何外部服务：
 
 ```python
-from easyagent import Agent, LogLevel
+from agentmold import Agent, LogLevel
 
 agent = Agent(
     name="Debuggable Agent",
@@ -297,19 +297,19 @@ agent = Agent(
 
 ```bash
 # 基础安装（核心功能）
-pip install easyagent
+pip install agentmold
 
 # 带 OpenAI 支持
-pip install "easyagent[openai]"
+pip install "agentmold[openai]"
 
 # 带向量记忆支持
-pip install "easyagent[memory]"
+pip install "agentmold[memory]"
 
 # 带可视化编排
-pip install "easyagent[visual]"
+pip install "agentmold[visual]"
 
 # 全功能安装
-pip install "easyagent[all]"
+pip install "agentmold[all]"
 ```
 
 ## 🗺️ 路线图

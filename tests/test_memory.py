@@ -1,8 +1,8 @@
 """Tests for the short-term Memory class."""
 from __future__ import annotations
 
-from easyagent import Memory
-from easyagent.llm import Message
+from agentmold import Memory
+from agentmold.llm import Message
 
 
 def test_memory_keeps_system_prompt():

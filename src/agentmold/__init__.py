@@ -1,9 +1,9 @@
 """EasyAgent — The easiest way to build AI agents in Python."""
 
-from easyagent.agent import Agent, LogLevel
-from easyagent.llm import LLM
-from easyagent.memory import Memory
-from easyagent.tool import Tool, tool
+from agentmold.agent import Agent, LogLevel
+from agentmold.llm import LLM
+from agentmold.memory import Memory
+from agentmold.tool import Tool, tool
 
 __version__ = "0.1.0"
 

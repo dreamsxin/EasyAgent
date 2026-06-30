@@ -3,11 +3,11 @@
 Provides a Streamlit-based UI for configuring, running and visualising
 agents.  Requires the ``visual`` extra::
 
-    pip install "easyagent[visual]"
+    pip install "agentmold[visual]"
 
 Launch with::
 
-    easyagent visual
+    agentmold visual
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def launch(args: list[str] | None = None) -> int:
     except ImportError as exc:
         print(
             "Error: the visual editor requires Streamlit and streamlit-agraph.\n"
-            "Install them with:  pip install 'easyagent[visual]'"
+            "Install them with:  pip install 'agentmold[visual]'"
         )
         return 1
 

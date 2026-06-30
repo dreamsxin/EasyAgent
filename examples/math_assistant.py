@@ -4,7 +4,7 @@ Run with::
 
     python examples/math_assistant.py
 """
-from easyagent import Agent, tool, LogLevel
+from agentmold import Agent, tool, LogLevel
 
 
 @tool

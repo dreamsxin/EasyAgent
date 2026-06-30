@@ -12,15 +12,15 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
-from easyagent.exceptions import (
+from agentmold.exceptions import (
     ConfigurationError,
     LLMError,
     MaxIterationsError,
     ToolError,
 )
-from easyagent.llm import LLM, LlmResponse, Message, create_llm
-from easyagent.memory import BaseMemory, Memory
-from easyagent.tool import Tool, ToolRegistry
+from agentmold.llm import LLM, LlmResponse, Message, create_llm
+from agentmold.memory import BaseMemory, Memory
+from agentmold.tool import Tool, ToolRegistry
 
 __all__ = ["Agent", "LogLevel", "AgentTrace"]
 
@@ -59,7 +59,7 @@ class _AgentLogger:
 
     def __init__(self, level: LogLevel) -> None:
         self.level = level
-        self._logger = logging.getLogger("easyagent")
+        self._logger = logging.getLogger("agentmold")
 
     def _emit(self, tag: str, msg: str, min_level: LogLevel) -> None:
         if self.level >= min_level:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from easyagent.tools import (
+from agentmold.tools import (
     BUILTIN_TOOLS,
     calculate,
     http_get,
@@ -113,7 +113,7 @@ def test_http_get_rejects_non_http_url():
 
 def test_http_get_handles_invalid_host():
     # A non-routable host fails fast — no network dependency in practice.
-    result = http_get.call({"url": "http://easyagent-nonexistent-host-12345.invalid/x", "timeout": 3})
+    result = http_get.call({"url": "http://agentmold-nonexistent-host-12345.invalid/x", "timeout": 3})
     assert "Error" in result
 
 

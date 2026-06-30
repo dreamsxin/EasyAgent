@@ -2,7 +2,7 @@
 
 Launch with::
 
-    easyagent visual
+    agentmold visual
 
 The app lets you configure an Agent in the browser (name, instructions,
 LLM, tools, iterations), chat with it, and watch the execution flow
@@ -26,8 +26,8 @@ def _build_agent(
     max_iterations: int,
 ):
     """Construct an Agent from the UI configuration."""
-    from easyagent import Agent, LogLevel
-    from easyagent.tools import BUILTIN_TOOLS
+    from agentmold import Agent, LogLevel
+    from agentmold.tools import BUILTIN_TOOLS
 
     # Map tool names → Tool objects.
     tool_map = {t.name: t for t in BUILTIN_TOOLS}
@@ -48,8 +48,8 @@ def _run_app() -> None:
     import streamlit as st
     from streamlit_agraph import agraph, Config
 
-    from easyagent.tools import BUILTIN_TOOLS
-    from easyagent.visual.graph import trace_to_graph, STEP_COLORS
+    from agentmold.tools import BUILTIN_TOOLS
+    from agentmold.visual.graph import trace_to_graph, STEP_COLORS
 
     st.set_page_config(page_title="EasyAgent Visual Editor", page_icon="🚀", layout="wide")
     st.title("🚀 EasyAgent Visual Editor")

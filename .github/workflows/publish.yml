@@ -6,7 +6,7 @@ name: Publish to PyPI
 #
 # 前置条件：
 #   1. 在 https://pypi.org/manage/account/publishing/ 添加 pending publisher
-#      PyPI Project Name = easyagent
+#      PyPI Project Name = agentmold
 #      Owner             = dreamsxin
 #      Repository        = EasyAgent
 #      Workflow name     = publish.yml

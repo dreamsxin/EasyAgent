@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from easyagent import tool
-from easyagent.tool import Tool, ToolRegistry
-from easyagent.exceptions import ToolError, ToolNotFoundError
+from agentmold import tool
+from agentmold.tool import Tool, ToolRegistry
+from agentmold.exceptions import ToolError, ToolNotFoundError
 
 
 def test_tool_decorator_returns_tool():

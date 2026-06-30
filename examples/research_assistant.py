@@ -4,7 +4,7 @@ Run with::
 
     python examples/research_assistant.py
 """
-from easyagent import Agent, tool
+from agentmold import Agent, tool
 
 
 @tool

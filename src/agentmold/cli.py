@@ -2,9 +2,9 @@
 
 Usage::
 
-    easyagent init my-project        # scaffold a new agent project
-    easyagent run                    # run the agent defined in agent.py
-    easyagent run --chat             # start an interactive chat session
+    agentmold init my-project        # scaffold a new agent project
+    agentmold run                    # run the agent defined in agent.py
+    agentmold run --chat             # start an interactive chat session
 """
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ import os
 import sys
 from pathlib import Path
 
-from easyagent import __version__
+from agentmold import __version__
 
 __all__ = ["main"]
 
 
 _AGENT_TEMPLATE = '''"""Agent project scaffolded by EasyAgent."""
-from easyagent import Agent, tool
+from agentmold import Agent, tool
 
 
 @tool
@@ -50,8 +50,8 @@ if __name__ == "__main__":
 '''
 
 _CODER_TEMPLATE = '''"""Coder agent project scaffolded by EasyAgent."""
-from easyagent import Agent
-from easyagent.tools import read_file, write_file, list_directory, calculate
+from agentmold import Agent
+from agentmold.tools import read_file, write_file, list_directory, calculate
 
 
 def build_agent() -> Agent:
@@ -75,7 +75,7 @@ if __name__ == "__main__":
 '''
 
 _CHATBOT_TEMPLATE = '''"""Chatbot agent project scaffolded by EasyAgent."""
-from easyagent import Agent, Memory
+from agentmold import Agent, Memory
 
 
 def build_agent() -> Agent:
@@ -107,7 +107,7 @@ TEMPLATES: dict[str, tuple[str, str]] = {
 
 _README_TEMPLATE = '''# {name}
 
-An AI agent built with [EasyAgent](https://github.com/your-org/easyagent).
+An AI agent built with [EasyAgent](https://github.com/your-org/agentmold).
 
 ## Setup
 
@@ -119,8 +119,8 @@ export OPENAI_API_KEY=sk-...   # or set ANTHROPIC_API_KEY / run ollama
 ## Run
 
 ```bash
-easyagent run            # run the agent once
-easyagent run --chat     # interactive chat
+agentmold run            # run the agent once
+agentmold run --chat     # interactive chat
 ```
 '''
 
@@ -132,16 +132,16 @@ __pycache__/
 build/
 dist/
 .env
-.easyagent/
+.agentmold/
 """
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="easyagent",
+        prog="agentmold",
         description="The easiest way to build AI agents in Python.",
     )
-    parser.add_argument("--version", action="version", version=f"easyagent {__version__}")
+    parser.add_argument("--version", action="version", version=f"agentmold {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_init = sub.add_parser("init", help="Scaffold a new agent project.")
@@ -171,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser(
         "visual",
-        help="Launch the Streamlit visual editor (requires 'easyagent[visual]').",
+        help="Launch the Streamlit visual editor (requires 'agentmold[visual]').",
     )
 
     args = parser.parse_args(argv)
@@ -205,8 +205,8 @@ def _cmd_init(args) -> int:
     print(f"   {template_desc}")
     print(f"\nNext steps:")
     print(f"  cd {args.name}")
-    print(f"  pip install -e .   # or: pip install easyagent")
-    print(f"  easyagent run")
+    print(f"  pip install -e .   # or: pip install agentmold")
+    print(f"  agentmold run")
     return 0
 
 
@@ -245,6 +245,6 @@ def _cmd_run(args) -> int:
 
 def _cmd_visual(args) -> int:  # noqa: ARG001
     """Launch the Streamlit visual editor."""
-    from easyagent.visual import launch
+    from agentmold.visual import launch
 
     return launch()

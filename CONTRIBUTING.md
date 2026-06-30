@@ -8,14 +8,14 @@ Thanks for your interest in contributing! 🎉 EasyAgent is built to be simple, 
 - 💡 **Suggest features** — open an issue describing the use case
 - 📖 **Improve docs** — fix typos, add examples, clarify explanations
 - 🧰 **Add tools** — contribute new `@tool` examples under `examples/`
-- 🔌 **Add LLM providers** — add new adapters under `src/easyagent/llm/providers/`
+- 🔌 **Add LLM providers** — add new adapters under `src/agentmold/llm/providers/`
 - 🧪 **Write tests** — increase coverage in `tests/`
 
 ## Development setup
 
 ```bash
-git clone https://github.com/your-org/easyagent.git
-cd easyagent
+git clone https://github.com/your-org/agentmold.git
+cd agentmold
 pip install -e ".[dev]"
 pytest
 ```
@@ -51,7 +51,7 @@ When contributing, keep these principles in mind:
 pytest
 
 # With coverage
-pytest --cov=easyagent
+pytest --cov=agentmold
 
 # Only the agent tests
 pytest tests/test_agent.py

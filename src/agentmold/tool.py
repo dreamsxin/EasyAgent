@@ -7,7 +7,7 @@ manual schema authoring required.
 
 Example::
 
-    from easyagent import tool
+    from agentmold import tool
 
     @tool
     def add(a: int, b: int) -> int:
@@ -26,7 +26,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, get_type_hints
 
-from easyagent.exceptions import ToolError
+from agentmold.exceptions import ToolError
 
 __all__ = ["Tool", "tool", "ToolRegistry"]
 
@@ -177,7 +177,7 @@ def tool(func: Callable[..., Any]) -> Tool:
 
 
 class ToolRegistry:
-    """A simple name → Tool registry used by :class:`~easyagent.Agent`."""
+    """A simple name → Tool registry used by :class:`~agentmold.Agent`."""
 
     def __init__(self, tools: Optional[List[Tool]] = None) -> None:
         self._tools: Dict[str, Tool] = {}
@@ -196,7 +196,7 @@ class ToolRegistry:
         try:
             return self._tools[name]
         except KeyError as exc:
-            from easyagent.exceptions import ToolNotFoundError
+            from agentmold.exceptions import ToolNotFoundError
 
             raise ToolNotFoundError(
                 f"Tool {name!r} not found. Available: {list(self._tools)}"

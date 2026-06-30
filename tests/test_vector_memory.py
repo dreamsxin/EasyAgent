@@ -10,8 +10,8 @@ import math
 
 import pytest
 
-from easyagent.llm import Message
-from easyagent.memory import VectorMemory
+from agentmold.llm import Message
+from agentmold.memory import VectorMemory
 
 
 def _hash_embedder(dim: int = 64):

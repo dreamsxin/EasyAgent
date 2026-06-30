@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from easyagent import Agent, LogLevel, tool
-from easyagent.exceptions import MaxIterationsError
+from agentmold import Agent, LogLevel, tool
+from agentmold.exceptions import MaxIterationsError
 
 
 def test_run_stream_direct_answer_yields_answer_step():
@@ -71,7 +71,7 @@ def test_run_stream_and_run_produce_same_answer():
 
 def test_run_stream_max_iterations_raises():
     """An LLM that always calls tools must hit the iteration cap."""
-    from easyagent.llm import LLM, LlmResponse
+    from agentmold.llm import LLM, LlmResponse
 
     class AlwaysTool(LLM):
         def _complete(self, messages, tools=None):

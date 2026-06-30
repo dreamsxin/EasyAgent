@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from easyagent.llm import LLM, LlmResponse, Message, create_llm, register_provider
-from easyagent.exceptions import ConfigurationError
+from agentmold.llm import LLM, LlmResponse, Message, create_llm, register_provider
+from agentmold.exceptions import ConfigurationError
 
 
 def test_create_llm_passes_through_instance():
@@ -54,7 +54,7 @@ def test_llm_complete_wraps_errors():
         def _complete(self, messages, tools=None):
             raise RuntimeError("network down")
 
-    from easyagent.exceptions import LLMError
+    from agentmold.exceptions import LLMError
 
     with pytest.raises(LLMError, match="network down"):
         BadLLM(model="bad").complete([Message(role="user", content="hi")])

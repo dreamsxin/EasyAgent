@@ -2,7 +2,7 @@
 
 EasyAgent talks to LLM providers (OpenAI, Anthropic, Ollama, ...) through a
 single :class:`LLM` interface.  The ``llm`` argument accepted by
-:class:`~easyagent.Agent` can be:
+:class:`~agentmold.Agent` can be:
 
 * a string shorthand  →  ``"gpt-4o-mini"``, ``"claude-3-5-sonnet"``,
   ``"ollama/llama3"``
@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Iterator, List, Optional
 
-from easyagent.exceptions import ConfigurationError, LLMError
+from agentmold.exceptions import ConfigurationError, LLMError
 
 # Re-exported public helpers
 __all__ = [
@@ -153,7 +153,7 @@ def register_provider(name: str, provider_cls: type[LLM]) -> None:
 
     Example::
 
-        from easyagent.llm import LLM, register_provider
+        from agentmold.llm import LLM, register_provider
 
         class MyLLM(LLM):
             def _complete(self, messages):
@@ -276,11 +276,11 @@ register_provider("mock", _MockLLM)
 
 def _load_openai() -> None:
     try:
-        from easyagent.llm.providers.openai_provider import OpenAILLM  # type: ignore
+        from agentmold.llm.providers.openai_provider import OpenAILLM  # type: ignore
     except ImportError as exc:
         raise ConfigurationError(
             "OpenAI provider requires the 'openai' package. "
-            "Install it with: pip install 'easyagent[openai]'"
+            "Install it with: pip install 'agentmold[openai]'"
         ) from exc
 
 
@@ -289,9 +289,9 @@ def _bootstrap() -> None:
     import importlib
 
     for mod_name in (
-        "easyagent.llm.providers.openai_provider",
-        "easyagent.llm.providers.anthropic_provider",
-        "easyagent.llm.providers.ollama_provider",
+        "agentmold.llm.providers.openai_provider",
+        "agentmold.llm.providers.anthropic_provider",
+        "agentmold.llm.providers.ollama_provider",
     ):
         try:
             importlib.import_module(mod_name)

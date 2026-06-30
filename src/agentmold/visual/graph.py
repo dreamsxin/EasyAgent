@@ -1,7 +1,7 @@
 """Convert an agent execution trace into a visual graph.
 
 This module turns the list of *step dicts* produced by
-:meth:`~easyagent.Agent.run_stream` into ``streamlit_agraph`` ``Node``
+:meth:`~agentmold.Agent.run_stream` into ``streamlit_agraph`` ``Node``
 and ``Edge`` objects, so the visual editor can render the execution flow.
 
 The :func:`trace_to_graph` function is **pure** — it accepts plain dicts

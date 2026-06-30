@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from easyagent import Agent, LogLevel, Memory, tool
+from agentmold import Agent, LogLevel, Memory, tool
 
 
 def test_agent_direct_answer_with_mock_llm():
@@ -42,7 +42,7 @@ def test_agent_invokes_tool_when_mock_signals_it():
 
 def test_agent_max_iterations_raises():
     """An LLM that always returns tool calls should hit the iteration cap."""
-    from easyagent.llm import LLM, LlmResponse, Message
+    from agentmold.llm import LLM, LlmResponse, Message
 
     class AlwaysTool(LLM):
         def _complete(self, messages, tools=None):
