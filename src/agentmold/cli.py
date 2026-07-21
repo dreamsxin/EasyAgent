@@ -38,7 +38,7 @@ def build_agent() -> Agent:
         name="Research Assistant",
         instructions="You are a helpful research assistant. Use tools when useful.",
         tools=[search_web],
-        llm="__LLM_PLACEHOLDER__",
+        llm=__LLM_PLACEHOLDER__,
     )
 
 
@@ -64,7 +64,7 @@ def build_agent() -> Agent:
             "Always explain what you are about to do before using a tool."
         ),
         tools=[calculate, *file_tools],
-        llm="__LLM_PLACEHOLDER__",
+        llm=__LLM_PLACEHOLDER__,
     )
 
 
@@ -87,7 +87,7 @@ def build_agent() -> Agent:
             "Remember the context of the conversation and respond naturally."
         ),
         tools=[],
-        llm="__LLM_PLACEHOLDER__",
+        llm=__LLM_PLACEHOLDER__,
         memory=Memory(max_messages=50),
     )
 
@@ -130,7 +130,7 @@ def build_agent() -> Agent:
             "separate evidence from assumptions, and state when evidence is missing."
         ),
         tools=[search_notes],
-        llm="__LLM_PLACEHOLDER__",
+        llm=__LLM_PLACEHOLDER__,
     )
 
 
@@ -174,7 +174,7 @@ def build_agent() -> Agent:
             "making a claim, and say when the corpus does not contain the answer."
         ),
         tools=[retrieve_context],
-        llm="__LLM_PLACEHOLDER__",
+        llm=__LLM_PLACEHOLDER__,
     )
 
 
@@ -222,7 +222,7 @@ def build_agent() -> Agent:
             "use summarize_csv for numeric summaries, and explain assumptions."
         ),
         tools=[summarize_csv],
-        llm="__LLM_PLACEHOLDER__",
+        llm=__LLM_PLACEHOLDER__,
     )
 
 
@@ -265,7 +265,7 @@ def build_agent() -> Agent:
             "making factual claims, cite them as [S1], and never invent a citation."
         ),
         tools=[lookup_sources],
-        llm="__LLM_PLACEHOLDER__",
+        llm=__LLM_PLACEHOLDER__,
     )
 
 
@@ -324,7 +324,7 @@ build-backend = "setuptools.build_meta"
 name = "{package_name}"
 version = "0.1.0"
 requires-python = ">=3.9"
-dependencies = ["agentmold>=0.2.0"]
+dependencies = ["agentmold>={agentmold_version}"]
 """
 
 _GITIGNORE = """\
@@ -339,10 +339,26 @@ dist/
 """
 
 
+def _llm_expression(provider: str, model: str | None) -> str:
+    """Render the explicit LLM value written into a generated project."""
+    if provider == "mock":
+        return '"mock"'
+    assert model is not None
+    return repr({"provider": provider, "model": model})
+
+
+def _non_empty_argument(value: str) -> str:
+    """Reject empty provider and model values at the CLI boundary."""
+    normalized = value.strip()
+    if not normalized:
+        raise argparse.ArgumentTypeError("value must not be empty")
+    return normalized
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="easyagent",
-        description="The easiest way to build AI agents in Python.",
+        description="Build inspectable AI agents with ordinary Python.",
     )
     parser.add_argument(
         "--version", action="version", version=f"EasyAgent (agentmold) {__version__}"
@@ -352,9 +368,16 @@ def main(argv: list[str] | None = None) -> int:
     p_init = sub.add_parser("init", help="Scaffold a new agent project.")
     p_init.add_argument("name", help="Project / directory name.")
     p_init.add_argument(
-        "--llm",
+        "--provider",
         default="mock",
-        help="Default LLM shorthand (default: mock).",
+        type=_non_empty_argument,
+        help="LLM provider name (default: mock).",
+    )
+    p_init.add_argument(
+        "--model",
+        default=None,
+        type=_non_empty_argument,
+        help="Model ID; required when provider is not mock.",
     )
     p_init.add_argument(
         "--template",
@@ -381,6 +404,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "init":
+        if args.provider != "mock" and not args.model:
+            p_init.error("--model is required when --provider is not 'mock'.")
+        if args.provider == "mock" and args.model:
+            p_init.error("--model cannot be used with the built-in 'mock' provider.")
         return _cmd_init(args)
     if args.command == "run":
         return _cmd_run(args)
@@ -389,7 +416,7 @@ def main(argv: list[str] | None = None) -> int:
     return 1  # unreachable
 
 
-def _cmd_init(args) -> int:
+def _cmd_init(args: argparse.Namespace) -> int:
     project_dir = Path(args.name).resolve()
     if project_dir.exists() and not args.force:
         print(f"Error: {project_dir} already exists. Use --force to overwrite.")
@@ -398,7 +425,8 @@ def _cmd_init(args) -> int:
 
     template_body, template_desc = TEMPLATES[args.template]
     (project_dir / "agent.py").write_text(
-        template_body.replace("__LLM_PLACEHOLDER__", args.llm), encoding="utf-8"
+        template_body.replace("__LLM_PLACEHOLDER__", _llm_expression(args.provider, args.model)),
+        encoding="utf-8",
     )
     (project_dir / "README.md").write_text(
         _README_TEMPLATE.replace("{name}", args.name)
@@ -409,7 +437,10 @@ def _cmd_init(args) -> int:
     (project_dir / ".gitignore").write_text(_GITIGNORE, encoding="utf-8")
     package_name = _normalise_package_name(Path(args.name).name)
     (project_dir / "pyproject.toml").write_text(
-        _PYPROJECT_TEMPLATE.replace("{package_name}", package_name), encoding="utf-8"
+        _PYPROJECT_TEMPLATE.replace("{package_name}", package_name).replace(
+            "{agentmold_version}", __version__
+        ),
+        encoding="utf-8",
     )
 
     print(f"Created agent project ({args.template!r} template) in {project_dir}")
@@ -429,7 +460,7 @@ def _normalise_package_name(name: str) -> str:
     return normalised or "my-agent"
 
 
-def _cmd_run(args) -> int:
+def _cmd_run(args: argparse.Namespace) -> int:
     file_path = Path(args.file).resolve()
     if not file_path.exists():
         print(f"Error: {file_path} not found.")
@@ -448,7 +479,7 @@ def _cmd_run(args) -> int:
     return 0
 
 
-def _cmd_visual(args) -> int:
+def _cmd_visual(args: argparse.Namespace) -> int:
     """Launch the Streamlit visual editor."""
     from agentmold.visual import launch
 

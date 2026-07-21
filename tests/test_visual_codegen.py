@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import pytest
 
 from agentmold import load_agent
@@ -26,6 +29,55 @@ def test_generated_mock_agent_round_trips_through_loader(tmp_path):
     assert [tool.name for tool in agent.tools] == ["calculate"]
     assert agent.max_iterations == 7
     assert "def build_agent() -> Agent:" in source
+    assert "def main() -> None:" in source
+    assert 'if __name__ == "__main__":' in source
+
+
+def test_generated_agent_runs_one_shot_without_user_code(tmp_path):
+    source = generate_agent_python(
+        name="Study Bot",
+        instructions="Explain clearly.",
+        llm="mock",
+        selected_tools=[],
+        max_iterations=7,
+    )
+    path = tmp_path / "agent.py"
+    path.write_text(source, encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, str(path), "Hello", "from", "export"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert "[mock-llm] Hello from export" in completed.stdout
+
+
+def test_generated_agent_runs_interactively_without_user_code(tmp_path):
+    source = generate_agent_python(
+        name="Study Bot",
+        instructions="Explain clearly.",
+        llm="mock",
+        selected_tools=[],
+        max_iterations=7,
+    )
+    path = tmp_path / "agent.py"
+    path.write_text(source, encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, str(path)],
+        input="Hello\nexit\n",
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert "Agent Study Bot" in completed.stdout
+    assert "[mock-llm] Hello" in completed.stdout
+    assert "bye!" in completed.stdout
 
 
 def test_generated_provider_config_uses_environment_instead_of_secret():

@@ -1,13 +1,11 @@
 """LLM provider abstraction layer.
 
-EasyAgent talks to LLM providers (OpenAI, Anthropic, Ollama, ...) through a
-single :class:`LLM` interface.  The ``llm`` argument accepted by
-:class:`~agentmold.Agent` can be:
+EasyAgent talks to LLM providers through a single :class:`LLM` interface. The
+``llm`` argument accepted by :class:`~agentmold.Agent` can be:
 
-* a string shorthand  →  ``"gpt-4o-mini"``, ``"claude-3-5-sonnet"``,
-  ``"ollama/llama3"``
-* a ready :class:`LLM` instance  →  for full control
-* a plain ``dict``  →  ``{"provider": "openai", "model": "gpt-4o-mini", ...}``
+* the special string ``"mock"`` for the built-in offline provider
+* a ready :class:`LLM` instance for full control
+* a plain dict such as ``{"provider": "openai", "model": "model-id"}``
 """
 
 from __future__ import annotations
@@ -17,7 +15,7 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from agentmold.exceptions import ConfigurationError, LLMError
 
@@ -44,10 +42,10 @@ class Message:
     content: str
     name: str | None = None
     tool_call_id: str | None = None
-    tool_calls: list[dict] = field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
-        d: dict = {"role": self.role, "content": self.content}
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"role": self.role, "content": self.content}
         if self.name:
             d["name"] = self.name
         if self.tool_call_id:
@@ -62,7 +60,7 @@ class LlmResponse:
     """The result of an LLM completion call."""
 
     content: str
-    tool_calls: list[dict] = field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
     raw: Any = None
 
 
@@ -73,6 +71,8 @@ class LLM(ABC):
     tool schemas (if any).  The public :meth:`complete` wrapper handles
     errors uniformly.
     """
+
+    supports_native_streaming = False
 
     def __init__(
         self,
@@ -144,10 +144,12 @@ class LLM(ABC):
         self,
         messages: list[Message],  # noqa: ARG002 - unused by base
     ) -> Iterator[str]:
-        """Yield content tokens one-by-one.
+        """Yield provider response chunks.
 
-        The base implementation falls back to a single chunk so that
-        providers which do not support streaming still work.
+        The base implementation yields one complete response, not individual
+        tokens. A provider that overrides this method should also set
+        ``supports_native_streaming = True``. ``Agent.run_stream()`` is a
+        separate event stream and does not call this provider-level method.
         """
         yield self.complete(messages).content
 
@@ -158,19 +160,6 @@ class LLM(ABC):
 # ---------------------------------------------------------------------------
 # Provider registry
 # ---------------------------------------------------------------------------
-
-# Built-in shorthand → provider name mapping.  Kept simple on purpose: any
-# model string that starts with a known prefix is routed to that provider.
-_MODEL_PREFIXES = {
-    "deepseek-anthropic/": "deepseek-anthropic",
-    "deepseek/": "deepseek",
-    "deepseek-": "deepseek",
-    "gpt": "openai",
-    "o1": "openai",
-    "o3": "openai",
-    "claude": "anthropic",
-    "ollama/": "ollama",
-}
 
 
 class LlmProvider:
@@ -209,11 +198,11 @@ def register_provider(name: str, provider_cls: type[LLM]) -> None:
     LlmProvider.register(name, provider_cls)
 
 
-def create_llm(llm: str | LLM | dict) -> LLM:
+def create_llm(llm: Literal["mock"] | LLM | dict[str, Any]) -> LLM:
     """Resolve a flexible ``llm`` argument into an :class:`LLM` instance.
 
-    * ``str``  → shorthand like ``"gpt-4o-mini"`` or ``"ollama/llama3"``
-    * ``dict`` → ``{"provider": "openai", "model": "gpt-4o", "temperature": 0}``
+    * ``str``  → only the built-in offline value ``"mock"``
+    * ``dict`` → ``{"provider": "openai", "model": "model-id", "temperature": 0}``
     * ``LLM``  → returned as-is
     """
     if isinstance(llm, LLM):
@@ -225,41 +214,25 @@ def create_llm(llm: str | LLM | dict) -> LLM:
         if not provider:
             raise ConfigurationError(
                 "LLM dict must contain a 'provider' key, e.g. "
-                "{'provider': 'openai', 'model': 'gpt-4o-mini'}"
+                "{'provider': 'openai', 'model': 'model-id'}"
             )
         model = config.pop("model", None)
         if not model:
             raise ConfigurationError("LLM dict must contain a 'model' key.")
-        provider_cls = LlmProvider.get(provider)
-        return provider_cls(model=model, **config)
+        provider_cls = LlmProvider.get(str(provider))
+        return provider_cls(model=str(model), **config)
 
     if isinstance(llm, str):
-        # If the string exactly matches a registered provider name (e.g.
-        # "mock"), use that provider with the string as the model name.
-        if llm in LlmProvider._registry:
-            provider_cls = LlmProvider.get(llm)
-            return provider_cls(model=llm)
-        provider_name = _provider_from_model(llm)
-        provider_cls = LlmProvider.get(provider_name)
-        # Provider/model shorthands keep the public string compact.
-        model = llm.split("/", 1)[1] if "/" in llm else llm
-        return provider_cls(model=model)
+        if llm == "mock":
+            return LlmProvider.get("mock")(model="mock")
+        raise ConfigurationError(
+            f"Could not resolve LLM {llm!r}. The only string value is 'mock'; "
+            "select hosted or local models with a dict containing explicit "
+            "'provider' and 'model' keys."
+        )
 
     raise ConfigurationError(
         f"Unsupported llm argument type: {type(llm).__name__}. Expected str, dict, or LLM instance."
-    )
-
-
-def _provider_from_model(model: str) -> str:
-    """Infer the provider name from a model shorthand string."""
-    lowered = model.lower()
-    for prefix, provider in _MODEL_PREFIXES.items():
-        if lowered.startswith(prefix):
-            return provider
-    raise ConfigurationError(
-        f"Could not infer LLM provider from model name {model!r}. "
-        "Use a dict with an explicit 'provider' key, e.g. "
-        "{'provider': 'openai', 'model': 'gpt-4o-mini'}."
     )
 
 
@@ -296,10 +269,7 @@ class _MockLLM(LLM):
             tool_name = tools[0]["name"]
             # Derive a minimal arguments dict from the tool's schema.
             props = tools[0].get("parameters", {}).get("properties", {})
-            arguments = {
-                pname: text
-                for pname in props  # pass the user text to every param
-            }
+            arguments = {pname: text for pname in props}  # pass the user text to every param
             return LlmResponse(
                 content="",
                 tool_calls=[

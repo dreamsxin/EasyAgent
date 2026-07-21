@@ -12,7 +12,7 @@ installed (tests use light ``Node``/``Edge`` stand-ins).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 __all__ = ["trace_to_graph", "STEP_COLORS", "STEP_SHAPES"]
 
@@ -36,70 +36,82 @@ STEP_SHAPES: dict[str, str] = {
 
 def _label_for_step(step: dict[str, Any]) -> str:
     """Return a short human-readable label for a step."""
-    stype = step["type"]
+    stype = str(step.get("type", "unknown"))
     if stype == "tool_call":
         return f"🔧 {step.get('name', '?')}"
     if stype == "tool_result":
         name = step.get("name", "?")
         return f"✅ {name} · result"
     if stype == "answer":
-        content = step.get("content", "")
+        content = str(step.get("content", ""))
         preview = content[:18] + ("…" if len(content) > 18 else "")
         return f"💬 {preview}"
     if stype == "user":
-        content = step.get("content", "")
+        content = str(step.get("content", ""))
         preview = content[:16] + ("…" if len(content) > 16 else "")
         return f"👤 {preview}"
     if stype == "error":
-        return f"❌ {step.get('content', '')[:40]}"
+        return f"❌ {str(step.get('content', ''))[:40]}"
     return stype
 
 
-def _build_node_cls():
+class _FallbackNode:
+    def __init__(
+        self,
+        id: str,
+        label: str,
+        size: int = 25,
+        color: str | None = None,
+        shape: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.id = id
+        self.label = label
+        self.size = size
+        self.color = color
+        self.shape = shape
+        self.kwargs = kwargs
+
+    def __repr__(self) -> str:
+        return f"Node(id={self.id!r}, label={self.label!r}, color={self.color!r})"
+
+
+class _FallbackEdge:
+    def __init__(
+        self,
+        source: str,
+        target: str,
+        label: str = "",
+        **kwargs: Any,
+    ) -> None:
+        self.source = source
+        self.target = target
+        self.to = target
+        self.label = label
+        self.kwargs = kwargs
+
+    def __repr__(self) -> str:
+        return f"Edge({self.source!r} → {self.target!r})"
+
+
+def _build_node_cls() -> type[Any]:
     """Return the Node class to use (real or a lightweight stand-in)."""
     try:
-        from streamlit_agraph import Node  # type: ignore
+        from streamlit_agraph import Node
 
-        return Node
+        return cast(type[Any], Node)
     except ImportError:
-        # Stand-in for unit tests / environments without the visual extra.
-        class Node:  # type: ignore[no-redef]
-            def __init__(self, id, label, size=25, color=None, shape=None, **kw):
-                self.id = id
-                self.label = label
-                self.size = size
-                self.color = color
-                self.shape = shape
-                self.kwargs = kw
-
-            def __repr__(self):
-                return f"Node(id={self.id!r}, label={self.label!r}, color={self.color!r})"
-
-        return Node
+        return _FallbackNode
 
 
-def _build_edge_cls():
+def _build_edge_cls() -> type[Any]:
     """Return the Edge class to use (real or a lightweight stand-in)."""
     try:
-        from streamlit_agraph import Edge  # type: ignore
+        from streamlit_agraph import Edge
 
-        return Edge
+        return cast(type[Any], Edge)
     except ImportError:
-
-        class Edge:  # type: ignore[no-redef]
-            def __init__(self, source, target, label="", **kw):
-                self.source = source
-                # Expose both ``.target`` (matches constructor arg) and
-                # ``.to`` (matches the real streamlit_agraph attribute).
-                self.target = target
-                self.to = target
-                self.label = label
-                self.kwargs = kw
-
-            def __repr__(self):
-                return f"Edge({self.source!r} → {self.target!r})"
-
-        return Edge
+        return _FallbackEdge
 
 
 def trace_to_graph(

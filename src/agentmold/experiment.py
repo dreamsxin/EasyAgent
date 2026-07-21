@@ -9,13 +9,13 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 from agentmold.agent import Agent, AgentTrace
 
 __all__ = ["EvalCase", "EvalResult", "EvalReport", "evaluate", "aevaluate"]
 
-Scorer = Callable[[str, str], bool | float]
+Scorer = Callable[[str, str], Union[bool, float]]
 AgentFactory = Callable[[], Agent]
 
 

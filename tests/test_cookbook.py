@@ -7,6 +7,7 @@ from pathlib import Path
 
 COOKBOOK_DIR = Path(__file__).parents[1] / "cookbook"
 RECIPES = [
+    "00_understand_the_agent_loop.py",
     "01_trace_a_research_run.py",
     "02_offline_rag.py",
     "03_batch_evaluation.py",

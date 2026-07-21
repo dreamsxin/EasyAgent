@@ -6,6 +6,7 @@ workflow DSL or external service.
 
 | Recipe | Focus | Run |
 |---|---|---|
+| `00_understand_the_agent_loop.py` | Events, memory mutations, and trace shape | `python cookbook/00_understand_the_agent_loop.py` |
 | `01_trace_a_research_run.py` | Tool use and JSONL trace export | `python cookbook/01_trace_a_research_run.py` |
 | `02_offline_rag.py` | Inspectable retrieval over a small corpus | `python cookbook/02_offline_rag.py` |
 | `03_batch_evaluation.py` | Isolated regression cases and report export | `python cookbook/03_batch_evaluation.py` |

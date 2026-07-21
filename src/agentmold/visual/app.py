@@ -16,8 +16,12 @@ import html
 import json
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from agentmold import Agent, AgentTrace, Tool
 
 from agentmold.visual.codegen import api_key_environment, generate_agent_python
 from agentmold.visual.settings import (
@@ -42,6 +46,16 @@ from agentmold.visual.traces import (
     trace_label,
     traces_to_jsonl,
 )
+
+_CONNECTION_DEFAULTS = {
+    "Mock（离线）": ("mock", ""),
+    "DeepSeek OpenAI": ("", "https://api.deepseek.com"),
+    "DeepSeek Anthropic": ("", "https://api.deepseek.com/anthropic"),
+    "OpenAI 兼容": ("", "https://api.openai.com/v1"),
+    "Anthropic 兼容": ("", "https://api.anthropic.com"),
+    "Ollama（本地）": ("", "http://localhost:11434"),
+    "自定义提供商": ("", ""),
+}
 
 # Streamlit is imported lazily so that importing this module for the
 # launch() entrypoint does not hard-fail when the visual extra is absent.
@@ -73,11 +87,11 @@ def _code_agent_signature(path: Path) -> tuple[str, int | None, int | None]:
 def _build_agent(
     name: str,
     instructions: str,
-    llm: str | dict[str, Any],
-    selected_tools: list,
+    llm: Literal["mock"] | dict[str, Any],
+    selected_tools: list[str],
     max_iterations: int,
-    available_tools: dict[str, Any] | None = None,
-):
+    available_tools: dict[str, Tool] | None = None,
+) -> Agent:
     """Construct an Agent from the UI configuration."""
     from agentmold import Agent, LogLevel
     from agentmold.tools import calculate
@@ -99,13 +113,13 @@ def _build_agent(
 
 
 def _agent_signature(
-    name,
-    instructions,
-    llm,
-    selected_tools,
-    max_iterations,
-    tool_signature=(),
-):
+    name: str,
+    instructions: str,
+    llm: Literal["mock"] | dict[str, Any],
+    selected_tools: list[str],
+    max_iterations: int,
+    tool_signature: tuple[tuple[str, str | None], ...] = (),
+) -> tuple[Any, ...]:
     """A hashable fingerprint of the config, to detect changes."""
     return (
         name,
@@ -120,12 +134,12 @@ def _agent_signature(
 def _load_visual_tools(
     filenames: list[str],
     directory: str | Path = ".agentmold/visual_tools",
-) -> tuple[dict[str, Any], dict[str, str], list[str]]:
+) -> tuple[dict[str, Tool], dict[str, str], list[str]]:
     """Load built-in and uploaded tools with explicit origin and conflict reporting."""
     from agentmold import load_tools
     from agentmold.tools import calculate
 
-    tools = {calculate.name: calculate}
+    tools: dict[str, Tool] = {calculate.name: calculate}
     origins = {calculate.name: "内置"}
     errors: list[str] = []
     for filename in filenames:
@@ -153,7 +167,7 @@ def _tool_widget_key(tool_name: str) -> str:
     return f"ea_tool_{digest}"
 
 
-def _llm_signature(llm: str | dict[str, Any]) -> str:
+def _llm_signature(llm: Literal["mock"] | dict[str, Any]) -> str:
     """Serialize LLM settings without retaining an API key in session state."""
     if isinstance(llm, str):
         return llm
@@ -172,7 +186,7 @@ def _llm_config_from_ui(
     timeout: float,
     max_tokens: int,
     custom_interface: str = "OpenAI 兼容",
-) -> str | dict[str, Any]:
+) -> Literal["mock"] | dict[str, Any]:
     """Map the visual provider controls to the public ``Agent(llm=...)`` shape."""
     if connection_type == "Mock（离线）":
         return "mock"
@@ -208,7 +222,7 @@ def _llm_config_from_ui(
     return {key: value for key, value in config.items() if value not in {"", None}}
 
 
-def _timeline_html(steps: list[dict]) -> str:
+def _timeline_html(steps: list[dict[str, Any]]) -> str:
     """Render trace steps as a compact, escaped HTML timeline."""
     if not steps:
         return '<div class="ea-empty">暂无执行事件。提交问题后，运行轨迹会在这里展开。</div>'
@@ -289,7 +303,7 @@ def _initial_run_meta() -> dict[str, Any]:
     }
 
 
-def _remember_trace(st, trace) -> None:
+def _remember_trace(st: Any, trace: AgentTrace) -> None:
     """Keep completed traces in the current session for replay and export."""
     runs = st.session_state.get("trace_runs", [])
     st.session_state.trace_runs = merge_trace_runs(runs, [trace.to_dict()])[-50:]
@@ -324,7 +338,11 @@ def _trace_compare_html(left: dict[str, Any], right: dict[str, Any]) -> str:
     def metric(label: str, value: str) -> str:
         return f"<div><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>"
 
-    def value(summary: dict[str, Any], key: str, formatter=str) -> str:
+    def value(
+        summary: dict[str, Any],
+        key: str,
+        formatter: Callable[[Any], str] = str,
+    ) -> str:
         raw = summary.get(key)
         return "—" if raw is None else formatter(raw)
 
@@ -358,7 +376,12 @@ def _trace_compare_html(left: dict[str, Any], right: dict[str, Any]) -> str:
     return '<div class="ea-compare-grid">' + card(left, "run-a") + card(right, "run-b") + "</div>"
 
 
-def _render_trace_lab(st, Config, agraph, trace_to_graph) -> None:
+def _render_trace_lab(
+    st: Any,
+    Config: Any,
+    agraph: Callable[..., Any],
+    trace_to_graph: Callable[..., Any],
+) -> None:
     """Render trace import, scrubbed replay, export, and two-run comparison."""
     with st.expander("TRACE LAB · 回放与对比", expanded=False):
         session_runs = st.session_state.get("trace_runs", [])
@@ -496,10 +519,10 @@ def _render_trace_lab(st, Config, agraph, trace_to_graph) -> None:
 
 
 def _render_code_export(
-    st,
+    st: Any,
     name: str,
     instructions: str,
-    llm: str | dict[str, Any],
+    llm: Literal["mock"] | dict[str, Any],
     selected_tools: list[str],
     max_iterations: int,
 ) -> None:
@@ -533,6 +556,10 @@ def _render_code_export(
             status_col.caption(f"API Key 已替换为环境变量 `{environment}`，不会写入源码。")
         else:
             status_col.caption("导出内容与当前界面配置同步。")
+        st.caption(
+            "下载后运行 `python agent.py` 进入交互模式，或运行 "
+            '`python agent.py "你的问题"` 完成一次提问。'
+        )
         st.code(source, language="python", line_numbers=True)
 
 
@@ -549,7 +576,7 @@ def _profile_setting(
         return default
 
 
-def _inject_theme(st) -> None:
+def _inject_theme(st: Any) -> None:
     """Apply the visual research-console theme without changing Streamlit semantics."""
     st.markdown(
         """
@@ -1010,6 +1037,7 @@ def _run_app() -> None:
     # ------------------------------------------------------------------
     agent_file = _agent_file_from_argv()
     restored_agent_config = False
+    model_missing = False
     connection_types = [
         "Mock（离线）",
         "DeepSeek OpenAI",
@@ -1019,16 +1047,23 @@ def _run_app() -> None:
         "Ollama（本地）",
         "自定义提供商",
     ]
+    name: str
+    instructions: str
+    llm: Literal["mock"] | dict[str, Any]
+    selected_tools: list[str]
+    tool_signature: tuple[tuple[str, str | None], ...]
+    available_tools: dict[str, Tool]
     if agent_file is not None:
         st.sidebar.header("📄 代码 Agent")
         st.sidebar.code(str(agent_file), language="text")
         st.sidebar.caption("Agent 由文件中的 build_agent() 创建。编辑文件后重新加载。")
         reload_clicked = st.sidebar.button("重新加载文件", use_container_width=True)
-        name = instructions = llm = ""
+        name = instructions = ""
+        llm = "mock"
         selected_tools = []
         max_iterations = 0
         tool_signature = ()
-        available_tools: dict[str, Any] = {}
+        available_tools = {}
         build_clicked = False
     else:
         st.sidebar.header("⚙️ Agent 配置")
@@ -1088,19 +1123,7 @@ def _run_app() -> None:
         profile_key = visual_profile_key(connection_type, custom_interface)
         saved_profile = saved_profiles.get(profile_key, {})
 
-        defaults = {
-            "Mock（离线）": ("mock", ""),
-            "DeepSeek OpenAI": ("deepseek-v4-flash", "https://api.deepseek.com"),
-            "DeepSeek Anthropic": (
-                "deepseek-v4-flash",
-                "https://api.deepseek.com/anthropic",
-            ),
-            "OpenAI 兼容": ("gpt-4o-mini", "https://api.openai.com/v1"),
-            "Anthropic 兼容": ("claude-3-5-sonnet-20241022", "https://api.anthropic.com"),
-            "Ollama（本地）": ("llama3", "http://localhost:11434"),
-            "自定义提供商": ("", ""),
-        }
-        default_model, default_base_url = defaults[connection_type]
+        default_model, default_base_url = _CONNECTION_DEFAULTS[connection_type]
         widget_suffix = connection_type.replace(" ", "-")
         if connection_type == "自定义提供商":
             widget_suffix += f"-{custom_interface}"
@@ -1124,7 +1147,12 @@ def _run_app() -> None:
             model = st.text_input(
                 "模型",
                 key=f"ea_model_{widget_suffix}",
+                placeholder="从提供商控制台或 ollama list 复制模型 ID",
+                help="模型名称更新频繁，EasyAgent 不预填；保存配置后会自动恢复。",
             )
+            model_missing = connection_type != "Mock（离线）" and not model.strip()
+            if model_missing:
+                st.caption("请填写当前接口可用的模型 ID。")
             api_key = st.text_input(
                 "API Key",
                 type="password",
@@ -1265,7 +1293,11 @@ def _run_app() -> None:
                 keep_calculate = bool(st.session_state.get(_tool_widget_key("calculate"), True))
                 st.session_state.ea_restored_tool_names = ["calculate"] if keep_calculate else []
                 for key in list(st.session_state):
-                    if key.startswith("ea_tool_") and key != "ea_tool_upload_epoch":
+                    if (
+                        isinstance(key, str)
+                        and key.startswith("ea_tool_")
+                        and key != "ea_tool_upload_epoch"
+                    ):
                         st.session_state.pop(key, None)
                 st.session_state.ea_tool_upload_epoch = upload_epoch + 1
                 st.session_state.pop("ea_visual_tool_cache_signature", None)
@@ -1315,23 +1347,29 @@ def _run_app() -> None:
                 st.sidebar.error(f"保存 Agent 配置失败: {exc}")
 
         st.sidebar.divider()
-        build_clicked = (
-            st.sidebar.button("🔨 生成 Agent", type="primary", use_container_width=True)
-            or restored_agent_config
-        )
+        build_clicked = st.sidebar.button(
+            "🔨 生成 Agent",
+            type="primary",
+            use_container_width=True,
+            disabled=model_missing,
+        ) or (restored_agent_config and not model_missing)
         reload_clicked = False
         if st.sidebar.button("恢复 Agent 默认值", use_container_width=True):
             delete_visual_agent_config()
             for tool_name in available_tools:
                 st.session_state.pop(_tool_widget_key(tool_name), None)
             for key in list(st.session_state):
-                if key.startswith("ea_agent_") or key in {
-                    "ea_connection_type",
-                    "ea_custom_interface",
-                    "ea_max_iterations",
-                    "ea_restored_tool_names",
-                    "ea_visual_config_initialized",
-                }:
+                if isinstance(key, str) and (
+                    key.startswith("ea_agent_")
+                    or key
+                    in {
+                        "ea_connection_type",
+                        "ea_custom_interface",
+                        "ea_max_iterations",
+                        "ea_restored_tool_names",
+                        "ea_visual_config_initialized",
+                    }
+                ):
                     st.session_state.pop(key, None)
             st.rerun()
     if st.sidebar.button("🔄 重置会话", use_container_width=True):
@@ -1383,6 +1421,8 @@ def _run_app() -> None:
                 st.session_state.last_user_input = None
                 st.session_state.run_meta = _initial_run_meta()
             except Exception as exc:  # noqa: BLE001
+                st.session_state.agent = None
+                st.session_state.agent_signature = None
                 st.sidebar.error(f"加载失败: {exc}")
     elif build_clicked:
         try:
@@ -1403,18 +1443,24 @@ def _run_app() -> None:
             st.toast(f"✅ Agent「{name}」已生成！", icon="🚀")
             st.rerun()
         except Exception as exc:  # noqa: BLE001
+            st.session_state.agent = None
+            st.session_state.agent_signature = None
             st.sidebar.error(f"生成失败: {exc}")
 
     agent = st.session_state.agent
+    if model_missing:
+        agent = None
 
     _render_trace_lab(st, Config, agraph, trace_to_graph)
-    if agent_file is None:
+    if agent_file is None and not model_missing:
         _render_code_export(st, name, instructions, llm, selected_tools, max_iterations)
+    elif agent_file is None:
+        st.info("填写模型 ID 后可生成并导出 Agent。")
 
     # If an agent already exists but the config changed, rebuild it
     # automatically so the overview card always reflects reality — no
     # "please rebuild" blocking prompt.
-    if agent_file is None and agent is not None and config_changed:
+    if agent_file is None and agent is not None and config_changed and not model_missing:
         try:
             st.session_state.agent = _build_agent(
                 name,
@@ -1429,6 +1475,9 @@ def _run_app() -> None:
             agent = st.session_state.agent
             auto_rebuilt = True
         except Exception as exc:  # noqa: BLE001
+            st.session_state.agent = None
+            st.session_state.agent_signature = None
+            agent = None
             st.error(f"自动重建失败: {exc}")
 
     # ------------------------------------------------------------------
@@ -1475,7 +1524,7 @@ def _run_app() -> None:
                 st.markdown(user_input)
 
             # Stream the execution, collecting steps for the graph.
-            steps: list[dict] = []
+            steps: list[dict[str, Any]] = []
             answer_text = ""
             run_started = time.perf_counter()
             run_meta = _initial_run_meta()

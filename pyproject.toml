@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agentmold"
 version = "0.2.0"
-description = "The easiest way to build AI agents in Python — 10 lines of code, zero framework concepts."
+description = "Build inspectable AI agents with ordinary Python functions and no workflow DSL."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -24,6 +24,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
@@ -52,7 +54,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "black>=23.0",
     "ruff>=0.1",
-    "mypy>=1.0",
+    "mypy>=1.0,<2.0",
 ]
 
 [project.scripts]
@@ -84,6 +86,19 @@ python_version = "3.9"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "anthropic",
+    "click",
+    "chromadb",
+    "ollama",
+    "openai",
+    "streamlit",
+    "streamlit_agraph",
+]
+follow_imports = "skip"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

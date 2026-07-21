@@ -4,21 +4,9 @@ Run with::
 
     python examples/math_assistant.py
 """
-from agentmold import Agent, tool, LogLevel
 
-
-@tool
-def calculate(expression: str) -> str:
-    """Evaluate a math expression and return the result.
-
-    Args:
-        expression: A Python-evaluable math expression, e.g. "2 + 3 * 4".
-    """
-    # Only allow a safe subset of characters.
-    allowed = set("0123456789+-*/().,% ")
-    if not set(expression) <= allowed:
-        return "Error: expression contains disallowed characters."
-    return str(eval(expression))  # noqa: S307 - safe subset validated above
+from agentmold import Agent, LogLevel
+from agentmold.tools import calculate
 
 
 def main() -> None:

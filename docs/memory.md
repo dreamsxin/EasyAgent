@@ -4,12 +4,14 @@ Long-term memory requires an explicit collection name so experiments cannot sile
 one vector store:
 
 ```python
+import os
+
 from agentmold import Agent, VectorMemory
 
 memory = VectorMemory(
     collection="paper-review-2026-07",
     storage_path="./.agentmold/memory",
-    embed_model="text-embedding-3-small",
+    embed_model=os.environ["EASYAGENT_EMBED_MODEL"],
 )
 agent = Agent(memory=memory)
 ```

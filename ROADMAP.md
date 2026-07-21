@@ -13,6 +13,21 @@ and calling an ordinary Python function.
   orchestration abstractions.
 - Multi-agent experiments compose agents as tools before introducing any new concept.
 
+## Differentiation
+
+EasyAgent does not try to win on the number of integrations or orchestration features.
+Its defensible scope is a teaching and research contract that larger frameworks do not
+automatically provide:
+
+- the first meaningful run is offline and credential-free;
+- the complete Agent loop is inspectable in ordinary Python and documented step by step;
+- examples are safe, executable, and checked in CI rather than illustrative pseudocode;
+- events, traces, model configuration, and known capability limits are explicit;
+- research workflows favor reproducibility over hidden automation.
+
+This differentiation depends on documentation quality and teaching adoption, not a unique
+technical primitive. Documentation drift is therefore treated as a product defect.
+
 ## v0.1.1 - Reliable first run
 
 Target: a fresh environment can follow the README without discovering hidden steps.
@@ -76,11 +91,32 @@ Target: provide reusable examples after the core contracts are stable.
 - [x] Restore visual Agent configurations and load explicit Python tool modules.
 - [x] Experiment with agent-as-tool composition behind an explicit experimental marker.
 
+## v0.6 - Transparent teaching contract
+
+Target: make the implementation understandable without overstating what it can do.
+
+- [x] Publish a step-by-step execution model covering Agent, Tool, Memory, Provider, and Trace.
+- [x] Add an offline recipe that prints events, memory mutations, and the resulting trace.
+- [x] Remove unsafe `eval()` patterns from all teaching examples.
+- [x] Distinguish Agent execution-event streaming from provider token streaming.
+- [x] Require separate `provider` and `model` fields instead of guessing from volatile names.
+- [x] Stop pre-filling hosted and local model IDs in the visual lab.
+- [ ] Design a token-delta event contract before implementing native provider streaming.
+- [ ] Add trace correlation for experimental parent/child Agent runs before stabilizing composition.
+
+Release gate: the README and teaching recipes contain no unsafe execution shortcuts, every
+offline recipe runs in CI, and streaming claims match conformance tests.
+
 ## v1.0 criteria
 
 - Fresh-install quickstart completes in under five minutes without an API key.
-- Every documented command is exercised in CI.
+- Every credential-free, repository-owned documented command is exercised in CI.
 - Supported providers pass the same chat and tool-call contract suite.
 - Core lint, type, test, and build checks are blocking.
 - Trace export and evaluation workflows are documented and reproducible.
 - No workflow DSL or mandatory infrastructure is required for the primary path.
+- Capability documentation distinguishes shipped, experimental, and planned behavior.
+
+CI evidence: the test matrix covers Python 3.9-3.14; dedicated jobs block on Ruff,
+Black, strict mypy, package builds, generated-project quickstarts, teaching templates,
+offline examples/cookbook recipes, and the documented visual launch command.

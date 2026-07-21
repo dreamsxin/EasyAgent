@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pprint import pformat
-from typing import Any
+from typing import Any, Literal
 
 __all__ = ["api_key_environment", "generate_agent_python"]
 
@@ -30,7 +30,7 @@ _TOOL_IMPORTS = {
 }
 
 
-def api_key_environment(llm: str | dict[str, Any]) -> str | None:
+def api_key_environment(llm: Literal["mock"] | dict[str, Any]) -> str | None:
     """Return the environment variable used for an exported credential."""
     if not isinstance(llm, dict) or not llm.get("api_key"):
         return None
@@ -42,11 +42,11 @@ def generate_agent_python(
     *,
     name: str,
     instructions: str,
-    llm: str | dict[str, Any],
+    llm: Literal["mock"] | dict[str, Any],
     selected_tools: list[str],
     max_iterations: int,
 ) -> str:
-    """Generate a standalone ``agent.py`` with a zero-argument ``build_agent``."""
+    """Generate an importable ``agent.py`` that can also run directly."""
     if not isinstance(name, str) or not isinstance(instructions, str):
         raise TypeError("name and instructions must be strings")
     if not isinstance(llm, (str, dict)):
@@ -64,7 +64,8 @@ def generate_agent_python(
     environment = api_key_environment(llm)
     lines = ['"""Agent exported by EasyAgent visual lab."""', ""]
     if environment:
-        lines.extend(["import os", ""])
+        lines.append("import os")
+    lines.extend(["import sys", ""])
     lines.append("from agentmold import Agent")
     for module in sorted({_TOOL_IMPORTS[tool] for tool in tools}):
         names = sorted(tool for tool in tools if _TOOL_IMPORTS[tool] == module)
@@ -87,6 +88,18 @@ def generate_agent_python(
             f"        llm={llm_expression},",
             f"        max_iterations={max_iterations},",
             "    )",
+            "",
+            "",
+            "def main() -> None:",
+            "    agent = build_agent()",
+            "    if len(sys.argv) > 1:",
+            '        print(agent(" ".join(sys.argv[1:])))',
+            "    else:",
+            "        agent.chat()",
+            "",
+            "",
+            'if __name__ == "__main__":',
+            "    main()",
             "",
         ]
     )

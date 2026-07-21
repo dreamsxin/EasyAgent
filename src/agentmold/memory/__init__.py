@@ -12,9 +12,9 @@ Two tiers of memory are provided:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
 from uuid import uuid4
 
 from agentmold.llm import Message
@@ -114,7 +114,7 @@ class VectorMemory(BaseMemory):
         top_k: int = 4,
         api_key: str | None = None,
         system: str | None = None,
-        embedder: Any | None = None,
+        embedder: Callable[[str], list[float]] | None = None,
     ) -> None:
         if len(collection) < 3:
             raise ValueError("collection must contain at least 3 characters")
@@ -286,7 +286,7 @@ class VectorMemory(BaseMemory):
             raise ImportError("OpenAI embeddings require the 'openai' package.") from exc
         client = openai.OpenAI(api_key=self._api_key)
         resp = client.embeddings.create(input=text, model=self._embed_model)
-        return resp.data[0].embedding
+        return [float(value) for value in resp.data[0].embedding]
 
     def clear(self) -> None:
         """Reset both the short-term window and the long-term vector store."""

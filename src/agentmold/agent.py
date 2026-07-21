@@ -153,7 +153,7 @@ class AgentTrace:
 
     @property
     def tool_calls(self) -> list[ToolCallEvent]:
-        return [s for s in self.steps if s["type"] == "tool_call"]  # type: ignore[misc]
+        return [step for step in self.steps if step["type"] == "tool_call"]
 
     def __repr__(self) -> str:
         return f"<AgentTrace: {len(self.steps)} steps, {len(self.tool_calls)} tool calls>"
@@ -211,7 +211,7 @@ class Agent:
         name: str = "Agent",
         instructions: str = "You are a helpful assistant.",
         tools: list[Tool] | None = None,
-        llm: str | LLM | dict[str, Any] = "mock",
+        llm: Literal["mock"] | LLM | dict[str, Any] = "mock",
         memory: BaseMemory | None = None,
         max_iterations: int = 10,
         log_level: LogLevel = LogLevel.INFO,
@@ -261,11 +261,13 @@ class Agent:
         return self.run(user_input)
 
     def run_stream(self, user_input: str) -> Iterator[AgentEvent]:
-        """Run the agent and *yield* each trace step as it happens.
+        """Run the agent and yield each completed execution event.
 
         This is the streaming variant of :meth:`run`: it produces the same
         steps (``tool_call`` / ``tool_result`` / ``answer``) but one at a
-        time, so a UI can render the execution live.
+        time, so a UI can render the execution loop. It is event streaming,
+        not token streaming: the provider response completes before the next
+        event is emitted.
 
         Example::
 
@@ -352,7 +354,7 @@ class Agent:
                 trace.finish(error="Run interrupted before a final answer.")
 
     async def arun_stream(self, user_input: str) -> AsyncIterator[AgentEvent]:
-        """Asynchronously yield the same execution events as :meth:`run_stream`."""
+        """Asynchronously yield the same completed events as :meth:`run_stream`."""
         trace = self._start_trace(user_input)
         try:
             self.log.answer(f"Running agent {self.name!r}...")

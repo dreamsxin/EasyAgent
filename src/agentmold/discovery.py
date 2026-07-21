@@ -87,14 +87,16 @@ def discover_tools(*, group: str = TOOL_ENTRY_POINT_GROUP) -> list[Tool]:
 
 def _entry_points(group: str) -> list[Any]:
     try:
-        installed = metadata.entry_points()
+        installed: Any = metadata.entry_points()
     except Exception as exc:  # noqa: BLE001 - normalize packaging backend errors
         raise ExtensionLoadError(f"Could not enumerate entry point group {group!r}: {exc}") from exc
 
     if hasattr(installed, "select"):
         selected = installed.select(group=group)
-    else:  # Python 3.9 and older importlib-metadata compatibility.
+    elif isinstance(installed, dict):
         selected = installed.get(group, ())
+    else:
+        selected = ()
     return sorted(
         selected,
         key=lambda item: (str(getattr(item, "name", "")), str(getattr(item, "value", ""))),

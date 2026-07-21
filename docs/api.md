@@ -16,9 +16,9 @@ Agent(
 
 - `run(user_input) -> str` runs one request and returns the final answer.
 - `agent(user_input) -> str` is the function-style alias for `run`.
-- `run_stream(user_input)` yields execution events.
+- `run_stream(user_input)` yields completed execution events, not token deltas.
 - `await arun(user_input) -> str` runs the same loop asynchronously.
-- `arun_stream(user_input)` asynchronously yields the same execution events.
+- `arun_stream(user_input)` asynchronously yields the same completed events.
 - `chat()` starts a terminal REPL.
 - `add_tool(tool)` registers a tool for future calls.
 
@@ -40,6 +40,11 @@ async for event in agent.arun_stream("question"):
     if event["type"] == "tool_call":
         print(event["name"], event["arguments"])
 ```
+
+The event types are `tool_call`, `tool_result`, and `answer`. A provider request completes
+before the next event is emitted. The built-in providers do not currently implement native
+token streaming; the base `LLM.stream()` returns one complete response chunk and advertises
+`supports_native_streaming = False`.
 
 One `Agent` owns one mutable conversation memory. Use a separate `Agent` or `Memory`
 instance per concurrent conversation instead of calling the same agent concurrently.
@@ -74,9 +79,11 @@ Python with the current process permissions. See [Custom tool modules](custom-to
 LLM configuration accepts framework-level retries and provider-native request timeouts:
 
 ```python
+import os
+
 agent = Agent(llm={
     "provider": "deepseek",
-    "model": "deepseek-v4-flash",
+    "model": os.environ["EASYAGENT_MODEL"],
     "timeout": 30,
     "max_retries": 2,
     "retry_delay": 0.5,
@@ -105,7 +112,10 @@ session. Cost is shown only when the provider includes a numeric cost field in u
 The visual lab's **PYTHON EXPORT · agent.py** panel generates the same code-first shape
 accepted by `load_agent()`: a readable `build_agent()` function with the current name,
 instructions, tools, model configuration, and iteration limit. Credentials are represented
-as provider environment variables instead of being embedded in the downloaded source.
+as provider environment variables instead of being embedded in the downloaded source. The
+download is directly runnable: use `python agent.py` for an interactive session or
+`python agent.py "your question"` for a single response. It remains importable through
+`load_agent()` because execution is protected by a standard `__main__` guard.
 
 ## Extension discovery
 
@@ -143,16 +153,21 @@ must also implement their own cooperative timeout.
 
 ## LLM configuration
 
-The `llm` argument accepts a shorthand, an `LLM` instance, or a dictionary:
+The `llm` argument accepts the special offline string `"mock"`, an `LLM` instance, or an
+explicit configuration dictionary:
 
 ```python
-Agent(llm="deepseek/deepseek-v4-flash")
+import os
+
 Agent(llm={
     "provider": "deepseek-anthropic",
-    "model": "deepseek-v4-flash",
+    "model": os.environ["EASYAGENT_MODEL"],
     "api_key": "...",  # prefer DEEPSEEK_API_KEY in real projects
 })
 ```
 
 Supported provider names are `mock`, `openai`, `deepseek`, `anthropic`,
 `deepseek-anthropic`, and `ollama` when their optional dependencies are installed.
+Only the built-in offline provider accepts the string `"mock"`. Every other provider uses
+the dictionary form so provider and model selection remain separate, visible fields. Copy
+current model IDs from the provider rather than treating these docs as a model catalog.

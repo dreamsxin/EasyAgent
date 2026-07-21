@@ -1,5 +1,7 @@
 # Quickstart
 
+Requires Python 3.9 or newer. The primary offline path does not require an API key.
+
 ## Offline first run
 
 ```bash
@@ -13,10 +15,18 @@ easyagent run
 The generated project uses `mock`, so the first run does not need an API key. Replace
 `llm="mock"` in `agent.py` when you are ready to use a hosted or local model.
 
+The CLI keeps provider and model selection separate:
+
+```bash
+easyagent init hosted-agent --provider deepseek --model MODEL_ID_FROM_PROVIDER
+```
+
+This writes `llm={"provider": "deepseek", "model": "..."}` into `agent.py`; it does not
+guess a provider from the model name.
+
 ## Teaching templates
 
-Use `--template` to start from an offline, editable example without adding framework
-concepts:
+Use `--template` to start from an offline, editable example without adding a workflow DSL:
 
 ```bash
 easyagent init research-lab --template research-assistant
@@ -48,11 +58,20 @@ export DEEPSEEK_API_KEY=your-key      # macOS/Linux
 Then use:
 
 ```python
+import os
+
 from agentmold import Agent
 
-agent = Agent(llm="deepseek/deepseek-v4-flash")
+agent = Agent(llm={
+    "provider": "deepseek",
+    "model": os.environ["EASYAGENT_MODEL"],
+})
 print(agent("Summarize the research question in one sentence."))
 ```
+
+Set `EASYAGENT_MODEL` to a model ID currently available to your account. EasyAgent does not
+maintain a recommended-model list because provider catalogs and deprecation dates change
+independently of package releases.
 
 The OpenAI-compatible endpoint defaults to `https://api.deepseek.com`. For the
 Anthropic-compatible endpoint, install `agentmold[deepseek-anthropic]` and use
@@ -73,4 +92,4 @@ print(agent("tool: count the words in this sentence"))
 ```
 
 `agent.run(text)` and `agent(text)` are equivalent. `run_stream(text)` yields execution
-events such as `tool_call`, `tool_result`, and `answer`.
+events such as `tool_call`, `tool_result`, and `answer`; it does not yield token deltas.

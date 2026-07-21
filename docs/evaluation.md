@@ -6,7 +6,9 @@ Experiments use an agent factory so every case receives independent memory and t
 from agentmold import Agent, EvalCase, evaluate
 
 def build_agent() -> Agent:
-    return Agent(llm="deepseek/deepseek-v4-flash")
+    # Keep the documentation runnable offline. Swap in an explicit provider + model
+    # configuration when the dataset is ready for a hosted evaluation.
+    return Agent(llm="mock")
 
 report = evaluate(
     build_agent,

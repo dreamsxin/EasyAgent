@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from agentmold.visual.app import (
+    _CONNECTION_DEFAULTS,
     _agent_signature,
     _build_agent,
     _initial_run_meta,
@@ -201,6 +202,15 @@ def test_custom_anthropic_config_and_key_redaction():
 
 def test_mock_config_does_not_require_credentials():
     assert _llm_config_from_ui("Mock（离线）", "ignored", "", "", 0.7, 30, 4096) == "mock"
+
+
+def test_visual_provider_defaults_do_not_pin_model_ids():
+    assert _CONNECTION_DEFAULTS["Mock（离线）"][0] == "mock"
+    assert all(
+        model == ""
+        for connection_type, (model, _) in _CONNECTION_DEFAULTS.items()
+        if connection_type != "Mock（离线）"
+    )
 
 
 def test_run_metrics_show_status_and_escape_errors():

@@ -4,21 +4,22 @@ from __future__ import annotations
 
 import pytest
 
-from agentmold import load_agent
+from agentmold import __version__, load_agent
 from agentmold.cli import main as cli_main
 
 
 def test_cli_init_creates_project(tmp_path, capsys):
     project = tmp_path / "my-agent"
-    rc = cli_main(["init", str(project), "--llm", "gpt-4o-mini"])
+    rc = cli_main(["init", str(project), "--provider", "openai", "--model", "model-id"])
     assert rc == 0
     assert (project / "agent.py").exists()
     assert (project / "README.md").exists()
     assert (project / ".gitignore").exists()
     assert (project / "pyproject.toml").exists()
     content = (project / "agent.py").read_text(encoding="utf-8")
-    assert "gpt-4o-mini" in content
+    assert "llm={'provider': 'openai', 'model': 'model-id'}" in content
     assert "build_agent" in content
+    compile(content, str(project / "agent.py"), "exec")
 
 
 def test_cli_init_defaults_to_offline_mock(tmp_path):
@@ -29,17 +30,40 @@ def test_cli_init_defaults_to_offline_mock(tmp_path):
     assert 'llm="mock"' in content
     metadata = (project / "pyproject.toml").read_text(encoding="utf-8")
     assert 'name = "offline-agent"' in metadata
+    assert 'requires-python = ">=3.9"' in metadata
+    assert f'dependencies = ["agentmold>={__version__}"]' in metadata
+
+
+def test_cli_init_requires_model_for_non_mock_provider(tmp_path):
+    with pytest.raises(SystemExit):
+        cli_main(["init", str(tmp_path / "missing-model"), "--provider", "openai"])
+
+
+def test_cli_init_rejects_model_for_mock_provider(tmp_path):
+    with pytest.raises(SystemExit):
+        cli_main(["init", str(tmp_path / "mock-model"), "--model", "model-id"])
 
 
 def test_cli_init_coder_template(tmp_path):
     project = tmp_path / "coder-agent"
-    rc = cli_main(["init", str(project), "--template", "coder", "--llm", "gpt-4o"])
+    rc = cli_main(
+        [
+            "init",
+            str(project),
+            "--template",
+            "coder",
+            "--provider",
+            "openai",
+            "--model",
+            "model-id",
+        ]
+    )
     assert rc == 0
     content = (project / "agent.py").read_text(encoding="utf-8")
     assert "Coder Assistant" in content
     assert "workspace_tools" in content
     assert "allow_write=True" in content
-    assert "gpt-4o" in content
+    assert "llm={'provider': 'openai', 'model': 'model-id'}" in content
 
 
 def test_cli_init_chatbot_template(tmp_path):

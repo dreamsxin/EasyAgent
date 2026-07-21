@@ -11,9 +11,9 @@ from agentmold.exceptions import ConfigurationError
 from agentmold.llm import LLM, LlmResponse, Message, register_provider
 
 try:  # pragma: no cover
-    import ollama
+    import ollama as _ollama
 except ImportError:  # pragma: no cover
-    ollama = None  # type: ignore[assignment]
+    _ollama = None
 
 
 class OllamaLLM(LLM):
@@ -21,17 +21,17 @@ class OllamaLLM(LLM):
 
     def __init__(
         self,
-        model: str = "llama3",
+        model: str,
         temperature: float = 0.7,
         host: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(model, temperature, **kwargs)
-        if ollama is None:  # pragma: no cover
+        if _ollama is None:  # pragma: no cover
             raise ConfigurationError(
                 "The 'ollama' package is required. Install it with: pip install 'agentmold[ollama]'"
             )
-        self._client = ollama.Client(host=host) if host else ollama.Client()
+        self._client = _ollama.Client(host=host) if host else _ollama.Client()
 
     def _complete(
         self,
@@ -50,7 +50,7 @@ class OllamaLLM(LLM):
         resp = self._client.chat(**kwargs)
         response_message = resp.get("message", {})
         content = response_message.get("content", "")
-        tool_calls = []
+        tool_calls: list[dict[str, Any]] = []
         for index, call in enumerate(response_message.get("tool_calls") or []):
             function = call.get("function", {})
             tool_calls.append(
@@ -65,12 +65,11 @@ class OllamaLLM(LLM):
 
 def _to_ollama_message(message: Message) -> dict[str, Any]:
     """Convert one normalized message to Ollama's chat representation."""
+    result: dict[str, Any] = {"role": message.role, "content": message.content}
     if message.role == "tool":
-        result = {"role": "tool", "content": message.content}
         if message.name:
             result["name"] = message.name
         return result
-    result: dict[str, Any] = {"role": message.role, "content": message.content}
     if message.tool_calls:
         result["tool_calls"] = [
             {

@@ -14,7 +14,7 @@ from agentmold.llm import LLM, LlmResponse, Message, register_provider
 try:  # pragma: no cover
     import anthropic
 except ImportError:  # pragma: no cover
-    anthropic = None  # type: ignore[assignment]
+    anthropic = None
 
 
 class AnthropicLLM(LLM):
@@ -22,7 +22,7 @@ class AnthropicLLM(LLM):
 
     def __init__(
         self,
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str,
         temperature: float = 0.7,
         api_key: str | None = None,
         base_url: str | None = None,
@@ -102,7 +102,7 @@ class DeepSeekAnthropicLLM(AnthropicLLM):
 
     def __init__(
         self,
-        model: str = "deepseek-v4-flash",
+        model: str,
         temperature: float = 0.7,
         api_key: str | None = None,
         base_url: str | None = None,

@@ -123,8 +123,24 @@ def merge_trace_runs(*collections: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 def summarize_trace_run(run: dict[str, Any]) -> dict[str, Any]:
     """Return normalized fields used by replay, comparison, and metrics UI."""
-    events = [event for event in run.get("events", []) if isinstance(event, dict)]
-    usage = run.get("usage") if isinstance(run.get("usage"), dict) else {}
+    raw_events = run.get("events")
+    events: list[dict[str, Any]] = []
+    if isinstance(raw_events, list):
+        events = [
+            {str(key): value for key, value in event.items()}
+            for event in raw_events
+            if isinstance(event, dict)
+        ]
+    raw_usage = run.get("usage")
+    usage: dict[str, Any] = (
+        {str(key): value for key, value in raw_usage.items()} if isinstance(raw_usage, dict) else {}
+    )
+    raw_model_config = run.get("model_config")
+    model_config = (
+        {str(key): value for key, value in raw_model_config.items()}
+        if isinstance(raw_model_config, dict)
+        else {}
+    )
     total_tokens = _first_number(
         usage,
         "total_tokens",
@@ -143,9 +159,7 @@ def summarize_trace_run(run: dict[str, Any]) -> dict[str, Any]:
         "agent_name": str(run.get("agent_name") or ""),
         "instructions": str(run.get("instructions") or ""),
         "model": str(run.get("model") or "unknown"),
-        "model_config": run.get("model_config")
-        if isinstance(run.get("model_config"), dict)
-        else {},
+        "model_config": model_config,
         "usage": usage,
         "duration_ms": _number(run.get("duration_ms")),
         "total_tokens": total_tokens,

@@ -15,7 +15,7 @@ from agentmold.llm import LLM, LlmResponse, Message, register_provider
 try:  # pragma: no cover - exercised only when openai is installed
     import openai
 except ImportError:  # pragma: no cover
-    openai = None  # type: ignore[assignment]
+    openai = None
 
 
 class OpenAILLM(LLM):
@@ -23,7 +23,7 @@ class OpenAILLM(LLM):
 
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
+        model: str,
         temperature: float = 0.7,
         api_key: str | None = None,
         base_url: str | None = None,
@@ -95,7 +95,7 @@ class DeepSeekLLM(OpenAILLM):
 
     def __init__(
         self,
-        model: str = "deepseek-v4-flash",
+        model: str,
         temperature: float = 0.7,
         api_key: str | None = None,
         base_url: str | None = None,

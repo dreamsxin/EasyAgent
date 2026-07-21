@@ -4,6 +4,7 @@ Run with::
 
     python examples/research_assistant.py
 """
+
 from agentmold import Agent, tool
 
 
@@ -26,7 +27,7 @@ def read_file(file_path: str) -> str:
         file_path: Path to the file to read.
     """
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             return f.read()[:2000]
     except FileNotFoundError:
         return f"Error: file not found: {file_path}"
@@ -41,7 +42,7 @@ def main() -> None:
             "read_file when the user references a file."
         ),
         tools=[search_web, read_file],
-        llm="mock",  # swap for "gpt-4o-mini" in a real run
+        llm="mock",  # use an explicit provider + model dict for a hosted run
     )
 
     # The mock LLM echoes input and triggers a tool call on "tool:".

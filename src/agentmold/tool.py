@@ -26,9 +26,10 @@ import asyncio
 import inspect
 import re
 import types
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import Enum
-from typing import Annotated, Any, Callable, Literal, Union, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from agentmold.exceptions import ToolError
 
@@ -265,7 +266,7 @@ class ToolRegistry:
         """Return all tool schemas for passing to the LLM."""
         return [t.to_dict() for t in self._tools.values()]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Tool]:
         return iter(self._tools.values())
 
     def __len__(self) -> int:

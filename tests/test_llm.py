@@ -29,20 +29,21 @@ def test_create_llm_from_dict():
     assert llm.temperature == 0.1
 
 
-def test_create_llm_from_string_shorthand():
+def test_create_llm_accepts_only_the_builtin_mock_string():
     # The mock provider is always registered.
     llm = create_llm("mock")
     assert llm.model == "mock"
 
 
-def test_create_llm_unknown_string_raises():
-    with pytest.raises(ConfigurationError):
-        create_llm("totally-unknown-model-xyz")
+@pytest.mark.parametrize("value", ["opaque-model-name", "openai/model-id", "openai"])
+def test_create_llm_requires_explicit_dict_for_non_mock_strings(value):
+    with pytest.raises(ConfigurationError, match="only string value is 'mock'"):
+        create_llm(value)
 
 
 def test_create_llm_dict_requires_provider():
     with pytest.raises(ConfigurationError):
-        create_llm({"model": "gpt-4o-mini"})  # missing provider
+        create_llm({"model": "model-id"})  # missing provider
 
 
 def test_create_llm_rejects_bad_type():
@@ -86,3 +87,13 @@ def test_llm_rejects_invalid_retry_configuration():
 
     with pytest.raises(ValueError, match="max_retries"):
         TestLLM(model="test", max_retries=-1)
+
+
+def test_base_stream_is_explicitly_a_single_chunk_fallback():
+    class TestLLM(LLM):
+        def _complete(self, messages, tools=None):
+            return LlmResponse(content="complete response")
+
+    llm = TestLLM(model="test")
+    assert llm.supports_native_streaming is False
+    assert list(llm.stream([Message(role="user", content="hello")])) == ["complete response"]

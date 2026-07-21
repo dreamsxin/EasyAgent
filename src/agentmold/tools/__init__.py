@@ -14,7 +14,7 @@ Example::
         *workspace_tools("./research", allow_write=True),
         *http_tools({"api.example.com"}),
     ]
-    agent = Agent(tools=tools, llm="gpt-4o-mini")
+    agent = Agent(tools=tools, llm="mock")
 """
 
 from __future__ import annotations
