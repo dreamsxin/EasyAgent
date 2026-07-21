@@ -31,5 +31,9 @@ class AgentLoadError(ConfigurationError):
     """Raised when a code-defined agent cannot be loaded or built."""
 
 
+class ToolLoadError(ConfigurationError):
+    """Raised when a code-defined tool module cannot be loaded."""
+
+
 class ExtensionLoadError(ConfigurationError):
     """Raised when an installed provider or tool extension is invalid."""

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
-from agentmold import Agent, AgentLoadError, load_agent
+from agentmold import Agent, AgentLoadError, ToolLoadError, load_agent, load_tools
 
 
 def test_load_agent_supports_sibling_imports(tmp_path):
@@ -65,3 +66,107 @@ def test_code_agent_signature_tracks_file_changes(tmp_path):
     agent_file.write_text("xx", encoding="utf-8")
     after = _code_agent_signature(agent_file)
     assert before != after
+
+
+def test_load_tools_accepts_explicit_tools_and_builder(tmp_path):
+    tools_file = tmp_path / "tools_list.py"
+    tools_file.write_text(
+        "from agentmold import tool\n"
+        "@tool\n"
+        "def add(a: int, b: int) -> int:\n"
+        "    return a + b\n"
+        "TOOLS = [add]\n",
+        encoding="utf-8",
+    )
+    builder_file = tmp_path / "tools_builder.py"
+    builder_file.write_text(
+        "from agentmold import tool\n"
+        "@tool\n"
+        "def greet(name: str) -> str:\n"
+        "    return f'Hello, {name}'\n"
+        "def build_tools():\n"
+        "    return [greet]\n",
+        encoding="utf-8",
+    )
+
+    assert [loaded.name for loaded in load_tools(tools_file)] == ["add"]
+    assert [loaded.name for loaded in load_tools(builder_file)] == ["greet"]
+
+
+def test_load_tools_supports_sibling_imports_inside_builder(tmp_path):
+    (tmp_path / "settings.py").write_text("PREFIX = 'Hello'\n", encoding="utf-8")
+    tools_file = tmp_path / "tools.py"
+    tools_file.write_text(
+        "from agentmold import tool\n"
+        "def build_tools():\n"
+        "    from settings import PREFIX\n"
+        "    @tool\n"
+        "    def greet(name: str) -> str:\n"
+        "        return f'{PREFIX}, {name}'\n"
+        "    return [greet]\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_tools(tools_file)
+
+    assert loaded[0]("Ada") == "Hello, Ada"
+
+
+def test_load_tools_isolates_concurrent_sibling_modules(tmp_path):
+    files = []
+    for index in range(2):
+        directory = tmp_path / f"project_{index}"
+        directory.mkdir()
+        (directory / "settings.py").write_text(f"VALUE = 'project-{index}'\n", encoding="utf-8")
+        tools_file = directory / "tools.py"
+        tools_file.write_text(
+            "from agentmold import tool\n"
+            "def build_tools():\n"
+            "    from settings import VALUE\n"
+            "    @tool\n"
+            "    def identity() -> str:\n"
+            "        return VALUE\n"
+            "    return [identity]\n",
+            encoding="utf-8",
+        )
+        files.append(tools_file)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        loaded = list(executor.map(load_tools, files))
+
+    assert [tools[0]() for tools in loaded] == ["project-0", "project-1"]
+
+
+@pytest.mark.parametrize(
+    "contents, message",
+    [
+        ("VALUE = 1\n", "exactly one of TOOLS"),
+        ("TOOLS = []\n", "non-empty list or tuple"),
+        (
+            "def plain():\n    return 'x'\nTOOLS = [plain]\n",
+            "expected Tool",
+        ),
+        (
+            "from agentmold import tool\n"
+            "@tool\n"
+            "def one():\n    return 1\n"
+            "TOOLS = [one]\n"
+            "def build_tools():\n    return [one]\n",
+            "exactly one of TOOLS",
+        ),
+        (
+            "from agentmold import tool\n"
+            "@tool\n"
+            "def one():\n    return 1\n"
+            "TOOLS = [one, one]\n",
+            "duplicate tool name",
+        ),
+        ("raise RuntimeError('boom')\n", "Failed to load tools"),
+    ],
+)
+def test_load_tools_validates_module_contract(tmp_path, contents, message):
+    tools_file = tmp_path / "tools.py"
+    tools_file.write_text(contents, encoding="utf-8")
+
+    with pytest.raises(ToolLoadError, match=message):
+        load_tools(tools_file)

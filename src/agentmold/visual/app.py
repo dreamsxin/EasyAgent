@@ -21,10 +21,19 @@ from typing import Any
 
 from agentmold.visual.codegen import api_key_environment, generate_agent_python
 from agentmold.visual.settings import (
+    delete_visual_agent_config,
     delete_visual_profile,
+    load_visual_agent_config,
     load_visual_profiles,
+    save_visual_agent_config,
     save_visual_profile,
     visual_profile_key,
+)
+from agentmold.visual.tool_uploads import (
+    delete_uploaded_tools,
+    resolve_uploaded_tool,
+    save_uploaded_tool,
+    uploaded_tools_signature,
 )
 from agentmold.visual.traces import (
     merge_trace_runs,
@@ -67,15 +76,17 @@ def _build_agent(
     llm: str | dict[str, Any],
     selected_tools: list,
     max_iterations: int,
+    available_tools: dict[str, Any] | None = None,
 ):
     """Construct an Agent from the UI configuration."""
     from agentmold import Agent, LogLevel
     from agentmold.tools import calculate
 
-    # The visual editor only exposes side-effect-free tools. Workspace and
-    # network tools require explicit policy configuration in Python.
-    tool_map = {calculate.name: calculate}
-    tools = [tool_map[n] for n in selected_tools if n in tool_map]
+    tool_map = available_tools or {calculate.name: calculate}
+    missing = [tool_name for tool_name in selected_tools if tool_name not in tool_map]
+    if missing:
+        raise ValueError(f"工具不可用: {', '.join(missing)}")
+    tools = [tool_map[tool_name] for tool_name in selected_tools]
 
     return Agent(
         name=name,
@@ -87,7 +98,14 @@ def _build_agent(
     )
 
 
-def _agent_signature(name, instructions, llm, selected_tools, max_iterations):
+def _agent_signature(
+    name,
+    instructions,
+    llm,
+    selected_tools,
+    max_iterations,
+    tool_signature=(),
+):
     """A hashable fingerprint of the config, to detect changes."""
     return (
         name,
@@ -95,7 +113,44 @@ def _agent_signature(name, instructions, llm, selected_tools, max_iterations):
         _llm_signature(llm),
         tuple(sorted(selected_tools)),
         max_iterations,
+        tuple(tool_signature),
     )
+
+
+def _load_visual_tools(
+    filenames: list[str],
+    directory: str | Path = ".agentmold/visual_tools",
+) -> tuple[dict[str, Any], dict[str, str], list[str]]:
+    """Load built-in and uploaded tools with explicit origin and conflict reporting."""
+    from agentmold import load_tools
+    from agentmold.tools import calculate
+
+    tools = {calculate.name: calculate}
+    origins = {calculate.name: "内置"}
+    errors: list[str] = []
+    for filename in filenames:
+        path = resolve_uploaded_tool(filename, directory)
+        if path is None:
+            errors.append(f"{filename}: 文件不存在，请重新上传或清除记录。")
+            continue
+        try:
+            loaded = load_tools(path)
+        except Exception as exc:  # noqa: BLE001 - user modules can fail arbitrarily
+            errors.append(f"{filename}: {exc}")
+            continue
+        conflicts = [loaded_tool.name for loaded_tool in loaded if loaded_tool.name in tools]
+        if conflicts:
+            errors.append(f"{filename}: 工具名冲突 ({', '.join(conflicts)})，该模块未加载。")
+            continue
+        for loaded_tool in loaded:
+            tools[loaded_tool.name] = loaded_tool
+            origins[loaded_tool.name] = f"上传 · {filename}"
+    return tools, origins, errors
+
+
+def _tool_widget_key(tool_name: str) -> str:
+    digest = hashlib.sha256(tool_name.encode("utf-8")).hexdigest()[:12]
+    return f"ea_tool_{digest}"
 
 
 def _llm_signature(llm: str | dict[str, Any]) -> str:
@@ -449,15 +504,22 @@ def _render_code_export(
     max_iterations: int,
 ) -> None:
     """Render a readable agent.py preview and download action."""
-    source = generate_agent_python(
-        name=name,
-        instructions=instructions,
-        llm=llm,
-        selected_tools=selected_tools,
-        max_iterations=max_iterations,
-    )
-    environment = api_key_environment(llm)
     with st.expander("PYTHON EXPORT · agent.py", expanded=False):
+        custom_tools = [tool_name for tool_name in selected_tools if tool_name != "calculate"]
+        if custom_tools:
+            st.warning(
+                "当前 Agent 使用上传工具，单文件导出已停用：agent.py 无法单独携带本地工具模块。"
+            )
+            st.caption(f"先取消选择这些工具再导出：{', '.join(custom_tools)}")
+            return
+        source = generate_agent_python(
+            name=name,
+            instructions=instructions,
+            llm=llm,
+            selected_tools=selected_tools,
+            max_iterations=max_iterations,
+        )
+        environment = api_key_environment(llm)
         action_col, status_col = st.columns([1, 2])
         action_col.download_button(
             "下载 agent.py",
@@ -923,7 +985,6 @@ def _run_app() -> None:
     import streamlit as st
     from streamlit_agraph import Config, agraph
 
-    from agentmold.tools import calculate
     from agentmold.visual.graph import STEP_COLORS, trace_to_graph
 
     st.set_page_config(page_title="EasyAgent Research Console", page_icon="◈", layout="wide")
@@ -948,6 +1009,16 @@ def _run_app() -> None:
     # Sidebar: either load a code-defined agent or configure a small demo.
     # ------------------------------------------------------------------
     agent_file = _agent_file_from_argv()
+    restored_agent_config = False
+    connection_types = [
+        "Mock（离线）",
+        "DeepSeek OpenAI",
+        "DeepSeek Anthropic",
+        "OpenAI 兼容",
+        "Anthropic 兼容",
+        "Ollama（本地）",
+        "自定义提供商",
+    ]
     if agent_file is not None:
         st.sidebar.header("📄 代码 Agent")
         st.sidebar.code(str(agent_file), language="text")
@@ -956,14 +1027,45 @@ def _run_app() -> None:
         name = instructions = llm = ""
         selected_tools = []
         max_iterations = 0
+        tool_signature = ()
+        available_tools: dict[str, Any] = {}
         build_clicked = False
     else:
         st.sidebar.header("⚙️ Agent 配置")
-        name = st.sidebar.text_input("Agent 名称", value="Assistant")
+        saved_agent_config = load_visual_agent_config()
+        if "ea_visual_config_initialized" not in st.session_state:
+            saved_connection = saved_agent_config.get("connection_type", "Mock（离线）")
+            saved_interface = saved_agent_config.get("custom_interface", "OpenAI 兼容")
+            st.session_state.ea_agent_name = saved_agent_config.get("name", "Assistant")
+            st.session_state.ea_agent_instructions = saved_agent_config.get(
+                "instructions", "You are a helpful assistant. Use tools when useful."
+            )
+            st.session_state.ea_connection_type = (
+                saved_connection if saved_connection in connection_types else "Mock（离线）"
+            )
+            st.session_state.ea_custom_interface = (
+                saved_interface
+                if saved_interface in {"OpenAI 兼容", "Anthropic 兼容"}
+                else "OpenAI 兼容"
+            )
+            st.session_state.ea_max_iterations = saved_agent_config.get("max_iterations", 10)
+            st.session_state.ea_custom_tool_files = saved_agent_config.get("custom_tool_files", [])
+            st.session_state.ea_restored_tool_names = saved_agent_config.get(
+                "selected_tools", ["calculate"]
+            )
+            st.session_state.ea_visual_config_initialized = True
+            restored_agent_config = bool(saved_agent_config)
+            if restored_agent_config:
+                st.session_state.ea_agent_notice = "已恢复并生成上次 Agent 配置"
+
+        agent_notice = st.session_state.pop("ea_agent_notice", None)
+        if agent_notice:
+            st.toast(agent_notice, icon="🔄")
+        name = st.sidebar.text_input("Agent 名称", key="ea_agent_name")
         instructions = st.sidebar.text_area(
             "指令（系统提示）",
-            value="You are a helpful assistant. Use tools when useful.",
             height=100,
+            key="ea_agent_instructions",
         )
         saved_profiles = load_visual_profiles()
         profile_notice = st.session_state.pop("ea_profile_notice", None)
@@ -971,15 +1073,8 @@ def _run_app() -> None:
             st.toast(profile_notice, icon="💾")
         connection_type = st.sidebar.selectbox(
             "接口提供商",
-            options=[
-                "Mock（离线）",
-                "DeepSeek OpenAI",
-                "DeepSeek Anthropic",
-                "OpenAI 兼容",
-                "Anthropic 兼容",
-                "Ollama（本地）",
-                "自定义提供商",
-            ],
+            options=connection_types,
+            key="ea_connection_type",
             help="自定义提供商可连接任意 OpenAI 或 Anthropic 兼容接口。",
         )
         custom_interface = "OpenAI 兼容"
@@ -987,6 +1082,7 @@ def _run_app() -> None:
             custom_interface = st.sidebar.selectbox(
                 "自定义接口类型",
                 options=["OpenAI 兼容", "Anthropic 兼容"],
+                key="ea_custom_interface",
                 help="选择服务端遵循的请求协议。",
             )
         profile_key = visual_profile_key(connection_type, custom_interface)
@@ -1027,19 +1123,16 @@ def _run_app() -> None:
         with st.sidebar.expander("接口参数", expanded=connection_type != "Mock（离线）"):
             model = st.text_input(
                 "模型",
-                value=profile_defaults["model"],
                 key=f"ea_model_{widget_suffix}",
             )
             api_key = st.text_input(
                 "API Key",
-                value=profile_defaults["api_key"],
                 type="password",
                 key=f"ea_api_key_{widget_suffix}",
                 help="点击保存配置后会以明文写入项目本地配置文件；不会写入 trace。",
             )
             base_url = st.text_input(
                 "Base URL",
-                value=profile_defaults["base_url"],
                 key=f"ea_base_url_{widget_suffix}",
                 help="填服务根地址，不要填完整的 chat/completions 路径。",
             )
@@ -1047,7 +1140,6 @@ def _run_app() -> None:
                 "Temperature",
                 min_value=0.0,
                 max_value=2.0,
-                value=float(profile_defaults["temperature"]),
                 step=0.1,
                 key=f"ea_temperature_{widget_suffix}",
             )
@@ -1055,7 +1147,6 @@ def _run_app() -> None:
                 "请求超时（秒）",
                 min_value=1.0,
                 max_value=300.0,
-                value=float(profile_defaults["timeout"]),
                 step=1.0,
                 key=f"ea_timeout_{widget_suffix}",
             )
@@ -1063,7 +1154,6 @@ def _run_app() -> None:
                 "最大输出 tokens",
                 min_value=1,
                 max_value=131072,
-                value=int(profile_defaults["max_tokens"]),
                 step=256,
                 key=f"ea_max_tokens_{widget_suffix}",
             )
@@ -1112,21 +1202,138 @@ def _run_app() -> None:
             max_tokens,
             custom_interface,
         )
-        max_iterations = st.sidebar.slider("最大迭代次数", min_value=1, max_value=20, value=10)
+        max_iterations = st.sidebar.slider(
+            "最大迭代次数",
+            min_value=1,
+            max_value=20,
+            key="ea_max_iterations",
+        )
 
         st.sidebar.divider()
         st.sidebar.header("🛠️ 工具")
-        safe_tools = [calculate]
-        tool_names = [t.name for t in safe_tools]
-        tool_help = {t.name: t.description for t in safe_tools}
+        with st.sidebar.expander(
+            "自定义工具模块",
+            expanded=bool(st.session_state.ea_custom_tool_files),
+        ):
+            st.warning("上传的 Python 文件会在本机执行，拥有与 Streamlit 服务相同的权限。")
+            st.caption("模块必须导出 `TOOLS` 或零参数 `build_tools()`，且返回 `Tool` 列表。")
+            st.code(
+                "from agentmold import tool\n\n"
+                "@tool\n"
+                "def my_tool(text: str) -> str:\n"
+                "    return text\n\n"
+                "TOOLS = [my_tool]",
+                language="python",
+            )
+            upload_epoch = st.session_state.get("ea_tool_upload_epoch", 0)
+            uploaded_modules = st.file_uploader(
+                "上传 .py 工具模块",
+                type=["py"],
+                accept_multiple_files=True,
+                key=f"ea_custom_tool_upload_{upload_epoch}",
+                help="每个文件必须遵循 EasyAgent 自定义工具模块接口。最大 1 MB。",
+            )
+            configured_files = list(st.session_state.ea_custom_tool_files)
+            added_files: list[str] = []
+            for uploaded_module in uploaded_modules or []:
+                try:
+                    stored = save_uploaded_tool(uploaded_module.name, uploaded_module.getvalue())
+                except (OSError, ValueError) as exc:
+                    st.error(f"{uploaded_module.name}: {exc}")
+                    continue
+                configured_files = [
+                    filename
+                    for filename in configured_files
+                    if resolve_uploaded_tool(filename) is not None
+                ]
+                if stored.name not in configured_files:
+                    configured_files.append(stored.name)
+                    added_files.append(stored.name)
+            if added_files:
+                st.session_state.ea_custom_tool_files = configured_files
+                st.toast(f"已保存 {len(added_files)} 个工具模块", icon="🧩")
+
+            clear_modules = st.button(
+                "清除上传工具",
+                disabled=not bool(st.session_state.ea_custom_tool_files),
+                use_container_width=True,
+                key="ea_clear_uploaded_tools",
+            )
+            if clear_modules:
+                delete_uploaded_tools(st.session_state.ea_custom_tool_files)
+                st.session_state.ea_custom_tool_files = []
+                keep_calculate = bool(st.session_state.get(_tool_widget_key("calculate"), True))
+                st.session_state.ea_restored_tool_names = ["calculate"] if keep_calculate else []
+                for key in list(st.session_state):
+                    if key.startswith("ea_tool_") and key != "ea_tool_upload_epoch":
+                        st.session_state.pop(key, None)
+                st.session_state.ea_tool_upload_epoch = upload_epoch + 1
+                st.session_state.pop("ea_visual_tool_cache_signature", None)
+                st.session_state.ea_agent_notice = "已清除上传工具"
+                st.rerun()
+
+        custom_tool_files = list(st.session_state.ea_custom_tool_files)
+        tool_signature = uploaded_tools_signature(custom_tool_files)
+        if st.session_state.get("ea_visual_tool_cache_signature") != tool_signature:
+            tool_map, tool_origins, tool_errors = _load_visual_tools(custom_tool_files)
+            st.session_state.ea_visual_tool_cache_signature = tool_signature
+            st.session_state.ea_visual_tool_map = tool_map
+            st.session_state.ea_visual_tool_origins = tool_origins
+            st.session_state.ea_visual_tool_errors = tool_errors
+        available_tools = st.session_state.ea_visual_tool_map
+        tool_origins = st.session_state.ea_visual_tool_origins
+        for tool_error in st.session_state.ea_visual_tool_errors:
+            st.sidebar.error(tool_error)
+
+        restored_tool_names = set(st.session_state.ea_restored_tool_names)
         selected_tools = []
-        for tn in tool_names:
-            if st.sidebar.checkbox(tn, value=(tn == "calculate"), help=tool_help.get(tn, "")):
-                selected_tools.append(tn)
+        for tool_name, visual_tool in available_tools.items():
+            widget_key = _tool_widget_key(tool_name)
+            if widget_key not in st.session_state:
+                st.session_state[widget_key] = tool_name in restored_tool_names
+            label = f"{tool_name}  ·  {tool_origins[tool_name]}"
+            if st.sidebar.checkbox(
+                label,
+                key=widget_key,
+                help=visual_tool.description or "未提供工具说明",
+            ):
+                selected_tools.append(tool_name)
+
+        current_agent_config = {
+            "name": name,
+            "instructions": instructions,
+            "connection_type": connection_type,
+            "custom_interface": custom_interface,
+            "max_iterations": max_iterations,
+            "selected_tools": selected_tools,
+            "custom_tool_files": custom_tool_files,
+        }
+        if current_agent_config != load_visual_agent_config():
+            try:
+                save_visual_agent_config(current_agent_config)
+            except OSError as exc:
+                st.sidebar.error(f"保存 Agent 配置失败: {exc}")
 
         st.sidebar.divider()
-        build_clicked = st.sidebar.button("🔨 生成 Agent", type="primary", use_container_width=True)
+        build_clicked = (
+            st.sidebar.button("🔨 生成 Agent", type="primary", use_container_width=True)
+            or restored_agent_config
+        )
         reload_clicked = False
+        if st.sidebar.button("恢复 Agent 默认值", use_container_width=True):
+            delete_visual_agent_config()
+            for tool_name in available_tools:
+                st.session_state.pop(_tool_widget_key(tool_name), None)
+            for key in list(st.session_state):
+                if key.startswith("ea_agent_") or key in {
+                    "ea_connection_type",
+                    "ea_custom_interface",
+                    "ea_max_iterations",
+                    "ea_restored_tool_names",
+                    "ea_visual_config_initialized",
+                }:
+                    st.session_state.pop(key, None)
+            st.rerun()
     if st.sidebar.button("🔄 重置会话", use_container_width=True):
         st.session_state.clear()
         st.rerun()
@@ -1134,7 +1341,7 @@ def _run_app() -> None:
     # ------------------------------------------------------------------
     # Build / rebuild the Agent.
     #
-    # - First time (no agent yet): requires the "🔨 生成 Agent" button.
+    # - First time: requires the build button, unless saved config was restored.
     # - Config changed afterwards: auto-rebuild silently + show a soft
     #   hint, so the user is never blocked from chatting. This mirrors
     #   the code model where you can tweak config and call run() again
@@ -1150,7 +1357,14 @@ def _run_app() -> None:
     current_sig = (
         _code_agent_signature(agent_file)
         if agent_file is not None
-        else _agent_signature(name, instructions, llm, selected_tools, max_iterations)
+        else _agent_signature(
+            name,
+            instructions,
+            llm,
+            selected_tools,
+            max_iterations,
+            tool_signature,
+        )
     )
     config_changed = st.session_state.agent_signature != current_sig
     auto_rebuilt = False  # set True if we silently rebuilt this render
@@ -1173,7 +1387,12 @@ def _run_app() -> None:
     elif build_clicked:
         try:
             st.session_state.agent = _build_agent(
-                name, instructions, llm, selected_tools, max_iterations
+                name,
+                instructions,
+                llm,
+                selected_tools,
+                max_iterations,
+                available_tools,
             )
             st.session_state.agent_signature = current_sig
             # Fresh conversation for the new agent.
@@ -1198,7 +1417,12 @@ def _run_app() -> None:
     if agent_file is None and agent is not None and config_changed:
         try:
             st.session_state.agent = _build_agent(
-                name, instructions, llm, selected_tools, max_iterations
+                name,
+                instructions,
+                llm,
+                selected_tools,
+                max_iterations,
+                available_tools,
             )
             st.session_state.agent_signature = current_sig
             # Keep existing conversation history — only the agent changed.

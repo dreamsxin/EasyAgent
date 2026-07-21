@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from agentmold.visual.app import (
     _agent_signature,
+    _build_agent,
     _initial_run_meta,
     _llm_config_from_ui,
     _llm_signature,
+    _load_visual_tools,
     _run_metrics_html,
     _timeline_html,
 )
@@ -91,6 +93,53 @@ def test_agent_signature_changes_with_instructions():
     before = _agent_signature("A", "old", "mock", ["calculate"], 10)
     after = _agent_signature("A", "new", "mock", ["calculate"], 10)
     assert before != after
+
+
+def test_agent_signature_changes_with_uploaded_tool_content():
+    before = _agent_signature("A", "prompt", "mock", ["custom"], 10, (("tools.py", "a"),))
+    after = _agent_signature("A", "prompt", "mock", ["custom"], 10, (("tools.py", "b"),))
+    assert before != after
+
+
+def test_visual_tool_loader_builds_agent_with_uploaded_tool(tmp_path):
+    from agentmold.visual.tool_uploads import save_uploaded_tool
+
+    stored = save_uploaded_tool(
+        "notes.py",
+        b"from agentmold import tool\n"
+        b"@tool\n"
+        b"def note(text: str) -> str:\n"
+        b"    return text.upper()\n"
+        b"TOOLS = [note]\n",
+        tmp_path,
+    )
+
+    tools, origins, errors = _load_visual_tools([stored.name], tmp_path)
+    agent = _build_agent("A", "prompt", "mock", ["note"], 4, tools)
+
+    assert errors == []
+    assert origins["calculate"] == "内置"
+    assert origins["note"].startswith("上传")
+    assert [item.name for item in agent.tools] == ["note"]
+
+
+def test_visual_tool_loader_rejects_name_conflicts(tmp_path):
+    from agentmold.visual.tool_uploads import save_uploaded_tool
+
+    stored = save_uploaded_tool(
+        "conflict.py",
+        b"from agentmold import tool\n"
+        b"@tool\n"
+        b"def calculate(expression: str) -> str:\n"
+        b"    return expression\n"
+        b"TOOLS = [calculate]\n",
+        tmp_path,
+    )
+
+    tools, _, errors = _load_visual_tools([stored.name], tmp_path)
+
+    assert list(tools) == ["calculate"]
+    assert "工具名冲突" in errors[0]
 
 
 def test_timeline_renders_events_and_escapes_content():

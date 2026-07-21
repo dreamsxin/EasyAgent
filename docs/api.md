@@ -56,6 +56,19 @@ The file must define a zero-argument `build_agent()` returning an `Agent`. The s
 loader is used by `easyagent run` and `easyagent visual --file`, so the visual lab can
 inspect a code-defined agent without introducing a second configuration format.
 
+## `load_tools`
+
+```python
+from agentmold import load_tools
+
+tools = load_tools("my_tools.py")
+```
+
+The module must export exactly one of `TOOLS` or a zero-argument `build_tools()`.
+The export must be a non-empty list or tuple of unique `Tool` objects. Plain functions
+are rejected; decorate them explicitly with `@tool`. Importing a module executes ordinary
+Python with the current process permissions. See [Custom tool modules](custom-tools.md).
+
 ## Retries, timeouts, and cancellation
 
 LLM configuration accepts framework-level retries and provider-native request timeouts:
