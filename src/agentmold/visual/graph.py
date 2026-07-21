@@ -41,16 +41,14 @@ def _label_for_step(step: dict[str, Any]) -> str:
         return f"🔧 {step.get('name', '?')}"
     if stype == "tool_result":
         name = step.get("name", "?")
-        content = step.get("content", "")
-        preview = content[:40] + ("…" if len(content) > 40 else "")
-        return f"✅ {name}: {preview}"
+        return f"✅ {name} · result"
     if stype == "answer":
         content = step.get("content", "")
-        preview = content[:50] + ("…" if len(content) > 50 else "")
+        preview = content[:18] + ("…" if len(content) > 18 else "")
         return f"💬 {preview}"
     if stype == "user":
         content = step.get("content", "")
-        preview = content[:40] + ("…" if len(content) > 40 else "")
+        preview = content[:16] + ("…" if len(content) > 16 else "")
         return f"👤 {preview}"
     if stype == "error":
         return f"❌ {step.get('content', '')[:40]}"

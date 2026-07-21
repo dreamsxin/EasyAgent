@@ -107,6 +107,7 @@ easyagent visual --file agent.py
 
 实验室采用深色研究控制台主题：对话、实时事件时间线和执行图会同时保留，方便快速定位
 工具调用、结果与最终回答之间的关系。
+运行状态面板会持续显示当前阶段、事件数、工具调用数、耗时和 Run ID；失败时保留错误摘要。
 
 侧栏的 **接口提供商** 支持 `Mock`、DeepSeek、OpenAI/Anthropic 兼容接口、Ollama
 和自定义提供商。选择自定义提供商后，只需选择接口类型并填写模型、API Key、Base URL、

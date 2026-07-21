@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from agentmold.visual.app import (
     _agent_signature,
+    _initial_run_meta,
     _llm_config_from_ui,
     _llm_signature,
+    _run_metrics_html,
     _timeline_html,
 )
 from agentmold.visual.graph import STEP_COLORS, trace_to_graph
@@ -150,3 +152,25 @@ def test_custom_anthropic_config_and_key_redaction():
 
 def test_mock_config_does_not_require_credentials():
     assert _llm_config_from_ui("Mock（离线）", "ignored", "", "", 0.7, 30, 4096) == "mock"
+
+
+def test_run_metrics_show_status_and_escape_errors():
+    meta = _initial_run_meta()
+    meta.update(
+        {
+            "state": "error",
+            "phase": "执行失败",
+            "event_count": 3,
+            "tool_calls": 1,
+            "duration_ms": 42.4,
+            "run_id": "0123456789abcdef",
+            "error": "bad <response>",
+        }
+    )
+    rendered = _run_metrics_html(meta)
+    assert "ERROR" in rendered
+    assert "EVENTS" in rendered
+    assert "42 ms" in rendered
+    assert "0123456789ab" in rendered
+    assert "bad &lt;response&gt;" in rendered
+    assert "bad <response>" not in rendered

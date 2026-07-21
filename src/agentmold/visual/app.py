@@ -15,6 +15,7 @@ import hashlib
 import html
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -173,6 +174,51 @@ def _timeline_html(steps: list[dict]) -> str:
     return "<div class='ea-timeline'>" + "".join(rows) + "</div>"
 
 
+def _run_metrics_html(meta: dict[str, Any]) -> str:
+    """Render the current run state as a compact status strip."""
+    state = str(meta.get("state", "idle"))
+    labels = {
+        "idle": ("IDLE", "待命", "ea-state-idle"),
+        "running": ("RUNNING", str(meta.get("phase", "执行中")), "ea-state-running"),
+        "complete": ("COMPLETE", "已完成", "ea-state-complete"),
+        "error": ("ERROR", "执行失败", "ea-state-error"),
+    }
+    state_label, phase, state_class = labels.get(state, (state.upper(), state, "ea-state-idle"))
+    duration = meta.get("duration_ms")
+    duration_text = f"{float(duration):.0f} ms" if duration is not None else "—"
+    run_id = str(meta.get("run_id") or "—")
+    if len(run_id) > 12:
+        run_id = run_id[:12]
+    error = str(meta.get("error") or "")
+    error_html = f"<div class='ea-run-error'>{html.escape(error[:180])}</div>" if error else ""
+    return (
+        f"<div class='ea-run-metrics {state_class}'>"
+        f"<div class='ea-run-state'><span>{html.escape(state_label)}</span>"
+        f"<strong>{html.escape(phase)}</strong></div>"
+        "<div class='ea-run-metric'><span>EVENTS</span>"
+        f"<strong>{int(meta.get('event_count', 0))}</strong></div>"
+        "<div class='ea-run-metric'><span>TOOLS</span>"
+        f"<strong>{int(meta.get('tool_calls', 0))}</strong></div>"
+        "<div class='ea-run-metric'><span>TIME</span>"
+        f"<strong>{html.escape(duration_text)}</strong></div>"
+        f"<div class='ea-run-id'><span>RUN</span><strong>{html.escape(run_id)}</strong></div>"
+        f"{error_html}</div>"
+    )
+
+
+def _initial_run_meta() -> dict[str, Any]:
+    """Return the stable shape used by the visual run status panel."""
+    return {
+        "state": "idle",
+        "phase": "待命",
+        "event_count": 0,
+        "tool_calls": 0,
+        "duration_ms": None,
+        "run_id": None,
+        "error": None,
+    }
+
+
 def _inject_theme(st) -> None:
     """Apply the visual research-console theme without changing Streamlit semantics."""
     st.markdown(
@@ -287,6 +333,64 @@ def _inject_theme(st) -> None:
             padding: 0.55rem 0.7rem;
         }
         .ea-status-line strong { color: var(--ea-lime); }
+        .ea-run-metrics {
+            align-items: stretch;
+            background: #0c131d;
+            border: 1px solid var(--ea-line);
+            border-radius: 8px;
+            display: grid;
+            gap: 0.5rem;
+            grid-template-columns: minmax(8rem, 1.5fr) repeat(3, minmax(4.2rem, 0.75fr))
+                minmax(5rem, 1fr);
+            margin-bottom: 0.8rem;
+            padding: 0.55rem;
+        }
+        .ea-run-state,
+        .ea-run-metric,
+        .ea-run-id {
+            border-right: 1px solid #1d2a39;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-width: 0;
+            padding: 0.2rem 0.6rem;
+        }
+        .ea-run-id { border-right: 0; }
+        .ea-run-state span,
+        .ea-run-metric span,
+        .ea-run-id span {
+            color: #62758b;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+        }
+        .ea-run-state strong,
+        .ea-run-metric strong,
+        .ea-run-id strong {
+            color: var(--ea-text);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.82rem;
+            margin-top: 0.2rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .ea-state-running { border-color: #3c8c7a; }
+        .ea-state-running .ea-run-state strong { color: var(--ea-lime); }
+        .ea-state-complete { border-color: #5c4b83; }
+        .ea-state-complete .ea-run-state strong { color: var(--ea-magenta); }
+        .ea-state-error { border-color: #9a4b54; }
+        .ea-state-error .ea-run-state strong { color: #ff8c8c; }
+        .ea-run-error {
+            border-top: 1px solid #6b353e;
+            color: #ff9a9a;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.72rem;
+            grid-column: 1 / -1;
+            overflow-wrap: anywhere;
+            padding: 0.5rem 0.6rem 0.1rem;
+        }
         .ea-timeline {
             background: #0c131d;
             border: 1px solid var(--ea-line);
@@ -383,9 +487,38 @@ def _inject_theme(st) -> None:
             border-radius: 8px;
             padding: 0.7rem;
         }
-        @media (max-width: 900px) {
+        iframe[title="streamlit_agraph.agraph"] {
+            background: #f3f6f9;
+            border: 1px solid #d4dae2;
+            border-radius: 8px;
+            filter: invert(0.92) hue-rotate(180deg);
+            max-width: 100%;
+        }
+        .ea-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin-top: 0.55rem;
+        }
+        .ea-legend-item {
+            align-items: center;
+            border: 1px solid var(--ea-line);
+            border-radius: 999px;
+            color: var(--ea-muted);
+            display: inline-flex;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.65rem;
+            gap: 0.3rem;
+            padding: 0.22rem 0.45rem;
+            white-space: nowrap;
+        }
+        @media (max-width: 1200px) {
             .main .block-container { padding: 1.2rem 1rem 3rem; }
             .ea-title { font-size: 2rem; }
+            .ea-run-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .ea-run-state,
+            .ea-run-metric,
+            .ea-run-id { border-right: 0; }
         }
         </style>
         """,
@@ -558,6 +691,8 @@ def _run_app() -> None:
         st.session_state.agent_signature = None
     if "agent" not in st.session_state:
         st.session_state.agent = None
+    if "run_meta" not in st.session_state:
+        st.session_state.run_meta = _initial_run_meta()
 
     current_sig = (
         _code_agent_signature(agent_file)
@@ -579,6 +714,7 @@ def _run_app() -> None:
                 st.session_state.messages = []
                 st.session_state.last_steps = []
                 st.session_state.last_user_input = None
+                st.session_state.run_meta = _initial_run_meta()
             except Exception as exc:  # noqa: BLE001
                 st.sidebar.error(f"加载失败: {exc}")
     elif build_clicked:
@@ -591,6 +727,7 @@ def _run_app() -> None:
             st.session_state.messages = []
             st.session_state.last_steps = []
             st.session_state.last_user_input = None
+            st.session_state.run_meta = _initial_run_meta()
             st.toast(f"✅ Agent「{name}」已生成！", icon="🚀")
             st.rerun()
         except Exception as exc:  # noqa: BLE001
@@ -659,26 +796,72 @@ def _run_app() -> None:
             # Stream the execution, collecting steps for the graph.
             steps: list[dict] = []
             answer_text = ""
+            run_started = time.perf_counter()
+            run_meta = _initial_run_meta()
+            run_meta.update({"state": "running", "phase": "思考中"})
+            st.session_state.run_meta = run_meta
             with st.chat_message("assistant"):
                 status = st.status("思考中…", expanded=True)
                 live_timeline = st.empty()
+                live_metrics = st.empty()
+                live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                 try:
                     for step in agent.run_stream(user_input):
                         steps.append(step)
+                        trace = agent.last_trace
+                        if trace is not None:
+                            run_meta["run_id"] = trace.run_id
+                        run_meta["event_count"] = len(steps)
+                        run_meta["tool_calls"] = sum(
+                            item.get("type") == "tool_call" for item in steps
+                        )
+                        run_meta["duration_ms"] = round(
+                            (time.perf_counter() - run_started) * 1000, 1
+                        )
                         live_timeline.markdown(_timeline_html(steps), unsafe_allow_html=True)
                         if step["type"] == "tool_call":
+                            run_meta["phase"] = f"调用 {step['name']}"
                             status.update(label=f"🔧 调用 {step['name']}…")
                             st.write(f"🔧 **工具调用:** `{step['name']}({step['arguments']})`")
                         elif step["type"] == "tool_result":
+                            run_meta["phase"] = "等待模型"
                             st.write(f"✅ **结果:** `{step['content'][:200]}`")
                         elif step["type"] == "answer":
                             answer_text = step["content"]
+                            run_meta["phase"] = "生成回答"
                             status.update(label="完成！", state="complete", expanded=False)
+                        live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                 except Exception as exc:  # noqa: BLE001
+                    run_meta.update(
+                        {
+                            "state": "error",
+                            "phase": "执行失败",
+                            "duration_ms": round((time.perf_counter() - run_started) * 1000, 1),
+                            "error": str(exc),
+                            "event_count": len(steps),
+                            "tool_calls": sum(item.get("type") == "tool_call" for item in steps),
+                        }
+                    )
+                    st.session_state.run_meta = run_meta
+                    live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                     status.update(label="出错", state="error")
                     st.error(f"Agent 出错: {exc}")
                     st.stop()
 
+                trace = agent.last_trace
+                run_meta.update(
+                    {
+                        "state": "complete",
+                        "phase": "已完成",
+                        "duration_ms": (
+                            trace.duration_ms
+                            if trace is not None and trace.duration_ms is not None
+                            else round((time.perf_counter() - run_started) * 1000, 1)
+                        ),
+                    }
+                )
+                st.session_state.run_meta = run_meta
+                live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                 if answer_text:
                     st.markdown(answer_text)
 
@@ -688,6 +871,11 @@ def _run_app() -> None:
             st.rerun()
 
     with col_graph:
+        st.markdown('<div class="ea-section-label">RUN STATUS</div>', unsafe_allow_html=True)
+        st.markdown(
+            _run_metrics_html(st.session_state.get("run_meta", _initial_run_meta())),
+            unsafe_allow_html=True,
+        )
         st.markdown('<div class="ea-section-label">RUN TIMELINE</div>', unsafe_allow_html=True)
         steps = st.session_state.get("last_steps", [])
         user_input = st.session_state.get("last_user_input")
@@ -698,23 +886,24 @@ def _run_app() -> None:
             st.markdown('<div class="ea-section-label">EXECUTION MAP</div>', unsafe_allow_html=True)
             nodes, edges = trace_to_graph(steps, user_input=user_input)
             config = Config(
-                width=500,
-                height=500,
+                width=300,
+                height=380,
                 directed=True,
-                physics=True,
+                physics=False,
                 hierarchical=True,
-                nodeSpacing=120,
+                levelSeparation=95,
+                nodeSpacing=82,
+                sortMethod="directed",
             )
             agraph(nodes=nodes, edges=edges, config=config)
 
-            # Legend
-            st.caption("图例:")
-            legend_cols = st.columns(len(STEP_COLORS))
-            for col, (stype, color) in zip(legend_cols, STEP_COLORS.items()):
-                col.markdown(
-                    f"<span style='color:{color}'>●</span> {stype}",
-                    unsafe_allow_html=True,
-                )
+            legend = "".join(
+                "<span class='ea-legend-item'>"
+                f"<span style='color:{color}'>●</span>{html.escape(stype)}"
+                "</span>"
+                for stype, color in STEP_COLORS.items()
+            )
+            st.markdown(f"<div class='ea-legend'>{legend}</div>", unsafe_allow_html=True)
 
 
 def _app_main() -> None:
