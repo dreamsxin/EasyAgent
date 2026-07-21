@@ -1,7 +1,8 @@
 """EasyAgent — The easiest way to build AI agents in Python."""
 
 from agentmold.agent import Agent, AgentEvent, AgentTrace, LogLevel
-from agentmold.exceptions import AgentLoadError
+from agentmold.discovery import discover_providers, discover_tools
+from agentmold.exceptions import AgentLoadError, ExtensionLoadError
 from agentmold.experiment import EvalCase, EvalReport, EvalResult, aevaluate, evaluate
 from agentmold.llm import LLM
 from agentmold.loading import load_agent
@@ -15,6 +16,7 @@ __all__ = [
     "AgentLoadError",
     "AgentEvent",
     "AgentTrace",
+    "ExtensionLoadError",
     "EvalCase",
     "EvalReport",
     "EvalResult",
@@ -25,6 +27,8 @@ __all__ = [
     "Tool",
     "VectorMemory",
     "aevaluate",
+    "discover_providers",
+    "discover_tools",
     "evaluate",
     "load_agent",
     "tool",

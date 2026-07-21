@@ -94,6 +94,17 @@ accepted by `load_agent()`: a readable `build_agent()` function with the current
 instructions, tools, model configuration, and iteration limit. Credentials are represented
 as provider environment variables instead of being embedded in the downloaded source.
 
+## Extension discovery
+
+`discover_providers()` loads `agentmold.providers` entry points and registers exported
+`LLM` subclasses by entry point name. `discover_tools()` loads `agentmold.tools` entry
+points and returns their exported `Tool` objects in deterministic order. Discovery is
+explicit, so importing EasyAgent never imports installed extensions automatically.
+
+Invalid exports, import failures, provider conflicts, and duplicate tool names raise
+`ExtensionLoadError`. See [Provider and tool extensions](extensions.md) for package metadata
+and complete examples.
+
 Use standard asyncio controls for a whole run:
 
 ```python

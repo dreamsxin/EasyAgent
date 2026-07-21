@@ -261,6 +261,21 @@ def read_file(file_path: str) -> str:
 
 EasyAgent 会自动从函数的**类型注解**和**docstring**生成工具描述，无需手动维护 JSON Schema。
 
+第三方包可以通过标准 Python Entry Points 提供 Provider 与 Tool，不需要修改 EasyAgent：
+
+```python
+from agentmold import Agent, discover_providers, discover_tools
+
+discover_providers()
+agent = Agent(
+    llm={"provider": "my-provider", "model": "my-model"},
+    tools=discover_tools(),
+)
+```
+
+扩展只会在显式调用发现函数时加载。入口点声明和错误处理见
+[Provider 与 Tool 扩展](docs/extensions.md)。
+
 ### 内置工具与权限策略
 
 `calculate` 是唯一默认导出的无副作用工具。文件和网络工具必须由应用显式配置权限：
@@ -411,6 +426,7 @@ print(report.mean_score)
 - [批量实验与评测](docs/evaluation.md)
 - [长期记忆 Collection](docs/memory.md)
 - [内置工具权限](docs/tool-policies.md)
+- [Provider 与 Tool 扩展](docs/extensions.md)
 - [教程与示例](examples/)
 - [Notebook 实验](examples/notebooks/)
 
