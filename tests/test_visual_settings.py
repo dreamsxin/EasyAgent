@@ -1,4 +1,4 @@
-"""Tests for non-secret visual provider profile persistence."""
+"""Tests for visual provider profile persistence."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from agentmold.visual.settings import (
 )
 
 
-def test_visual_profile_round_trip_excludes_api_key(tmp_path):
+def test_visual_profile_round_trip_includes_api_key(tmp_path):
     path = tmp_path / "profiles.json"
     key = visual_profile_key("自定义提供商", "OpenAI 兼容")
     save_visual_profile(
@@ -23,7 +23,7 @@ def test_visual_profile_round_trip_excludes_api_key(tmp_path):
             "temperature": 0.2,
             "timeout": 45,
             "max_tokens": 2048,
-            "api_key": "secret-key",
+            "api_key": "test-api-key",
             "unexpected": "drop-me",
         },
         path,
@@ -32,12 +32,15 @@ def test_visual_profile_round_trip_excludes_api_key(tmp_path):
     profiles = load_visual_profiles(path)
     assert profiles[key] == {
         "model": "research-model",
+        "api_key": "test-api-key",
         "base_url": "https://llm.example/v1",
         "temperature": 0.2,
         "timeout": 45,
         "max_tokens": 2048,
     }
-    assert "secret-key" not in path.read_text(encoding="utf-8")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert document["profiles"][key]["api_key"] == "test-api-key"
+    assert "drop-me" not in path.read_text(encoding="utf-8")
 
 
 def test_visual_profile_delete_and_corrupt_file_are_safe(tmp_path):

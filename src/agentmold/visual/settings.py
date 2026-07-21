@@ -1,4 +1,4 @@
-"""Persistence helpers for non-secret visual editor settings."""
+"""Persistence helpers for visual editor provider settings."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ __all__ = [
 
 _DEFAULT_PATH = Path(".agentmold/visual_profiles.json")
 _PERSISTED_FIELDS = {
+    "api_key",
     "model",
     "base_url",
     "temperature",
@@ -54,7 +55,7 @@ def save_visual_profile(
     settings: dict[str, Any],
     path: str | Path = _DEFAULT_PATH,
 ) -> Path:
-    """Persist one provider profile after dropping credentials and unknown fields."""
+    """Persist one provider profile after dropping unknown fields."""
     if not profile_key.strip():
         raise ValueError("profile_key must not be empty")
     safe = {key: settings[key] for key in _PERSISTED_FIELDS if key in settings}

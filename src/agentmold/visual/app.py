@@ -661,6 +661,7 @@ def _run_app() -> None:
             widget_suffix += f"-{custom_interface}"
         profile_defaults = {
             "model": _profile_setting(saved_profile, "model", default_model, str),
+            "api_key": _profile_setting(saved_profile, "api_key", "", str),
             "base_url": _profile_setting(saved_profile, "base_url", default_base_url, str),
             "temperature": _profile_setting(saved_profile, "temperature", 0.7, float),
             "timeout": _profile_setting(saved_profile, "timeout", 30.0, float),
@@ -668,6 +669,7 @@ def _run_app() -> None:
         }
         if st.session_state.get("ea_active_profile") != profile_key:
             st.session_state[f"ea_model_{widget_suffix}"] = profile_defaults["model"]
+            st.session_state[f"ea_api_key_{widget_suffix}"] = profile_defaults["api_key"]
             st.session_state[f"ea_base_url_{widget_suffix}"] = profile_defaults["base_url"]
             st.session_state[f"ea_temperature_{widget_suffix}"] = profile_defaults["temperature"]
             st.session_state[f"ea_timeout_{widget_suffix}"] = profile_defaults["timeout"]
@@ -681,10 +683,10 @@ def _run_app() -> None:
             )
             api_key = st.text_input(
                 "API Key",
-                value="",
+                value=profile_defaults["api_key"],
                 type="password",
                 key=f"ea_api_key_{widget_suffix}",
-                help="仅保存在当前 Streamlit 会话，不会写入项目文件或 trace。",
+                help="点击保存配置后会以明文写入项目本地配置文件；不会写入 trace。",
             )
             base_url = st.text_input(
                 "Base URL",
@@ -723,13 +725,14 @@ def _run_app() -> None:
                         profile_key,
                         {
                             "model": model,
+                            "api_key": api_key,
                             "base_url": base_url,
                             "temperature": temperature,
                             "timeout": timeout,
                             "max_tokens": max_tokens,
                         },
                     )
-                    st.session_state.ea_profile_notice = "接口配置已保存（API Key 不会保存）"
+                    st.session_state.ea_profile_notice = "接口配置已保存（含 API Key）"
                     st.rerun()
                 except OSError as exc:
                     st.error(f"保存配置失败: {exc}")
@@ -740,6 +743,7 @@ def _run_app() -> None:
             ):
                 delete_visual_profile(profile_key)
                 st.session_state.pop(f"ea_model_{widget_suffix}", None)
+                st.session_state.pop(f"ea_api_key_{widget_suffix}", None)
                 st.session_state.pop(f"ea_base_url_{widget_suffix}", None)
                 st.session_state.pop(f"ea_temperature_{widget_suffix}", None)
                 st.session_state.pop(f"ea_timeout_{widget_suffix}", None)
@@ -748,7 +752,7 @@ def _run_app() -> None:
                 st.session_state.ea_profile_notice = "已清除当前接口的本地配置"
                 st.rerun()
             if saved_profile:
-                st.caption("已自动加载本地保存配置；API Key 需要在当前会话重新输入。")
+                st.caption("已自动加载本地保存配置；API Key 以明文保存在项目本地文件中。")
         llm = _llm_config_from_ui(
             connection_type,
             model,
