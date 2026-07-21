@@ -7,8 +7,9 @@ agents.  Requires the ``visual`` extra::
 
 Launch with::
 
-    agentmold visual
+    easyagent visual
 """
+
 from __future__ import annotations
 
 import sys
@@ -28,7 +29,7 @@ def launch(args: list[str] | None = None) -> int:
     """
     try:
         import streamlit as _st  # noqa: F401
-    except ImportError as exc:
+    except ImportError:
         print(
             "Error: the visual editor requires Streamlit and streamlit-agraph.\n"
             "Install them with:  pip install 'agentmold[visual]'"

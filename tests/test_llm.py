@@ -1,10 +1,11 @@
 """Tests for LLM provider resolution."""
+
 from __future__ import annotations
 
 import pytest
 
-from agentmold.llm import LLM, LlmResponse, Message, create_llm, register_provider
 from agentmold.exceptions import ConfigurationError
+from agentmold.llm import LLM, LlmResponse, Message, create_llm, register_provider
 
 
 def test_create_llm_passes_through_instance():

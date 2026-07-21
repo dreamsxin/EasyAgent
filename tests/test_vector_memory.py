@@ -3,6 +3,7 @@
 These tests never touch the network: we inject a hash-based embedder so
 that semantically similar texts get similar vectors.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -89,3 +90,19 @@ def test_vector_memory_empty_content_not_persisted(vector_memory):
     vector_memory.add(Message(role="user", content=""))
     # The empty message must NOT be persisted to the vector store.
     assert vector_memory._collection.count() == 0
+
+
+def test_vector_memory_reopens_without_id_collisions_and_clears(tmp_path):
+    storage_path = str(tmp_path / "persistent-mem")
+    first = VectorMemory(storage_path=storage_path, embedder=_hash_embedder())
+    first.add(Message(role="user", content="first process message"))
+    first_id = first._stored_ids[0]
+
+    reopened = VectorMemory(storage_path=storage_path, embedder=_hash_embedder())
+    assert first_id in reopened._stored_ids
+    reopened.add(Message(role="assistant", content="second process message"))
+
+    assert reopened._collection.count() == 2
+    assert len(set(reopened._stored_ids)) == 2
+    reopened.clear()
+    assert reopened._collection.count() == 0

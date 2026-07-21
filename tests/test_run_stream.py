@@ -1,4 +1,5 @@
 """Tests for the Agent.run_stream() generator."""
+
 from __future__ import annotations
 
 import pytest

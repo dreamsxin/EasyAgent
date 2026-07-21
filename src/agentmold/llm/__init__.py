@@ -9,12 +9,13 @@ single :class:`LLM` interface.  The ``llm`` argument accepted by
 * a ready :class:`LLM` instance  →  for full control
 * a plain ``dict``  →  ``{"provider": "openai", "model": "gpt-4o-mini", ...}``
 """
+
 from __future__ import annotations
 
-import os
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Iterator, List, Optional
+from typing import Any
 
 from agentmold.exceptions import ConfigurationError, LLMError
 
@@ -39,13 +40,16 @@ class Message:
 
     role: str
     content: str
-    name: Optional[str] = None
-    tool_calls: List[dict] = field(default_factory=list)
+    name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d: dict = {"role": self.role, "content": self.content}
         if self.name:
             d["name"] = self.name
+        if self.tool_call_id:
+            d["tool_call_id"] = self.tool_call_id
         if self.tool_calls:
             d["tool_calls"] = self.tool_calls
         return d
@@ -56,7 +60,7 @@ class LlmResponse:
     """The result of an LLM completion call."""
 
     content: str
-    tool_calls: List[dict] = field(default_factory=list)
+    tool_calls: list[dict] = field(default_factory=list)
     raw: Any = None
 
 
@@ -76,8 +80,8 @@ class LLM(ABC):
     @abstractmethod
     def _complete(
         self,
-        messages: List[Message],
-        tools: Optional[List[Dict[str, Any]]] = None,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
     ) -> LlmResponse:
         """Perform a single (non-streaming) completion.
 
@@ -88,8 +92,8 @@ class LLM(ABC):
 
     def complete(
         self,
-        messages: List[Message],
-        tools: Optional[List[Dict[str, Any]]] = None,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
     ) -> LlmResponse:
         """Send ``messages`` (and optional ``tools``) to the model."""
         try:
@@ -100,7 +104,8 @@ class LLM(ABC):
             raise LLMError(f"{type(self).__name__} request failed: {exc}") from exc
 
     def stream(
-        self, messages: List[Message]  # noqa: ARG002 - unused by base
+        self,
+        messages: list[Message],  # noqa: ARG002 - unused by base
     ) -> Iterator[str]:
         """Yield content tokens one-by-one.
 
@@ -120,6 +125,9 @@ class LLM(ABC):
 # Built-in shorthand → provider name mapping.  Kept simple on purpose: any
 # model string that starts with a known prefix is routed to that provider.
 _MODEL_PREFIXES = {
+    "deepseek-anthropic/": "deepseek-anthropic",
+    "deepseek/": "deepseek",
+    "deepseek-": "deepseek",
     "gpt": "openai",
     "o1": "openai",
     "o3": "openai",
@@ -164,7 +172,7 @@ def register_provider(name: str, provider_cls: type[LLM]) -> None:
     LlmProvider.register(name, provider_cls)
 
 
-def create_llm(llm: "str | LLM | dict") -> LLM:
+def create_llm(llm: str | LLM | dict) -> LLM:
     """Resolve a flexible ``llm`` argument into an :class:`LLM` instance.
 
     * ``str``  → shorthand like ``"gpt-4o-mini"`` or ``"ollama/llama3"``
@@ -196,13 +204,12 @@ def create_llm(llm: "str | LLM | dict") -> LLM:
             return provider_cls(model=llm)
         provider_name = _provider_from_model(llm)
         provider_cls = LlmProvider.get(provider_name)
-        # For the ollama shorthand we strip the "ollama/" prefix.
-        model = llm.split("/", 1)[1] if llm.startswith("ollama/") else llm
+        # Provider/model shorthands keep the public string compact.
+        model = llm.split("/", 1)[1] if "/" in llm else llm
         return provider_cls(model=model)
 
     raise ConfigurationError(
-        f"Unsupported llm argument type: {type(llm).__name__}. "
-        "Expected str, dict, or LLM instance."
+        f"Unsupported llm argument type: {type(llm).__name__}. Expected str, dict, or LLM instance."
     )
 
 
@@ -238,16 +245,14 @@ class _MockLLM(LLM):
 
     def _complete(
         self,
-        messages: List[Message],
-        tools: Optional[List[Dict[str, Any]]] = None,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
     ) -> LlmResponse:
         # After a tool result, produce a final answer and stop.
         if messages and messages[-1].role == "tool":
             return LlmResponse(content=f"[mock-llm] Done. Used tool {messages[-1].name!r}.")
 
-        last_user = next(
-            (m for m in reversed(messages) if m.role == "user"), None
-        )
+        last_user = next((m for m in reversed(messages) if m.role == "user"), None)
         text = last_user.content if last_user else ""
         if "tool:" in text.lower() and tools:
             # Call the first available tool so the demo loop is realistic.
@@ -255,7 +260,8 @@ class _MockLLM(LLM):
             # Derive a minimal arguments dict from the tool's schema.
             props = tools[0].get("parameters", {}).get("properties", {})
             arguments = {
-                pname: text for pname in props  # pass the user text to every param
+                pname: text
+                for pname in props  # pass the user text to every param
             }
             return LlmResponse(
                 content="",
@@ -272,16 +278,6 @@ class _MockLLM(LLM):
 
 # Register the mock provider eagerly — it has no external dependencies.
 register_provider("mock", _MockLLM)
-
-
-def _load_openai() -> None:
-    try:
-        from agentmold.llm.providers.openai_provider import OpenAILLM  # type: ignore
-    except ImportError as exc:
-        raise ConfigurationError(
-            "OpenAI provider requires the 'openai' package. "
-            "Install it with: pip install 'agentmold[openai]'"
-        ) from exc
 
 
 # Trigger provider module import so that providers self-register.

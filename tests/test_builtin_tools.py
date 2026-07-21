@@ -1,4 +1,5 @@
 """Tests for the built-in tool library."""
+
 from __future__ import annotations
 
 import pytest
@@ -11,7 +12,6 @@ from agentmold.tools import (
     read_file,
     write_file,
 )
-
 
 # ---------------------------------------------------------------------------
 # read_file / write_file / list_directory
@@ -113,7 +113,9 @@ def test_http_get_rejects_non_http_url():
 
 def test_http_get_handles_invalid_host():
     # A non-routable host fails fast — no network dependency in practice.
-    result = http_get.call({"url": "http://agentmold-nonexistent-host-12345.invalid/x", "timeout": 3})
+    result = http_get.call(
+        {"url": "http://agentmold-nonexistent-host-12345.invalid/x", "timeout": 3}
+    )
     assert "Error" in result
 
 

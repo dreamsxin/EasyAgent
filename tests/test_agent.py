@@ -1,4 +1,5 @@
 """Tests for the Agent core engine, using the offline mock LLM."""
+
 from __future__ import annotations
 
 import pytest
@@ -16,6 +17,11 @@ def test_agent_direct_answer_with_mock_llm():
     answer = agent.run("Hello!")
     assert "[mock-llm]" in answer
     assert "Hello!" in answer
+
+
+def test_agent_is_callable():
+    agent = Agent(name="Callable", llm="mock", log_level=LogLevel.SILENT)
+    assert agent("Hello!") == "[mock-llm] Hello!"
 
 
 def test_agent_invokes_tool_when_mock_signals_it():
@@ -42,7 +48,7 @@ def test_agent_invokes_tool_when_mock_signals_it():
 
 def test_agent_max_iterations_raises():
     """An LLM that always returns tool calls should hit the iteration cap."""
-    from agentmold.llm import LLM, LlmResponse, Message
+    from agentmold.llm import LLM, LlmResponse
 
     class AlwaysTool(LLM):
         def _complete(self, messages, tools=None):

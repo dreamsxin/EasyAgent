@@ -6,11 +6,10 @@ Launch with::
 
 The app lets you configure an Agent in the browser (name, instructions,
 LLM, tools, iterations), build it with a clear button, then chat with it
-and watch the execution flow rendered as an interactive graph in real time.
+    and inspect the completed execution flow as an interactive graph.
 """
-from __future__ import annotations
 
-from typing import List
+from __future__ import annotations
 
 # Streamlit is imported lazily so that importing this module for the
 # launch() entrypoint does not hard-fail when the visual extra is absent.
@@ -41,18 +40,18 @@ def _build_agent(
     )
 
 
-def _agent_signature(name, llm, selected_tools, max_iterations):
+def _agent_signature(name, instructions, llm, selected_tools, max_iterations):
     """A hashable fingerprint of the config, to detect changes."""
-    return (name, llm, tuple(sorted(selected_tools)), max_iterations)
+    return (name, instructions, llm, tuple(sorted(selected_tools)), max_iterations)
 
 
 def _run_app() -> None:
     """The actual Streamlit application body."""
     import streamlit as st
-    from streamlit_agraph import agraph, Config
+    from streamlit_agraph import Config, agraph
 
     from agentmold.tools import BUILTIN_TOOLS
-    from agentmold.visual.graph import trace_to_graph, STEP_COLORS
+    from agentmold.visual.graph import STEP_COLORS, trace_to_graph
 
     st.set_page_config(page_title="EasyAgent Visual Editor", page_icon="🚀", layout="wide")
     st.title("🚀 EasyAgent Visual Editor")
@@ -71,7 +70,14 @@ def _run_app() -> None:
     )
     llm = st.sidebar.selectbox(
         "LLM",
-        options=["mock", "gpt-4o-mini", "gpt-4o", "ollama/llama3", "claude-3-5-sonnet"],
+        options=[
+            "mock",
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-pro",
+            "gpt-4o-mini",
+            "ollama/llama3",
+            "claude-3-5-sonnet",
+        ],
         help="选 'mock' 无需任何 API Key 即可体验。",
     )
     max_iterations = st.sidebar.slider("最大迭代次数", min_value=1, max_value=20, value=10)
@@ -82,7 +88,9 @@ def _run_app() -> None:
     tool_help = {t.name: t.description for t in BUILTIN_TOOLS}
     selected_tools = []
     for tn in tool_names:
-        if st.sidebar.checkbox(tn, value=(tn in ("calculate", "read_file")), help=tool_help.get(tn, "")):
+        if st.sidebar.checkbox(
+            tn, value=(tn in ("calculate", "read_file")), help=tool_help.get(tn, "")
+        ):
             selected_tools.append(tn)
 
     st.sidebar.divider()
@@ -105,7 +113,7 @@ def _run_app() -> None:
     if "agent" not in st.session_state:
         st.session_state.agent = None
 
-    current_sig = _agent_signature(name, llm, selected_tools, max_iterations)
+    current_sig = _agent_signature(name, instructions, llm, selected_tools, max_iterations)
     config_changed = st.session_state.agent_signature != current_sig
     auto_rebuilt = False  # set True if we silently rebuilt this render
 
@@ -176,7 +184,7 @@ def _run_app() -> None:
                 st.markdown(user_input)
 
             # Stream the execution, collecting steps for the graph.
-            steps: List[dict] = []
+            steps: list[dict] = []
             answer_text = ""
             with st.chat_message("assistant"):
                 status = st.status("思考中…", expanded=True)
@@ -209,7 +217,7 @@ def _run_app() -> None:
         steps = st.session_state.get("last_steps", [])
         user_input = st.session_state.get("last_user_input")
         if not steps:
-            st.info("提问后，Agent 的执行流程会在此实时可视化。")
+            st.info("提问后，Agent 的执行流程会在此显示。")
         else:
             nodes, edges = trace_to_graph(steps, user_input=user_input)
             config = Config(

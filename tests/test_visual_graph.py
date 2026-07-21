@@ -1,6 +1,8 @@
 """Tests for the visual graph builder (pure function, no Streamlit needed)."""
+
 from __future__ import annotations
 
+from agentmold.visual.app import _agent_signature
 from agentmold.visual.graph import STEP_COLORS, trace_to_graph
 
 
@@ -76,3 +78,9 @@ def test_unknown_step_type_gets_default_color():
     nodes, _ = trace_to_graph(steps)
     # Should not crash; gets the grey default.
     assert nodes[0].color == "#6b7280"
+
+
+def test_agent_signature_changes_with_instructions():
+    before = _agent_signature("A", "old", "mock", ["calculate"], 10)
+    after = _agent_signature("A", "new", "mock", ["calculate"], 10)
+    assert before != after

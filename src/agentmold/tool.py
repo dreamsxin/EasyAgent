@@ -19,12 +19,13 @@ Example::
         '''
         return a + b
 """
+
 from __future__ import annotations
 
 import inspect
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, get_type_hints
+from typing import Any, Callable, get_type_hints
 
 from agentmold.exceptions import ToolError
 
@@ -32,7 +33,7 @@ __all__ = ["Tool", "tool", "ToolRegistry"]
 
 
 # Python type → JSON schema type
-_TYPE_MAP: Dict[Any, str] = {
+_TYPE_MAP: dict[Any, str] = {
     str: "string",
     int: "integer",
     float: "number",
@@ -53,7 +54,7 @@ class Tool:
     func: Callable[..., Any]
     name: str = ""
     description: str = ""
-    parameters: Dict[str, Any] = None  # type: ignore[assignment]
+    parameters: dict[str, Any] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -77,7 +78,7 @@ class Tool:
         return stop[0].strip()
 
     @staticmethod
-    def _infer_parameters(func: Callable[..., Any]) -> Dict[str, Any]:
+    def _infer_parameters(func: Callable[..., Any]) -> dict[str, Any]:
         """Build a JSON-schema-ish parameter dict from annotations + docstring."""
         sig = inspect.signature(func)
         try:
@@ -85,12 +86,12 @@ class Tool:
         except Exception:  # noqa: BLE001
             hints = {}
         param_docs = Tool._parse_param_docs(func)
-        properties: Dict[str, Any] = {}
-        required: List[str] = []
+        properties: dict[str, Any] = {}
+        required: list[str] = []
         for pname, param in sig.parameters.items():
             ptype = hints.get(pname)
             json_type = _TYPE_MAP.get(ptype, "string")
-            prop: Dict[str, Any] = {"type": json_type}
+            prop: dict[str, Any] = {"type": json_type}
             if pname in param_docs:
                 prop["description"] = param_docs[pname]
             properties[pname] = prop
@@ -103,7 +104,7 @@ class Tool:
         }
 
     @staticmethod
-    def _parse_param_docs(func: Callable[..., Any]) -> Dict[str, str]:
+    def _parse_param_docs(func: Callable[..., Any]) -> dict[str, str]:
         """Parse ``Args:`` / ``Parameters:`` section of a docstring."""
         doc = inspect.getdoc(func) or ""
         match = re.search(
@@ -113,7 +114,7 @@ class Tool:
         )
         if not match:
             return {}
-        result: Dict[str, str] = {}
+        result: dict[str, str] = {}
         for line in match.group(1).splitlines():
             line = line.strip()
             if not line:
@@ -127,7 +128,7 @@ class Tool:
     # ------------------------------------------------------------------
     # Execution
     # ------------------------------------------------------------------
-    def call(self, arguments: Dict[str, Any]) -> str:
+    def call(self, arguments: dict[str, Any]) -> str:
         """Invoke the underlying function and return a string result."""
         try:
             result = self.func(**arguments)
@@ -136,6 +137,10 @@ class Tool:
         except Exception as exc:  # noqa: BLE001
             raise ToolError(f"Tool {self.name!r} failed: {exc}") from exc
         return self._stringify(result)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Invoke the original function and preserve its return type."""
+        return self.func(*args, **kwargs)
 
     @staticmethod
     def _stringify(value: Any) -> str:
@@ -150,7 +155,7 @@ class Tool:
                 return str(value)
         return str(value)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the OpenAI-style function schema."""
         return {
             "name": self.name,
@@ -179,8 +184,8 @@ def tool(func: Callable[..., Any]) -> Tool:
 class ToolRegistry:
     """A simple name → Tool registry used by :class:`~agentmold.Agent`."""
 
-    def __init__(self, tools: Optional[List[Tool]] = None) -> None:
-        self._tools: Dict[str, Tool] = {}
+    def __init__(self, tools: list[Tool] | None = None) -> None:
+        self._tools: dict[str, Tool] = {}
         for t in tools or []:
             self.add(t)
 
@@ -202,10 +207,10 @@ class ToolRegistry:
                 f"Tool {name!r} not found. Available: {list(self._tools)}"
             ) from exc
 
-    def call(self, name: str, arguments: Dict[str, Any]) -> str:
+    def call(self, name: str, arguments: dict[str, Any]) -> str:
         return self.get(name).call(arguments)
 
-    def schemas(self) -> List[Dict[str, Any]]:
+    def schemas(self) -> list[dict[str, Any]]:
         """Return all tool schemas for passing to the LLM."""
         return [t.to_dict() for t in self._tools.values()]
 

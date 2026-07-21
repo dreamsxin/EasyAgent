@@ -1,9 +1,6 @@
 """Tests for the CLI (init and run commands)."""
-from __future__ import annotations
 
-import os
-import sys
-from pathlib import Path
+from __future__ import annotations
 
 import pytest
 
@@ -17,9 +14,20 @@ def test_cli_init_creates_project(tmp_path, capsys):
     assert (project / "agent.py").exists()
     assert (project / "README.md").exists()
     assert (project / ".gitignore").exists()
+    assert (project / "pyproject.toml").exists()
     content = (project / "agent.py").read_text(encoding="utf-8")
     assert "gpt-4o-mini" in content
     assert "build_agent" in content
+
+
+def test_cli_init_defaults_to_offline_mock(tmp_path):
+    project = tmp_path / "offline-agent"
+    rc = cli_main(["init", str(project)])
+    assert rc == 0
+    content = (project / "agent.py").read_text(encoding="utf-8")
+    assert 'llm="mock"' in content
+    metadata = (project / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'name = "offline-agent"' in metadata
 
 
 def test_cli_init_coder_template(tmp_path):

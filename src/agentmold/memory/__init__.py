@@ -8,10 +8,12 @@ Two tiers of memory are provided:
   store so the agent can recall facts across sessions.  Requires the
   ``agentmold[memory]`` extra.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
+from uuid import uuid4
 
 from agentmold.llm import Message
 
@@ -26,7 +28,7 @@ class BaseMemory(ABC):
         """Store a message."""
 
     @abstractmethod
-    def messages(self) -> List[Message]:
+    def messages(self) -> list[Message]:
         """Return the messages that should be sent to the LLM."""
 
     def clear(self) -> None:
@@ -45,12 +47,12 @@ class Memory(BaseMemory):
     :class:`~agentmold.Agent`.
     """
 
-    def __init__(self, max_messages: int = 20, system: Optional[str] = None) -> None:
+    def __init__(self, max_messages: int = 20, system: str | None = None) -> None:
         if max_messages < 1:
             raise ValueError("max_messages must be >= 1")
         self.max_messages = max_messages
-        self._system: Optional[str] = system
-        self._messages: List[Message] = []
+        self._system: str | None = system
+        self._messages: list[Message] = []
 
     def add(self, message: Message) -> None:
         if message.role == "system" and self._system is None:
@@ -61,8 +63,8 @@ class Memory(BaseMemory):
         if len(self._messages) > self.max_messages:
             self._messages = self._messages[-self.max_messages :]
 
-    def messages(self) -> List[Message]:
-        result: List[Message] = []
+    def messages(self) -> list[Message]:
+        result: list[Message] = []
         if self._system:
             result.append(Message(role="system", content=self._system))
         result.extend(self._messages)
@@ -95,14 +97,18 @@ class VectorMemory(BaseMemory):
         embed_model: str = "text-embedding-3-small",
         max_messages: int = 20,
         top_k: int = 4,
-        api_key: Optional[str] = None,
-        system: Optional[str] = None,
-        embedder: Optional[Any] = None,
+        api_key: str | None = None,
+        system: str | None = None,
+        embedder: Any | None = None,
     ) -> None:
         self.max_messages = max_messages
+        if max_messages < 1:
+            raise ValueError("max_messages must be >= 1")
+        if top_k < 1:
+            raise ValueError("top_k must be >= 1")
         self.top_k = top_k
         self._system = system
-        self._recent: List[Message] = []
+        self._recent: list[Message] = []
         self._embed_model = embed_model
 
         try:
@@ -114,13 +120,11 @@ class VectorMemory(BaseMemory):
             ) from exc
 
         self._client = chromadb.PersistentClient(path=storage_path)
-        self._collection = self._client.get_or_create_collection(
-            name="agentmold_memory"
-        )
+        self._collection = self._client.get_or_create_collection(name="agentmold_memory")
         self._api_key = api_key or _env("OPENAI_API_KEY")
-        self._counter = 0
-        # Track stored ids so clear() can delete them portably across chromadb versions.
-        self._stored_ids: List[str] = []
+        # Load existing IDs so clear() also works after a process restart.
+        existing = self._collection.get(include=["metadatas"])
+        self._stored_ids: list[str] = list(existing.get("ids", []))
         # An injectable embedder lets tests run without network access.
         self._embedder = embedder
 
@@ -133,7 +137,7 @@ class VectorMemory(BaseMemory):
             self._recent = self._recent[-self.max_messages :]
         # Persist non-system messages to the vector store.
         if message.role in ("user", "assistant") and message.content:
-            msg_id = f"msg-{self._counter}"
+            msg_id = f"msg-{uuid4().hex}"
             embedding = self._embed(message.content)
             self._collection.add(
                 ids=[msg_id],
@@ -142,30 +146,37 @@ class VectorMemory(BaseMemory):
                 metadatas=[{"role": message.role}],
             )
             self._stored_ids.append(msg_id)
-            self._counter += 1
 
-    def messages(self) -> List[Message]:
-        result: List[Message] = []
+    def messages(self) -> list[Message]:
+        result: list[Message] = []
         if self._system:
             result.append(Message(role="system", content=self._system))
         # Retrieve relevant context from the long-term store.
-        last_user = next(
-            (m for m in reversed(self._recent) if m.role == "user"), None
-        )
+        last_user = next((m for m in reversed(self._recent) if m.role == "user"), None)
         if last_user and self._collection.count() > 0:
             query_embedding = self._embed(last_user.content)
             results = self._collection.query(
-                query_embeddings=[query_embedding], n_results=self.top_k
+                query_embeddings=[query_embedding],
+                n_results=min(self.top_k + 1, self._collection.count()),
             )
-            for doc, meta in zip(
-                results["documents"][0], results["metadatas"][0]
-            ):
-                role = meta.get("role", "user")
-                result.append(Message(role=role, content=doc))
+            relevant: list[str] = []
+            for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
+                # The just-added query is already present in _recent. Avoid
+                # duplicating it in the retrieved context.
+                if doc == last_user.content:
+                    continue
+                relevant.append(f"{meta.get('role', 'user')}: {doc}")
+            if relevant:
+                result.append(
+                    Message(
+                        role="system",
+                        content="Relevant long-term memory:\n" + "\n".join(relevant),
+                    )
+                )
         result.extend(self._recent)
         return result
 
-    def _embed(self, text: str) -> List[float]:
+    def _embed(self, text: str) -> list[float]:
         """Embed text using the configured model (OpenAI by default)."""
         # Prefer an injected embedder (used by tests / custom backends).
         if self._embedder is not None:
@@ -173,9 +184,7 @@ class VectorMemory(BaseMemory):
         try:
             import openai
         except ImportError as exc:  # pragma: no cover
-            raise ImportError(
-                "OpenAI embeddings require the 'openai' package."
-            ) from exc
+            raise ImportError("OpenAI embeddings require the 'openai' package.") from exc
         client = openai.OpenAI(api_key=self._api_key)
         resp = client.embeddings.create(input=text, model=self._embed_model)
         return resp.data[0].embedding
@@ -188,7 +197,7 @@ class VectorMemory(BaseMemory):
             self._stored_ids.clear()
 
 
-def _env(key: str) -> Optional[str]:
+def _env(key: str) -> str | None:
     import os
 
     return os.environ.get(key)

@@ -9,22 +9,23 @@ and returns Node/Edge objects.  ``streamlit_agraph`` is imported lazily so
 that the graph-building logic can be unit-tested without the visual extra
 installed (tests use light ``Node``/``Edge`` stand-ins).
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 __all__ = ["trace_to_graph", "STEP_COLORS", "STEP_SHAPES"]
 
 # Colour / shape per step type — used by both the graph builder and tests.
-STEP_COLORS: Dict[str, str] = {
-    "user": "#3b82f6",        # blue
-    "tool_call": "#f59e0b",   # amber
-    "tool_result": "#10b981", # green
-    "answer": "#8b5cf6",      # purple
-    "error": "#ef4444",       # red
+STEP_COLORS: dict[str, str] = {
+    "user": "#3b82f6",  # blue
+    "tool_call": "#f59e0b",  # amber
+    "tool_result": "#10b981",  # green
+    "answer": "#8b5cf6",  # purple
+    "error": "#ef4444",  # red
 }
 
-STEP_SHAPES: Dict[str, str] = {
+STEP_SHAPES: dict[str, str] = {
     "user": "dot",
     "tool_call": "box",
     "tool_result": "box",
@@ -33,7 +34,7 @@ STEP_SHAPES: Dict[str, str] = {
 }
 
 
-def _label_for_step(step: Dict[str, Any]) -> str:
+def _label_for_step(step: dict[str, Any]) -> str:
     """Return a short human-readable label for a step."""
     stype = step["type"]
     if stype == "tool_call":
@@ -60,6 +61,7 @@ def _build_node_cls():
     """Return the Node class to use (real or a lightweight stand-in)."""
     try:
         from streamlit_agraph import Node  # type: ignore
+
         return Node
     except ImportError:
         # Stand-in for unit tests / environments without the visual extra.
@@ -82,8 +84,10 @@ def _build_edge_cls():
     """Return the Edge class to use (real or a lightweight stand-in)."""
     try:
         from streamlit_agraph import Edge  # type: ignore
+
         return Edge
     except ImportError:
+
         class Edge:  # type: ignore[no-redef]
             def __init__(self, source, target, label="", **kw):
                 self.source = source
@@ -101,9 +105,9 @@ def _build_edge_cls():
 
 
 def trace_to_graph(
-    steps: List[Dict[str, Any]],
-    user_input: Optional[str] = None,
-) -> Tuple[List[Any], List[Any]]:
+    steps: list[dict[str, Any]],
+    user_input: str | None = None,
+) -> tuple[list[Any], list[Any]]:
     """Convert a list of trace steps into ``(nodes, edges)`` for agraph.
 
     Parameters
@@ -123,9 +127,9 @@ def trace_to_graph(
     Node = _build_node_cls()
     Edge = _build_edge_cls()
 
-    nodes: List[Any] = []
-    edges: List[Any] = []
-    prev_id: Optional[str] = None
+    nodes: list[Any] = []
+    edges: list[Any] = []
+    prev_id: str | None = None
 
     # Optional leading user node.
     if user_input is not None:

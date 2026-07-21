@@ -2,14 +2,14 @@
 
 Usage::
 
-    agentmold init my-project        # scaffold a new agent project
-    agentmold run                    # run the agent defined in agent.py
-    agentmold run --chat             # start an interactive chat session
+    easyagent init my-project        # scaffold a new agent project
+    easyagent run                    # run the agent defined in agent.py
+    easyagent run --chat             # start an interactive chat session
 """
+
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -105,7 +105,7 @@ TEMPLATES: dict[str, tuple[str, str]] = {
     "chatbot": (_CHATBOT_TEMPLATE, "A conversational chatbot with larger memory."),
 }
 
-_README_TEMPLATE = '''# {name}
+_README_TEMPLATE = """# {name}
 
 An AI agent built with [EasyAgent](https://github.com/your-org/agentmold).
 
@@ -113,16 +113,29 @@ An AI agent built with [EasyAgent](https://github.com/your-org/agentmold).
 
 ```bash
 pip install -e .
-export OPENAI_API_KEY=sk-...   # or set ANTHROPIC_API_KEY / run ollama
 ```
 
 ## Run
 
 ```bash
-agentmold run            # run the agent once
-agentmold run --chat     # interactive chat
+easyagent run            # run the agent once
+easyagent run --chat     # interactive chat
 ```
-'''
+
+The generated project uses the offline `mock` model by default. To use a hosted model,
+change `llm` in `agent.py` and set its API key as an environment variable.
+"""
+
+_PYPROJECT_TEMPLATE = """[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "{package_name}"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = ["agentmold>=0.1.1"]
+"""
 
 _GITIGNORE = """\
 __pycache__/
@@ -138,18 +151,20 @@ dist/
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="agentmold",
+        prog="easyagent",
         description="The easiest way to build AI agents in Python.",
     )
-    parser.add_argument("--version", action="version", version=f"agentmold {__version__}")
+    parser.add_argument(
+        "--version", action="version", version=f"EasyAgent (agentmold) {__version__}"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_init = sub.add_parser("init", help="Scaffold a new agent project.")
     p_init.add_argument("name", help="Project / directory name.")
     p_init.add_argument(
         "--llm",
-        default="gpt-4o-mini",
-        help="Default LLM shorthand (default: gpt-4o-mini).",
+        default="mock",
+        help="Default LLM shorthand (default: mock).",
     )
     p_init.add_argument(
         "--template",
@@ -157,17 +172,11 @@ def main(argv: list[str] | None = None) -> int:
         choices=sorted(TEMPLATES),
         help="Project template (default: default).",
     )
-    p_init.add_argument(
-        "--force", action="store_true", help="Overwrite existing directory."
-    )
+    p_init.add_argument("--force", action="store_true", help="Overwrite existing directory.")
 
     p_run = sub.add_parser("run", help="Run an agent defined in agent.py.")
-    p_run.add_argument(
-        "--file", default="agent.py", help="Agent module file (default: agent.py)."
-    )
-    p_run.add_argument(
-        "--chat", action="store_true", help="Start an interactive chat session."
-    )
+    p_run.add_argument("--file", default="agent.py", help="Agent module file (default: agent.py).")
+    p_run.add_argument("--chat", action="store_true", help="Start an interactive chat session.")
 
     sub.add_parser(
         "visual",
@@ -200,14 +209,26 @@ def _cmd_init(args) -> int:
         _README_TEMPLATE.replace("{name}", args.name), encoding="utf-8"
     )
     (project_dir / ".gitignore").write_text(_GITIGNORE, encoding="utf-8")
+    package_name = _normalise_package_name(Path(args.name).name)
+    (project_dir / "pyproject.toml").write_text(
+        _PYPROJECT_TEMPLATE.replace("{package_name}", package_name), encoding="utf-8"
+    )
 
-    print(f"✅ Created agent project ({args.template!r} template) in {project_dir}")
+    print(f"Created agent project ({args.template!r} template) in {project_dir}")
     print(f"   {template_desc}")
-    print(f"\nNext steps:")
+    print("\nNext steps:")
     print(f"  cd {args.name}")
-    print(f"  pip install -e .   # or: pip install agentmold")
-    print(f"  agentmold run")
+    print("  pip install -e .")
+    print("  easyagent run")
     return 0
+
+
+def _normalise_package_name(name: str) -> str:
+    """Return a valid, conservative distribution name for a generated project."""
+    import re
+
+    normalised = re.sub(r"[^a-zA-Z0-9._-]+", "-", name).strip("-._").lower()
+    return normalised or "my-agent"
 
 
 def _cmd_run(args) -> int:
@@ -228,10 +249,7 @@ def _cmd_run(args) -> int:
     spec.loader.exec_module(module)
 
     if not hasattr(module, "build_agent"):
-        print(
-            f"Error: {file_path} must define a `build_agent()` function "
-            "that returns an Agent."
-        )
+        print(f"Error: {file_path} must define a `build_agent()` function that returns an Agent.")
         return 1
 
     agent = module.build_agent()

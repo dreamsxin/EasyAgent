@@ -13,13 +13,13 @@ Usage::
 Each function here is a plain ``@tool`` — you can use it directly or copy
 it as a starting point for your own tools.
 """
+
 from __future__ import annotations
 
 import ast
-import json
 import operator as op
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import httpx
 
@@ -88,7 +88,7 @@ def list_directory(dir_path: str) -> str:
         return f"Error: directory not found: {dir_path}"
     if not path.is_dir():
         return f"Error: not a directory: {dir_path}"
-    entries: List[str] = []
+    entries: list[str] = []
     for entry in sorted(path.iterdir()):
         kind = "dir" if entry.is_dir() else "file"
         entries.append(f"[{kind}] {entry.name}")
@@ -129,7 +129,7 @@ def http_get(url: str, timeout: float = 30.0) -> str:
 # ---------------------------------------------------------------------------
 
 # Supported binary operators for the safe calculate tool.
-_BINARY_OPS: Dict[type, Any] = {
+_BINARY_OPS: dict[type, Any] = {
     ast.Add: op.add,
     ast.Sub: op.sub,
     ast.Mult: op.mul,
@@ -138,7 +138,7 @@ _BINARY_OPS: Dict[type, Any] = {
     ast.Mod: op.mod,
     ast.Pow: op.pow,
 }
-_UNARY_OPS: Dict[type, Any] = {
+_UNARY_OPS: dict[type, Any] = {
     ast.UAdd: op.pos,
     ast.USub: op.neg,
 }
@@ -191,4 +191,4 @@ def calculate(expression: str) -> str:
 # Convenience: all built-in tools as a list
 # ---------------------------------------------------------------------------
 
-BUILTIN_TOOLS: List[Tool] = [read_file, write_file, list_directory, http_get, calculate]
+BUILTIN_TOOLS: list[Tool] = [read_file, write_file, list_directory, http_get, calculate]

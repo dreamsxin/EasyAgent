@@ -2,9 +2,10 @@
 
 Requires the ``ollama`` package: ``pip install 'agentmold[ollama]'``.
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from agentmold.exceptions import ConfigurationError
 from agentmold.llm import LLM, LlmResponse, Message, register_provider
@@ -28,24 +29,59 @@ class OllamaLLM(LLM):
         super().__init__(model, temperature, **kwargs)
         if ollama is None:  # pragma: no cover
             raise ConfigurationError(
-                "The 'ollama' package is required. "
-                "Install it with: pip install 'agentmold[ollama]'"
+                "The 'ollama' package is required. Install it with: pip install 'agentmold[ollama]'"
             )
         self._client = ollama.Client(host=host) if host else ollama.Client()
 
     def _complete(
         self,
-        messages: List[Message],
-        tools: Optional[List[Dict[str, Any]]] = None,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
     ) -> LlmResponse:
-        resp = self._client.chat(
-            model=self.model,
-            messages=[m.to_dict() for m in messages],
-            options={"temperature": self.temperature},
-        )
-        content = resp.get("message", {}).get("content", "")
-        return LlmResponse(content=content, raw=resp)
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": [_to_ollama_message(message) for message in messages],
+            "options": {"temperature": self.temperature},
+        }
+        if tools:
+            kwargs["tools"] = [
+                {"type": "function", "function": tool_schema} for tool_schema in tools
+            ]
+        resp = self._client.chat(**kwargs)
+        response_message = resp.get("message", {})
+        content = response_message.get("content", "")
+        tool_calls = []
+        for index, call in enumerate(response_message.get("tool_calls") or []):
+            function = call.get("function", {})
+            tool_calls.append(
+                {
+                    "id": call.get("id") or f"ollama_call_{index}",
+                    "name": function.get("name", ""),
+                    "arguments": function.get("arguments") or {},
+                }
+            )
+        return LlmResponse(content=content, tool_calls=tool_calls, raw=resp)
 
 
-if ollama is not None:
-    register_provider("ollama", OllamaLLM)
+def _to_ollama_message(message: Message) -> dict[str, Any]:
+    """Convert one normalized message to Ollama's chat representation."""
+    if message.role == "tool":
+        result = {"role": "tool", "content": message.content}
+        if message.name:
+            result["name"] = message.name
+        return result
+    result: dict[str, Any] = {"role": message.role, "content": message.content}
+    if message.tool_calls:
+        result["tool_calls"] = [
+            {
+                "function": {
+                    "name": call["name"],
+                    "arguments": call.get("arguments", {}),
+                }
+            }
+            for call in message.tool_calls
+        ]
+    return result
+
+
+register_provider("ollama", OllamaLLM)

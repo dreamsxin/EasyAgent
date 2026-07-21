@@ -1,11 +1,12 @@
 """Tests for the @tool decorator and ToolRegistry."""
+
 from __future__ import annotations
 
 import pytest
 
 from agentmold import tool
-from agentmold.tool import Tool, ToolRegistry
 from agentmold.exceptions import ToolError, ToolNotFoundError
+from agentmold.tool import Tool, ToolRegistry
 
 
 def test_tool_decorator_returns_tool():
@@ -55,6 +56,17 @@ def test_tool_call_executes_function():
 
     result = double.call({"x": 21})
     assert result == "42"
+
+
+def test_decorated_tool_remains_callable_with_original_return_type():
+    @tool
+    def add(a: int, b: int) -> int:
+        """Add two integers."""
+        return a + b
+
+    result = add(2, 3)
+    assert result == 5
+    assert isinstance(result, int)
 
 
 def test_tool_call_stringifies_complex_results():

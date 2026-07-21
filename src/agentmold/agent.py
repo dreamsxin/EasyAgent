@@ -5,20 +5,19 @@ Give it an instruction, it thinks; give it a tool, it acts; give it
 memory, it remembers.  No chains, no runnables, no graphs — just a
 plain Python object you call with :meth:`Agent.run`.
 """
+
 from __future__ import annotations
 
 import enum
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from agentmold.exceptions import (
-    ConfigurationError,
-    LLMError,
     MaxIterationsError,
     ToolError,
 )
-from agentmold.llm import LLM, LlmResponse, Message, create_llm
+from agentmold.llm import LLM, Message, create_llm
 from agentmold.memory import BaseMemory, Memory
 from agentmold.tool import Tool, ToolRegistry
 
@@ -41,13 +40,13 @@ class AgentTrace:
     | "tool_result" | "answer"``).
     """
 
-    steps: List[Dict[str, Any]] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
 
-    def add(self, step: Dict[str, Any]) -> None:
+    def add(self, step: dict[str, Any]) -> None:
         self.steps.append(step)
 
     @property
-    def tool_calls(self) -> List[Dict[str, Any]]:
+    def tool_calls(self) -> list[dict[str, Any]]:
         return [s for s in self.steps if s["type"] == "tool_call"]
 
     def __repr__(self) -> str:
@@ -105,9 +104,9 @@ class Agent:
         self,
         name: str = "Agent",
         instructions: str = "You are a helpful assistant.",
-        tools: Optional[List[Tool]] = None,
-        llm: Union[str, LLM, Dict[str, Any]] = "mock",
-        memory: Optional[BaseMemory] = None,
+        tools: list[Tool] | None = None,
+        llm: str | LLM | dict[str, Any] = "mock",
+        memory: BaseMemory | None = None,
         max_iterations: int = 10,
         log_level: LogLevel = LogLevel.INFO,
     ) -> None:
@@ -142,6 +141,10 @@ class Agent:
                 last_content = step["content"]
         return last_content
 
+    def __call__(self, user_input: str) -> str:
+        """Call the agent like an ordinary Python function."""
+        return self.run(user_input)
+
     def run_stream(self, user_input: str):
         """Run the agent and *yield* each trace step as it happens.
 
@@ -153,9 +156,9 @@ class Agent:
 
             for step in agent.run_stream("What is 2+2?"):
                 if step["type"] == "tool_call":
-                    print(f"Calling {step['name']}…")
+                    print(f"Calling {step['name']}...")
         """
-        self.log.answer(f"Running agent {self.name!r}…")
+        self.log.answer(f"Running agent {self.name!r}...")
         self.memory.add(Message(role="user", content=user_input))
         tool_schemas = self.registry.schemas()
         for iteration in range(1, self.max_iterations + 1):
@@ -180,18 +183,33 @@ class Agent:
             for call in response.tool_calls:
                 tool_name = call["name"]
                 arguments = call.get("arguments", {})
-                self.log.thought(
-                    f"Iteration {iteration}: calling tool {tool_name}({arguments})"
-                )
-                yield {"type": "tool_call", "name": tool_name, "arguments": arguments}
+                call_id = call.get("id")
+                self.log.thought(f"Iteration {iteration}: calling tool {tool_name}({arguments})")
+                self.log.action(f"Calling tool: {tool_name}({arguments})")
+                yield {
+                    "type": "tool_call",
+                    "id": call_id,
+                    "name": tool_name,
+                    "arguments": arguments,
+                }
                 try:
                     result = self.registry.call(tool_name, arguments)
                 except ToolError as exc:
                     result = f"Error: {exc}"
-                self.log.observation(f"{tool_name} → {result}")
-                yield {"type": "tool_result", "name": tool_name, "content": result}
+                self.log.observation(f"{tool_name} -> {result}")
+                yield {
+                    "type": "tool_result",
+                    "id": call_id,
+                    "name": tool_name,
+                    "content": result,
+                }
                 self.memory.add(
-                    Message(role="tool", name=tool_name, content=result)
+                    Message(
+                        role="tool",
+                        name=tool_name,
+                        tool_call_id=call_id,
+                        content=result,
+                    )
                 )
 
         raise MaxIterationsError(
@@ -201,7 +219,7 @@ class Agent:
 
     def chat(self) -> None:
         """Start an interactive REPL session with the agent."""
-        print(f"🤖 {self.name} — type 'exit' to quit.\n")
+        print(f"Agent {self.name} - type 'exit' to quit.\n")
         while True:
             try:
                 user_input = input("you > ").strip()
@@ -214,14 +232,14 @@ class Agent:
             if not user_input:
                 continue
             answer = self.run(user_input)
-            print(f"\n🤖 {answer}\n")
+            print(f"\nAgent: {answer}\n")
 
     def add_tool(self, tool: Tool) -> None:
         """Add a tool at runtime."""
         self.registry.add(tool)
 
     @property
-    def tools(self) -> List[Tool]:
+    def tools(self) -> list[Tool]:
         return list(self.registry)
 
     # ------------------------------------------------------------------

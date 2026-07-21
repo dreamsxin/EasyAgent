@@ -14,10 +14,10 @@
 
 - **🎯 极简 API** — 10 行代码创建可用代理，零框架特定概念
 - **🔌 多 LLM 支持** — OpenAI、Anthropic、Ollama（本地模型）等，统一接口
-- **🛠️ 工具/插件系统** — `@tool` 装饰器定义工具，自动发现与注册
+- **🛠️ 工具系统** — `@tool` 装饰器定义工具，自动生成调用 Schema
 - **🧠 记忆管理** — 短期对话历史 + 长期向量存储（可选）
 - **📊 内置可观测性** — 开箱即用的日志与追踪，无需额外基础设施
-- **🎨 可视化编排** — 基于浏览器的拖拽式工作流设计器（规划中）
+- **🎨 可视化实验室** — 在浏览器中配置 Agent，并查看执行事件与流程图
 - **📦 零依赖友好** — 核心仅需 `httpx`，按需安装扩展依赖
 - **🎓 教育导向** — 详尽注释与原理解释，适合学习 Agent 内部机制
 
@@ -31,6 +31,8 @@ pip install agentmold
 
 ### 10 行代码创建你的第一个 Agent
 
+基础安装默认使用离线 `mock` 模型，无需 API Key 即可运行示例。使用托管模型时，再安装对应 extra 并设置 API Key。
+
 ```python
 from agentmold import Agent, tool
 
@@ -43,7 +45,7 @@ agent = Agent(
     name="Research Assistant",
     instructions="You are a helpful research assistant.",
     tools=[search_web],
-    llm="gpt-4o-mini",
+    llm="mock",
 )
 
 response = agent.run("What are the latest advances in AI agents?")
@@ -88,16 +90,16 @@ response = agent.run("Hello! What can you do?")
 
 > 💡 想换一个模型？把 `llama3` 替换为已拉取的模型名即可，如 `ollama/qwen2.5`。
 
-### 可视化编排（浏览器中配置与运行）
+### 可视化实验室（浏览器中配置与运行）
 
-不想写代码？用内置的 Streamlit 可视化编辑器：在侧边栏配置 Agent（名称/指令/模型/工具勾选），在聊天框提问，右侧实时渲染执行流程图。
+不想先写代码？用内置的 Streamlit 可视化实验室：在侧边栏配置 Agent（名称/指令/模型/工具勾选），在聊天框提问，右侧查看本次执行流程。
 
 ```bash
 # 1. 安装可视化依赖
 pip install "agentmold[visual]"
 
 # 2. 启动可视化编辑器（自动打开浏览器）
-agentmold visual
+easyagent visual
 ```
 
 选择 `mock` 模型即可零配置体验——无需任何 API Key。流程图中：
@@ -107,7 +109,7 @@ agentmold visual
 - ✅ 绿色节点 = 工具返回结果
 - 💬 紫色节点（更大）= 最终回答
 
-> 💡 想用代码控制执行流？`Agent.run_stream()` 会逐步 yield 每个执行步骤，方便你自定义可视化或日志：
+> 💡 想用代码控制执行流？`Agent.run_stream()` 会逐步 yield 每个执行事件，方便你自定义可视化或日志：
 > ```python
 > for step in agent.run_stream("问题"):
 >     if step["type"] == "tool_call":
@@ -118,10 +120,12 @@ agentmold visual
 
 ```bash
 pip install agentmold
-agentmold init my-agent-project
+easyagent init my-agent-project
 cd my-agent-project
-agentmold run
+easyagent run
 ```
+
+`agentmold` 也作为兼容的命令别名提供。
 
 ## 🧩 核心概念
 
@@ -147,7 +151,7 @@ agent = Agent(
     name="Math Assistant",
     instructions="You are a helpful math assistant.",
     tools=[calculate],
-    llm="gpt-4o-mini",
+    llm="mock",
     memory=Memory(max_messages=20),  # 可选：自定义记忆
 )
 
@@ -160,14 +164,23 @@ answer = agent.run("What is 123 * 456?")
 EasyAgent 通过统一的接口支持多个 LLM 提供商：
 
 ```python
-# OpenAI（需设置 OPENAI_API_KEY 环境变量）
+# OpenAI（需安装 agentmold[openai] 并设置 OPENAI_API_KEY）
 agent = Agent(llm="gpt-4o-mini")
 
 # Anthropic（需设置 ANTHROPIC_API_KEY 环境变量）
 agent = Agent(llm="claude-3-5-sonnet")
 
-# Ollama（本地模型，免费；需先安装 Ollama 并拉取模型，见上文"使用本地模型"）
+# Ollama（本地模型，免费；需安装 agentmold[ollama] 和 Ollama）
 agent = Agent(llm="ollama/llama3")
+
+# DeepSeek OpenAI 兼容接口（需安装 agentmold[deepseek]）
+agent = Agent(llm="deepseek/deepseek-v4-flash")
+
+# DeepSeek Anthropic 兼容接口（需安装 agentmold[deepseek-anthropic]）
+agent = Agent(llm={
+    "provider": "deepseek-anthropic",
+    "model": "deepseek-v4-flash",
+})
 
 # 通过完整配置自定义
 agent = Agent(llm={
@@ -179,9 +192,14 @@ agent = Agent(llm={
 
 > 每个提供商需要安装对应的可选依赖，例如 `pip install "agentmold[ollama]"`。详见下方[安装选项](#-安装选项)。
 
+DeepSeek 配置会读取 `DEEPSEEK_API_KEY`，默认分别使用
+`https://api.deepseek.com` 和 `https://api.deepseek.com/anthropic`。也可以在配置字典中
+显式传入 `api_key`、`base_url` 和 `temperature`。推荐使用 `deepseek-v4-flash` 或
+`deepseek-v4-pro`；`deepseek-chat` 与 `deepseek-reasoner` 将于 2026-07-24 弃用。
+
 ## 🛠️ 工具系统
 
-任何函数加上 `@tool` 装饰器就能成为 Agent 可调用的工具：
+任何函数加上 `@tool` 装饰器就能成为 Agent 可调用的工具，装饰后的对象仍然可以像普通函数一样调用：
 
 ```python
 from agentmold import tool
@@ -261,12 +279,12 @@ from agentmold import Agent, LogLevel
 agent = Agent(
     name="Debuggable Agent",
     llm="gpt-4o-mini",
-    log_level=LogLevel.DEBUG,  # 打印每一步的思考过程
+    log_level=LogLevel.DEBUG,  # 打印每一步执行事件
 )
 
-# 默认情况下，agent.run() 会打印：
-# [THOUGHT] The user wants to know about X, I should use tool Y.
-# [ACTION]  Calling tool: search_web("AI agents 2024")
+# 默认情况下，agent.run() 会打印执行事件：
+# [THOUGHT] Iteration 1: calling tool search_web(...)
+# [ACTION] Calling tool: search_web(...)
 # [OBSERVATION] Search results: ...
 # [ANSWER] Here's what I found about AI agents...
 ```
@@ -296,11 +314,14 @@ agent = Agent(
 ## 📦 安装选项
 
 ```bash
-# 基础安装（核心功能）
+# 基础安装（核心功能，默认使用 mock）
 pip install agentmold
 
 # 带 OpenAI 支持
 pip install "agentmold[openai]"
+
+# 带 DeepSeek OpenAI 兼容支持
+pip install "agentmold[deepseek]"
 
 # 带向量记忆支持
 pip install "agentmold[memory]"
@@ -314,15 +335,17 @@ pip install "agentmold[all]"
 
 ## 🗺️ 路线图
 
-- [x] 核心引擎（Agent、Tool、Memory）
-- [x] 多 LLM 支持（OpenAI、Anthropic、Ollama）
-- [x] CLI 工具（init / run / visual，含 3 个项目模板）
-- [x] 内置可观测性
-- [x] 长期向量记忆（VectorMemory，支持自定义 embedder）
-- [x] 内置工具库（read_file / write_file / list_directory / http_get / calculate）
-- [x] 可视化编排界面（Streamlit 编辑器 + run_stream 流式 API + 执行流程图）
-- [ ] 多代理协作（可选扩展）
-- [ ] 工具市场与模板库
+- [x] 单代理核心循环、工具系统与短期记忆
+- [x] 离线 mock、OpenAI、Anthropic、Ollama 适配器
+- [x] DeepSeek OpenAI/Anthropic 兼容端点配置
+- [x] CLI 项目模板与执行事件流
+- [x] VectorMemory 原型与内置工具库
+- [x] Streamlit 可视化实验室原型
+- [ ] 可复现 trace、评测与批量实验（v0.3）
+- [ ] 稳定的异步 API 与工具策略（v0.2）
+- [ ] 多代理组合与扩展生态（v0.5 之后）
+
+完整计划见 [ROADMAP.md](ROADMAP.md)。
 
 ## 📚 文档
 

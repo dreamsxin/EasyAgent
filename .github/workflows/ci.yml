@@ -29,6 +29,11 @@ jobs:
       - name: Install package with dev deps
         run: pip install -e ".[dev,memory]"
 
+      - name: Verify CLI entry points
+        run: |
+          easyagent --version
+          agentmold --version
+
       - name: Run tests
         run: pytest -v
 
@@ -48,4 +53,20 @@ jobs:
 
       - name: Run ruff check
         run: ruff check src tests
-        continue-on-error: true  # lint 不阻塞，仅作提示
+
+  build:
+    name: Build package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tool
+        run: pip install build
+
+      - name: Build wheel and source distribution
+        run: python -m build
