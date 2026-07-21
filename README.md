@@ -111,6 +111,8 @@ easyagent visual --file agent.py
 展开 **TRACE LAB · 回放与对比** 可导入或导出 JSONL Trace、拖动回放进度，并把两个运行的
 输入、模型、延迟、token、提供商返回的成本和工具调用并排比较。当前会话中的新运行会自动
 进入 Trace Lab；旧版 JSONL 也可读取。
+展开 **PYTHON EXPORT · agent.py** 可预览并下载当前配置对应的 `build_agent()` 文件；
+API Key 不会写入源码，导出时会改用对应的环境变量。
 
 侧栏的 **接口提供商** 支持 `Mock`、DeepSeek、OpenAI/Anthropic 兼容接口、Ollama
 和自定义提供商。选择自定义提供商后，只需选择接口类型并填写模型、API Key、Base URL、

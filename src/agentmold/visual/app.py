@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agentmold.visual.codegen import api_key_environment, generate_agent_python
 from agentmold.visual.settings import (
     delete_visual_profile,
     load_visual_profiles,
@@ -439,6 +440,40 @@ def _render_trace_lab(st, Config, agraph, trace_to_graph) -> None:
             st.caption("选择两个运行后，会并排显示提示词、模型、延迟、token、成本和工具调用。")
 
 
+def _render_code_export(
+    st,
+    name: str,
+    instructions: str,
+    llm: str | dict[str, Any],
+    selected_tools: list[str],
+    max_iterations: int,
+) -> None:
+    """Render a readable agent.py preview and download action."""
+    source = generate_agent_python(
+        name=name,
+        instructions=instructions,
+        llm=llm,
+        selected_tools=selected_tools,
+        max_iterations=max_iterations,
+    )
+    environment = api_key_environment(llm)
+    with st.expander("PYTHON EXPORT · agent.py", expanded=False):
+        action_col, status_col = st.columns([1, 2])
+        action_col.download_button(
+            "下载 agent.py",
+            data=source,
+            file_name="agent.py",
+            mime="text/x-python",
+            use_container_width=True,
+            key="ea_download_agent_python",
+        )
+        if environment:
+            status_col.caption(f"API Key 已替换为环境变量 `{environment}`，不会写入源码。")
+        else:
+            status_col.caption("导出内容与当前界面配置同步。")
+        st.code(source, language="python", line_numbers=True)
+
+
 def _profile_setting(
     profile: dict[str, Any],
     key: str,
@@ -794,6 +829,15 @@ def _inject_theme(st) -> None:
             margin: 0.3rem 0 0;
             overflow-wrap: anywhere;
         }
+        [data-testid="stCode"] {
+            background: #0c131d;
+            border: 1px solid #33485e;
+            border-radius: 8px;
+        }
+        [data-testid="stCode"] pre,
+        [data-testid="stCode"] code {
+            background: #0c131d !important;
+        }
         @media (max-width: 1200px) {
             .ea-trace-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
             .ea-trace-metrics > div:nth-child(4) { border-right: 0; }
@@ -1145,6 +1189,8 @@ def _run_app() -> None:
     agent = st.session_state.agent
 
     _render_trace_lab(st, Config, agraph, trace_to_graph)
+    if agent_file is None:
+        _render_code_export(st, name, instructions, llm, selected_tools, max_iterations)
 
     # If an agent already exists but the config changed, rebuild it
     # automatically so the overview card always reflects reality — no

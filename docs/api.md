@@ -89,6 +89,11 @@ can compare prompt and configuration changes. Open **TRACE LAB · 回放与对�
 one or more JSONL files, scrub through their events, compare two runs, or export the merged
 session. Cost is shown only when the provider includes a numeric cost field in usage data.
 
+The visual lab's **PYTHON EXPORT · agent.py** panel generates the same code-first shape
+accepted by `load_agent()`: a readable `build_agent()` function with the current name,
+instructions, tools, model configuration, and iteration limit. Credentials are represented
+as provider environment variables instead of being embedded in the downloaded source.
+
 Use standard asyncio controls for a whole run:
 
 ```python
