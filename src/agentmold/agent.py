@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import enum
 import logging
+import typing
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 from agentmold.exceptions import (
     MaxIterationsError,
@@ -21,7 +23,37 @@ from agentmold.llm import LLM, Message, create_llm
 from agentmold.memory import BaseMemory, Memory
 from agentmold.tool import Tool, ToolRegistry
 
-__all__ = ["Agent", "LogLevel", "AgentTrace"]
+__all__ = [
+    "Agent",
+    "LogLevel",
+    "AgentTrace",
+    "AgentEvent",
+    "AnswerEvent",
+    "ToolCallEvent",
+    "ToolResultEvent",
+]
+
+
+class AnswerEvent(TypedDict):
+    type: Literal["answer"]
+    content: str
+
+
+class ToolCallEvent(TypedDict):
+    type: Literal["tool_call"]
+    id: str | None
+    name: str
+    arguments: dict[str, Any]
+
+
+class ToolResultEvent(TypedDict):
+    type: Literal["tool_result"]
+    id: str | None
+    name: str
+    content: str
+
+
+AgentEvent = typing.Union[AnswerEvent, ToolCallEvent, ToolResultEvent]  # noqa: UP007
 
 
 class LogLevel(enum.IntEnum):
@@ -40,14 +72,14 @@ class AgentTrace:
     | "tool_result" | "answer"``).
     """
 
-    steps: list[dict[str, Any]] = field(default_factory=list)
+    steps: list[AgentEvent] = field(default_factory=list)
 
-    def add(self, step: dict[str, Any]) -> None:
+    def add(self, step: AgentEvent) -> None:
         self.steps.append(step)
 
     @property
-    def tool_calls(self) -> list[dict[str, Any]]:
-        return [s for s in self.steps if s["type"] == "tool_call"]
+    def tool_calls(self) -> list[ToolCallEvent]:
+        return [s for s in self.steps if s["type"] == "tool_call"]  # type: ignore[misc]
 
     def __repr__(self) -> str:
         return f"<AgentTrace: {len(self.steps)} steps, {len(self.tool_calls)} tool calls>"
@@ -141,11 +173,19 @@ class Agent:
                 last_content = step["content"]
         return last_content
 
+    async def arun(self, user_input: str) -> str:
+        """Asynchronously run the agent and return its final answer."""
+        last_content = ""
+        async for step in self.arun_stream(user_input):
+            if step["type"] == "answer":
+                last_content = step["content"]
+        return last_content
+
     def __call__(self, user_input: str) -> str:
         """Call the agent like an ordinary Python function."""
         return self.run(user_input)
 
-    def run_stream(self, user_input: str):
+    def run_stream(self, user_input: str) -> Iterator[AgentEvent]:
         """Run the agent and *yield* each trace step as it happens.
 
         This is the streaming variant of :meth:`run`: it produces the same
@@ -194,6 +234,65 @@ class Agent:
                 }
                 try:
                     result = self.registry.call(tool_name, arguments)
+                except ToolError as exc:
+                    result = f"Error: {exc}"
+                self.log.observation(f"{tool_name} -> {result}")
+                yield {
+                    "type": "tool_result",
+                    "id": call_id,
+                    "name": tool_name,
+                    "content": result,
+                }
+                self.memory.add(
+                    Message(
+                        role="tool",
+                        name=tool_name,
+                        tool_call_id=call_id,
+                        content=result,
+                    )
+                )
+
+        raise MaxIterationsError(
+            f"Agent {self.name!r} exceeded max_iterations={self.max_iterations} "
+            "without producing a final answer. Increase max_iterations or simplify the task."
+        )
+
+    async def arun_stream(self, user_input: str) -> AsyncIterator[AgentEvent]:
+        """Asynchronously yield the same execution events as :meth:`run_stream`."""
+        self.log.answer(f"Running agent {self.name!r}...")
+        self.memory.add(Message(role="user", content=user_input))
+        tool_schemas = self.registry.schemas()
+        for iteration in range(1, self.max_iterations + 1):
+            messages = self.memory.messages()
+            response = await self.llm.acomplete(messages, tools=tool_schemas or None)
+
+            if not response.tool_calls:
+                self.log.answer(response.content)
+                self.memory.add(Message(role="assistant", content=response.content))
+                yield {"type": "answer", "content": response.content}
+                return
+
+            self.memory.add(
+                Message(
+                    role="assistant",
+                    content=response.content or "",
+                    tool_calls=response.tool_calls,
+                )
+            )
+            for call in response.tool_calls:
+                tool_name = call["name"]
+                arguments = call.get("arguments", {})
+                call_id = call.get("id")
+                self.log.thought(f"Iteration {iteration}: calling tool {tool_name}({arguments})")
+                self.log.action(f"Calling tool: {tool_name}({arguments})")
+                yield {
+                    "type": "tool_call",
+                    "id": call_id,
+                    "name": tool_name,
+                    "arguments": arguments,
+                }
+                try:
+                    result = await self.registry.acall(tool_name, arguments)
                 except ToolError as exc:
                     result = f"Error: {exc}"
                 self.log.observation(f"{tool_name} -> {result}")

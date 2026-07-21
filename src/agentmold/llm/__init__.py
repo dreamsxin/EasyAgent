@@ -12,6 +12,7 @@ single :class:`LLM` interface.  The ``llm`` argument accepted by
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -102,6 +103,19 @@ class LLM(ABC):
             raise
         except Exception as exc:  # noqa: BLE001 - normalise provider errors
             raise LLMError(f"{type(self).__name__} request failed: {exc}") from exc
+
+    async def acomplete(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> LlmResponse:
+        """Asynchronously complete a request using the synchronous provider.
+
+        Providers can override this method with a native async implementation. The
+        default keeps the public async API available without requiring duplicate
+        provider adapters.
+        """
+        return await asyncio.to_thread(self.complete, messages, tools)
 
     def stream(
         self,

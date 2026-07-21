@@ -116,6 +116,9 @@ easyagent visual
 >         print(f"调用工具: {step['name']}")
 > ```
 
+异步应用可以使用同样的接口：`await agent.arun("问题")` 或
+`async for step in agent.arun_stream("问题")`。同步工具会在线程中运行，异步工具会直接等待。
+
 ### 交互式创建项目
 
 ```bash

@@ -22,10 +22,13 @@ Example::
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
+import types
 from dataclasses import dataclass
-from typing import Any, Callable, get_type_hints
+from enum import Enum
+from typing import Annotated, Any, Callable, Literal, Union, get_args, get_origin, get_type_hints
 
 from agentmold.exceptions import ToolError
 
@@ -41,6 +44,8 @@ _TYPE_MAP: dict[Any, str] = {
     list: "array",
     dict: "object",
 }
+
+_UNION_TYPES = (Union, getattr(types, "UnionType", Union))
 
 
 @dataclass
@@ -89,9 +94,10 @@ class Tool:
         properties: dict[str, Any] = {}
         required: list[str] = []
         for pname, param in sig.parameters.items():
+            if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+                continue
             ptype = hints.get(pname)
-            json_type = _TYPE_MAP.get(ptype, "string")
-            prop: dict[str, Any] = {"type": json_type}
+            prop = _schema_for_type(ptype)
             if pname in param_docs:
                 prop["description"] = param_docs[pname]
             properties[pname] = prop
@@ -130,13 +136,44 @@ class Tool:
     # ------------------------------------------------------------------
     def call(self, arguments: dict[str, Any]) -> str:
         """Invoke the underlying function and return a string result."""
+        self._validate_arguments(arguments)
         try:
             result = self.func(**arguments)
         except ToolError:
             raise
         except Exception as exc:  # noqa: BLE001
             raise ToolError(f"Tool {self.name!r} failed: {exc}") from exc
+        if inspect.isawaitable(result):
+            if inspect.iscoroutine(result):
+                result.close()
+            raise ToolError(
+                f"Tool {self.name!r} is asynchronous. Use Agent.arun() or tool.acall()."
+            )
         return self._stringify(result)
+
+    async def acall(self, arguments: dict[str, Any]) -> str:
+        """Invoke sync or async tools without blocking the event loop."""
+        self._validate_arguments(arguments)
+        try:
+            if inspect.iscoroutinefunction(self.func):
+                result = await self.func(**arguments)
+            else:
+                result = await asyncio.to_thread(self.func, **arguments)
+                if inspect.isawaitable(result):
+                    result = await result
+        except ToolError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ToolError(f"Tool {self.name!r} failed: {exc}") from exc
+        return self._stringify(result)
+
+    def _validate_arguments(self, arguments: dict[str, Any]) -> None:
+        if not isinstance(arguments, dict):
+            raise ToolError(f"Tool {self.name!r} arguments must be an object.")
+        try:
+            inspect.signature(self.func).bind(**arguments)
+        except TypeError as exc:
+            raise ToolError(f"Invalid arguments for tool {self.name!r}: {exc}") from exc
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """Invoke the original function and preserve its return type."""
@@ -210,6 +247,9 @@ class ToolRegistry:
     def call(self, name: str, arguments: dict[str, Any]) -> str:
         return self.get(name).call(arguments)
 
+    async def acall(self, name: str, arguments: dict[str, Any]) -> str:
+        return await self.get(name).acall(arguments)
+
     def schemas(self) -> list[dict[str, Any]]:
         """Return all tool schemas for passing to the LLM."""
         return [t.to_dict() for t in self._tools.values()]
@@ -222,3 +262,53 @@ class ToolRegistry:
 
     def __contains__(self, name: object) -> bool:
         return name in self._tools
+
+
+def _schema_for_type(annotation: Any) -> dict[str, Any]:
+    """Translate common Python annotations into a compact JSON Schema."""
+    if annotation in (None, Any, inspect.Parameter.empty):
+        return {}
+
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+
+    if origin is Annotated:
+        return _schema_for_type(args[0])
+
+    if origin in _UNION_TYPES:
+        variants = [_schema_for_type(arg) for arg in args if arg is not type(None)]
+        if any(arg is type(None) for arg in args):
+            variants.append({"type": "null"})
+        return variants[0] if len(variants) == 1 else {"anyOf": variants}
+
+    if origin is Literal:
+        values = list(args)
+        schema: dict[str, Any] = {"enum": values}
+        value_types = {_TYPE_MAP.get(type(value)) for value in values}
+        value_types.discard(None)
+        if len(value_types) == 1:
+            schema["type"] = value_types.pop()
+        return schema
+
+    if origin in (list, set, tuple):
+        item_type = args[0] if args else Any
+        return {"type": "array", "items": _schema_for_type(item_type)}
+
+    if origin is dict:
+        value_type = args[1] if len(args) == 2 else Any
+        return {
+            "type": "object",
+            "additionalProperties": _schema_for_type(value_type),
+        }
+
+    if inspect.isclass(annotation) and issubclass(annotation, Enum):
+        values = [member.value for member in annotation]
+        schema = {"enum": values}
+        value_types = {_TYPE_MAP.get(type(value)) for value in values}
+        value_types.discard(None)
+        if len(value_types) == 1:
+            schema["type"] = value_types.pop()
+        return schema
+
+    json_type = _TYPE_MAP.get(annotation)
+    return {"type": json_type} if json_type else {}

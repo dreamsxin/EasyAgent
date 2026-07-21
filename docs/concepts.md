@@ -17,6 +17,10 @@ The execution loop is intentionally visible:
 Provider adapters translate the small internal message format into OpenAI, Anthropic, or
 Ollama wire formats. Agent code does not need to know those provider-specific details.
 
+The async API mirrors the synchronous API. Sync tools are moved to a worker thread and
+async tools are awaited directly, so an async application can integrate EasyAgent without
+blocking its event loop.
+
 For experiments, use `run_stream` to capture the event sequence. For production-facing
 applications, treat tools as ordinary functions and add explicit permission checks around
 network, file, or write operations.
