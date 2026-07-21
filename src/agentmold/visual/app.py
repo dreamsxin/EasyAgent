@@ -11,8 +11,34 @@ LLM, tools, iterations), build it with a clear button, then chat with it
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 # Streamlit is imported lazily so that importing this module for the
 # launch() entrypoint does not hard-fail when the visual extra is absent.
+
+
+def _agent_file_from_argv(argv: list[str] | None = None) -> Path | None:
+    """Read the optional ``--agent-file`` argument passed after Streamlit's ``--``."""
+    values = list(sys.argv[1:] if argv is None else argv)
+    for index, value in enumerate(values):
+        if value == "--agent-file" and index + 1 < len(values):
+            return Path(values[index + 1]).expanduser().resolve()
+        if value.startswith("--agent-file="):
+            return Path(value.split("=", 1)[1]).expanduser().resolve()
+    return None
+
+
+def _code_agent_signature(path: Path) -> tuple[str, int | None, int | None]:
+    """Return a signature that changes when a code-defined agent is edited."""
+    try:
+        stat = path.stat()
+        modified = stat.st_mtime_ns
+        size = stat.st_size
+    except OSError:
+        modified = None
+        size = None
+    return str(path), modified, size
 
 
 def _build_agent(
@@ -59,42 +85,53 @@ def _run_app() -> None:
     st.caption("配置 → 生成 Agent → 提问，全程可视化，无需写代码。")
 
     # ------------------------------------------------------------------
-    # Sidebar: Agent configuration
+    # Sidebar: either load a code-defined agent or configure a small demo.
     # ------------------------------------------------------------------
-    st.sidebar.header("⚙️ Agent 配置")
+    agent_file = _agent_file_from_argv()
+    if agent_file is not None:
+        st.sidebar.header("📄 代码 Agent")
+        st.sidebar.code(str(agent_file), language="text")
+        st.sidebar.caption("Agent 由文件中的 build_agent() 创建。编辑文件后重新加载。")
+        reload_clicked = st.sidebar.button("重新加载文件", use_container_width=True)
+        name = instructions = llm = ""
+        selected_tools = []
+        max_iterations = 0
+        build_clicked = False
+    else:
+        st.sidebar.header("⚙️ Agent 配置")
+        name = st.sidebar.text_input("Agent 名称", value="Assistant")
+        instructions = st.sidebar.text_area(
+            "指令（系统提示）",
+            value="You are a helpful assistant. Use tools when useful.",
+            height=100,
+        )
+        llm = st.sidebar.selectbox(
+            "LLM",
+            options=[
+                "mock",
+                "deepseek/deepseek-v4-flash",
+                "deepseek/deepseek-v4-pro",
+                "gpt-4o-mini",
+                "ollama/llama3",
+                "claude-3-5-sonnet",
+            ],
+            help="选 'mock' 无需任何 API Key 即可体验。",
+        )
+        max_iterations = st.sidebar.slider("最大迭代次数", min_value=1, max_value=20, value=10)
 
-    name = st.sidebar.text_input("Agent 名称", value="Assistant")
-    instructions = st.sidebar.text_area(
-        "指令（系统提示）",
-        value="You are a helpful assistant. Use tools when useful.",
-        height=100,
-    )
-    llm = st.sidebar.selectbox(
-        "LLM",
-        options=[
-            "mock",
-            "deepseek/deepseek-v4-flash",
-            "deepseek/deepseek-v4-pro",
-            "gpt-4o-mini",
-            "ollama/llama3",
-            "claude-3-5-sonnet",
-        ],
-        help="选 'mock' 无需任何 API Key 即可体验。",
-    )
-    max_iterations = st.sidebar.slider("最大迭代次数", min_value=1, max_value=20, value=10)
+        st.sidebar.divider()
+        st.sidebar.header("🛠️ 工具")
+        safe_tools = [calculate]
+        tool_names = [t.name for t in safe_tools]
+        tool_help = {t.name: t.description for t in safe_tools}
+        selected_tools = []
+        for tn in tool_names:
+            if st.sidebar.checkbox(tn, value=(tn == "calculate"), help=tool_help.get(tn, "")):
+                selected_tools.append(tn)
 
-    st.sidebar.divider()
-    st.sidebar.header("🛠️ 工具")
-    safe_tools = [calculate]
-    tool_names = [t.name for t in safe_tools]
-    tool_help = {t.name: t.description for t in safe_tools}
-    selected_tools = []
-    for tn in tool_names:
-        if st.sidebar.checkbox(tn, value=(tn == "calculate"), help=tool_help.get(tn, "")):
-            selected_tools.append(tn)
-
-    st.sidebar.divider()
-    build_clicked = st.sidebar.button("🔨 生成 Agent", type="primary", use_container_width=True)
+        st.sidebar.divider()
+        build_clicked = st.sidebar.button("🔨 生成 Agent", type="primary", use_container_width=True)
+        reload_clicked = False
     if st.sidebar.button("🔄 重置会话", use_container_width=True):
         st.session_state.clear()
         st.rerun()
@@ -113,11 +150,29 @@ def _run_app() -> None:
     if "agent" not in st.session_state:
         st.session_state.agent = None
 
-    current_sig = _agent_signature(name, instructions, llm, selected_tools, max_iterations)
+    current_sig = (
+        _code_agent_signature(agent_file)
+        if agent_file is not None
+        else _agent_signature(name, instructions, llm, selected_tools, max_iterations)
+    )
     config_changed = st.session_state.agent_signature != current_sig
     auto_rebuilt = False  # set True if we silently rebuilt this render
 
-    if build_clicked:
+    if agent_file is not None:
+        if st.session_state.agent is None or config_changed or reload_clicked:
+            try:
+                from agentmold import load_agent
+
+                had_agent = st.session_state.agent is not None
+                st.session_state.agent = load_agent(agent_file)
+                st.session_state.agent_signature = current_sig
+                auto_rebuilt = had_agent
+                st.session_state.messages = []
+                st.session_state.last_steps = []
+                st.session_state.last_user_input = None
+            except Exception as exc:  # noqa: BLE001
+                st.sidebar.error(f"加载失败: {exc}")
+    elif build_clicked:
         try:
             st.session_state.agent = _build_agent(
                 name, instructions, llm, selected_tools, max_iterations
@@ -137,7 +192,7 @@ def _run_app() -> None:
     # If an agent already exists but the config changed, rebuild it
     # automatically so the overview card always reflects reality — no
     # "please rebuild" blocking prompt.
-    if agent is not None and config_changed:
+    if agent_file is None and agent is not None and config_changed:
         try:
             st.session_state.agent = _build_agent(
                 name, instructions, llm, selected_tools, max_iterations
@@ -157,7 +212,10 @@ def _run_app() -> None:
     with col_chat:
         # ---- Agent status / overview card ----
         if agent is None:
-            st.warning("👆 还没有 Agent。请在左侧配置后点击 **🔨 生成 Agent**。")
+            if agent_file is not None:
+                st.error("代码 Agent 尚未加载，请检查文件路径和 build_agent()。")
+            else:
+                st.warning("👆 还没有 Agent。请在左侧配置后点击 **🔨 生成 Agent**。")
             st.stop()
 
         with st.container(border=True):
@@ -167,7 +225,12 @@ def _run_app() -> None:
             st.markdown(f"- **工具:** {tool_list}")
             st.markdown(f"- **最大迭代:** {agent.max_iterations}")
             if auto_rebuilt:
-                st.caption("🔄 配置已变更，已自动用新配置重建 Agent。")
+                message = (
+                    "🔄 代码文件已变更，已自动重新加载 Agent。"
+                    if agent_file is not None
+                    else "🔄 配置已变更，已自动用新配置重建 Agent。"
+                )
+                st.caption(message)
 
         st.subheader("💬 对话")
         if "messages" not in st.session_state:

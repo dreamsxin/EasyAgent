@@ -100,6 +100,9 @@ pip install "agentmold[visual]"
 
 # 2. 启动可视化编辑器（自动打开浏览器）
 easyagent visual
+
+# 直接加载代码定义的 Agent
+easyagent visual --file agent.py
 ```
 
 选择 `mock` 模型即可零配置体验——无需任何 API Key。流程图中：
@@ -115,6 +118,10 @@ easyagent visual
 >     if step["type"] == "tool_call":
 >         print(f"调用工具: {step['name']}")
 > ```
+
+`easyagent visual --file agent.py` 会调用文件中的 `build_agent()`，并在文件修改后重新加载；
+这样可视化层观察的就是代码里实际运行的 Agent。命令行运行也使用同一个加载器：
+`easyagent run --file agent.py`。
 
 异步应用可以使用同样的接口：`await agent.arun("问题")` 或
 `async for step in agent.arun_stream("问题")`。同步工具会在线程中运行，异步工具会直接等待。

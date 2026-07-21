@@ -25,3 +25,7 @@ class MaxIterationsError(EasyAgentError):
 
 class ConfigurationError(EasyAgentError):
     """Raised when there is a configuration problem (e.g. missing API key)."""
+
+
+class AgentLoadError(ConfigurationError):
+    """Raised when a code-defined agent cannot be loaded or built."""

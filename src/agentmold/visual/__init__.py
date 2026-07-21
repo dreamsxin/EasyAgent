@@ -21,7 +21,7 @@ __all__ = ["launch", "APP_PATH"]
 APP_PATH = str(Path(__file__).parent / "app.py")
 
 
-def launch(args: list[str] | None = None) -> int:
+def launch(args: list[str] | None = None, agent_file: str | Path | None = None) -> int:
     """Launch the Streamlit visual editor.
 
     Spawns ``streamlit run <app.py>`` as a subprocess.  Returns the
@@ -40,6 +40,8 @@ def launch(args: list[str] | None = None) -> int:
     cmd = [sys.executable, "-m", "streamlit", "run", APP_PATH]
     if args:
         cmd.extend(args)
+    if agent_file is not None:
+        cmd.extend(["--", "--agent-file", str(Path(agent_file).expanduser().resolve())])
 
     import subprocess
 

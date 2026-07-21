@@ -44,6 +44,18 @@ async for event in agent.arun_stream("question"):
 One `Agent` owns one mutable conversation memory. Use a separate `Agent` or `Memory`
 instance per concurrent conversation instead of calling the same agent concurrently.
 
+## `load_agent`
+
+```python
+from agentmold import load_agent
+
+agent = load_agent("agent.py")
+```
+
+The file must define a zero-argument `build_agent()` returning an `Agent`. The same
+loader is used by `easyagent run` and `easyagent visual --file`, so the visual lab can
+inspect a code-defined agent without introducing a second configuration format.
+
 ## Retries, timeouts, and cancellation
 
 LLM configuration accepts framework-level retries and provider-native request timeouts:

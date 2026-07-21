@@ -10,10 +10,9 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
-from agentmold import __version__
+from agentmold import AgentLoadError, __version__, load_agent
 
 __all__ = ["main"]
 
@@ -179,9 +178,14 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--file", default="agent.py", help="Agent module file (default: agent.py).")
     p_run.add_argument("--chat", action="store_true", help="Start an interactive chat session.")
 
-    sub.add_parser(
+    p_visual = sub.add_parser(
         "visual",
         help="Launch the Streamlit visual editor (requires 'agentmold[visual]').",
+    )
+    p_visual.add_argument(
+        "--file",
+        default=None,
+        help="Load a code-defined agent.py in the visual editor.",
     )
 
     args = parser.parse_args(argv)
@@ -238,22 +242,11 @@ def _cmd_run(args) -> int:
         print(f"Error: {file_path} not found.")
         return 1
 
-    # Import the user's agent.py as a module.
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("user_agent", file_path)
-    if spec is None or spec.loader is None:
-        print(f"Error: could not load {file_path}.")
+    try:
+        agent = load_agent(file_path)
+    except AgentLoadError as exc:
+        print(f"Error: {exc}")
         return 1
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["user_agent"] = module
-    spec.loader.exec_module(module)
-
-    if not hasattr(module, "build_agent"):
-        print(f"Error: {file_path} must define a `build_agent()` function that returns an Agent.")
-        return 1
-
-    agent = module.build_agent()
     if args.chat:
         agent.chat()
     else:
@@ -262,8 +255,8 @@ def _cmd_run(args) -> int:
     return 0
 
 
-def _cmd_visual(args) -> int:  # noqa: ARG001
+def _cmd_visual(args) -> int:
     """Launch the Streamlit visual editor."""
     from agentmold.visual import launch
 
-    return launch()
+    return launch(agent_file=args.file)

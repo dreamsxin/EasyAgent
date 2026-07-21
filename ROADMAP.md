@@ -59,7 +59,7 @@ differences between two runs.
 
 Target: make agent behavior observable without making the UI a second programming model.
 
-- [ ] Load code-defined agents from `agent.py`.
+- [x] Load code-defined agents from `agent.py`.
 - [ ] Render execution events as a live timeline.
 - [ ] Replay traces and compare runs, prompts, models, cost, and latency.
 - [ ] Export UI configuration back to readable Python.
