@@ -50,7 +50,7 @@ Target: every experiment can be recorded, compared, and repeated.
 - [x] Add batch runs and a small evaluation API for datasets and regression cases.
 - [x] Rework long-term memory around explicit collections and reproducible retrieval.
 - [x] Add workspace, network, and write policies for built-in tools.
-- [ ] Publish notebook tutorials for literature review, data analysis, and local-model labs.
+- [x] Publish notebook tutorials for literature review, data analysis, and local-model labs.
 
 Release gate: an experiment can be exported and replayed with enough metadata to explain
 differences between two runs.

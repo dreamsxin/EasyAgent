@@ -378,6 +378,7 @@ print(report.mean_score)
 - [长期记忆 Collection](docs/memory.md)
 - [内置工具权限](docs/tool-policies.md)
 - [教程与示例](examples/)
+- [Notebook 实验](examples/notebooks/)
 
 ## 🤝 贡献
 
