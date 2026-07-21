@@ -118,6 +118,14 @@ Invalid exports, import failures, provider conflicts, and duplicate tool names r
 `ExtensionLoadError`. See [Provider and tool extensions](extensions.md) for package metadata
 and complete examples.
 
+## Experimental Agent composition
+
+`from agentmold.experimental import agent_as_tool` converts one `Agent` into a normal
+single-argument `Tool`. It supports native sync and async delegation, optional short-term
+history reset, and a context-local recursion limit. The helper is deliberately not exported
+from the stable top-level package. See [Experimental Agent composition](agent-composition.md)
+for the execution and trace contract.
+
 Use standard asyncio controls for a whole run:
 
 ```python

@@ -321,6 +321,22 @@ agent = Agent(
 
 完整策略说明见 [内置工具权限](docs/tool-policies.md)。
 
+### 实验性 Agent 组合
+
+需要研究多 Agent 行为时，可以显式地把一个 Agent 转成普通工具，而不引入编排框架：
+
+```python
+from agentmold import Agent
+from agentmold.experimental import agent_as_tool
+
+specialist = Agent(name="Evidence Analyst", llm="mock")
+coordinator = Agent(tools=[agent_as_tool(specialist)], llm="mock")
+answer = coordinator("tool: inspect this claim")
+```
+
+该 API 位于 `agentmold.experimental`，尚不属于稳定顶层接口。同步/异步委托、记忆语义、
+子 Agent Trace 和递归深度限制见 [实验性 Agent 组合](docs/agent-composition.md)。
+
 ## 🧠 记忆管理
 
 ```python

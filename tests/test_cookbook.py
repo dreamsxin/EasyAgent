@@ -11,6 +11,7 @@ RECIPES = [
     "02_offline_rag.py",
     "03_batch_evaluation.py",
     "04_scoped_workspace.py",
+    "05_agent_as_tool.py",
 ]
 
 

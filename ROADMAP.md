@@ -74,7 +74,7 @@ Target: provide reusable examples after the core contracts are stable.
 - [x] Support provider and tool discovery through standard Python entry points.
 - [x] Publish a curated cookbook instead of a centralized tool marketplace.
 - [x] Restore visual Agent configurations and load explicit Python tool modules.
-- [ ] Experiment with agent-as-tool composition behind an explicit experimental marker.
+- [x] Experiment with agent-as-tool composition behind an explicit experimental marker.
 
 ## v1.0 criteria
 

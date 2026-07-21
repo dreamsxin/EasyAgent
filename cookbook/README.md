@@ -10,6 +10,7 @@ workflow DSL or external service.
 | `02_offline_rag.py` | Inspectable retrieval over a small corpus | `python cookbook/02_offline_rag.py` |
 | `03_batch_evaluation.py` | Isolated regression cases and report export | `python cookbook/03_batch_evaluation.py` |
 | `04_scoped_workspace.py` | Explicit filesystem boundaries | `python cookbook/04_scoped_workspace.py` |
+| `05_agent_as_tool.py` | Experimental Agent composition | `python cookbook/05_agent_as_tool.py` |
 
 Run recipes from the repository root. Generated files go into the ignored
 `artifacts/cookbook/` directory. To use a hosted model, change only the `llm` argument and
