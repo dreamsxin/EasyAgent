@@ -165,6 +165,18 @@ easyagent init citation-lab --template citation-aware
 这些模板分别提供本地研究笔记检索、透明的内存 RAG、标准库 CSV 汇总和来源 ID 引用；
 另外保留 `default`、`coder` 与 `chatbot` 模板。所有模板默认使用 `mock`，无需 API Key。
 
+### 精选 Cookbook
+
+[Cookbook](cookbook/README.md) 提供四个经过测试的渐进配方：研究 Trace、离线 RAG、
+批量评测和受限工作区。它们都是可直接运行的普通 Python 脚本，不依赖集中式工具市场：
+
+```bash
+python cookbook/01_trace_a_research_run.py
+python cookbook/02_offline_rag.py
+python cookbook/03_batch_evaluation.py
+python cookbook/04_scoped_workspace.py
+```
+
 ## 🧩 核心概念
 
 EasyAgent 只有三个核心概念，全部使用标准 Python 原语：
@@ -427,6 +439,7 @@ print(report.mean_score)
 - [长期记忆 Collection](docs/memory.md)
 - [内置工具权限](docs/tool-policies.md)
 - [Provider 与 Tool 扩展](docs/extensions.md)
+- [精选 Cookbook](cookbook/README.md)
 - [教程与示例](examples/)
 - [Notebook 实验](examples/notebooks/)
 

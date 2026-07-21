@@ -30,6 +30,10 @@ retrieval, CSV numeric summaries, and source-ID citation discipline. Each genera
 `agent.py` defines ordinary `@tool` functions and the same zero-argument `build_agent()`
 used by `easyagent run` and `easyagent visual --file`.
 
+For complete workflows, continue with the repository's [curated cookbook](../cookbook/README.md).
+Its offline recipes cover trace export, transparent RAG, batch evaluation, and workspace
+policies without introducing another orchestration layer.
+
 ## DeepSeek
 
 Install the OpenAI-compatible extra and set the key in the shell:

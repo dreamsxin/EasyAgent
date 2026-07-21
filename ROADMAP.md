@@ -72,7 +72,7 @@ Target: provide reusable examples after the core contracts are stable.
 
 - [x] Add research-assistant, RAG, data-analysis, and citation-aware templates.
 - [x] Support provider and tool discovery through standard Python entry points.
-- [ ] Publish a curated cookbook instead of a centralized tool marketplace.
+- [x] Publish a curated cookbook instead of a centralized tool marketplace.
 - [ ] Experiment with agent-as-tool composition behind an explicit experimental marker.
 
 ## v1.0 criteria
