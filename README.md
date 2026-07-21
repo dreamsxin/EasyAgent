@@ -131,8 +131,6 @@ cd my-agent-project
 easyagent run
 ```
 
-`agentmold` 也作为兼容的命令别名提供。
-
 ## 🧩 核心概念
 
 EasyAgent 只有三个核心概念，全部使用标准 Python 原语：
@@ -358,11 +356,27 @@ pip install "agentmold[all]"
 
 完整计划见 [ROADMAP.md](ROADMAP.md)。
 
+批量实验与回归评测使用 Agent 工厂隔离每个 case 的记忆：
+
+```python
+from agentmold import Agent, EvalCase, evaluate
+
+def build_agent():
+    return Agent(llm="mock")
+
+report = evaluate(
+    build_agent,
+    [EvalCase(input="hello", expected="[mock-llm] hello")],
+)
+print(report.mean_score)
+```
+
 ## 📚 文档
 
 - [快速开始](docs/quickstart.md)
 - [核心概念](docs/concepts.md)
 - [API 参考](docs/api.md)
+- [批量实验与评测](docs/evaluation.md)
 - [教程与示例](examples/)
 
 ## 🤝 贡献

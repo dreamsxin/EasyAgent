@@ -484,20 +484,6 @@ class Agent:
         self.last_trace = trace
         return trace
 
-    def _loop(self) -> AgentTrace:
-        """Run the think-act loop and return the full trace.
-
-        Deprecated thin wrapper kept for backwards compatibility; new code
-        should use :meth:`run_stream` directly.  Note that :meth:`run`
-        no longer calls this method — it consumes :meth:`run_stream`.
-        """
-        # _loop is rarely needed now; if called directly, it cannot replay
-        # run_stream (which needs a user_input).  Raise a clear error.
-        raise NotImplementedError(
-            "_loop() is no longer called directly. Use run_stream(user_input) "
-            "to iterate over steps, or run(user_input) for the final answer."
-        )
-
 
 def _memory_has_system(memory: BaseMemory) -> bool:
     """Best-effort check whether ``memory`` already contains a system message."""

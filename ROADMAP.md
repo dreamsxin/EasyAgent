@@ -17,7 +17,7 @@ and calling an ordinary Python function.
 
 Target: a fresh environment can follow the README without discovering hidden steps.
 
-- [x] Align package, command, and documentation naming while keeping compatibility aliases.
+- [x] Align the package and documentation around one `easyagent` command.
 - [x] Generate an installable project from `easyagent init`.
 - [x] Make optional dependency groups accurate, including the `all` extra.
 - [x] Add DeepSeek OpenAI-compatible and Anthropic-compatible configuration.
@@ -40,14 +40,14 @@ Target: the public API behaves like normal Python and remains easy to inspect.
 - [x] Define a stable, typed execution-event contract.
 
 Release gate: synchronous and asynchronous tool loops pass the same provider conformance
-suite, and public API compatibility is documented.
+suite, and the public API is documented.
 
 ## v0.3 - Reproducible research
 
 Target: every experiment can be recorded, compared, and repeated.
 
 - [x] Export JSONL traces with run IDs, model parameters, timing, token usage, and tool I/O.
-- [ ] Add batch runs and a small evaluation API for datasets and regression cases.
+- [x] Add batch runs and a small evaluation API for datasets and regression cases.
 - [ ] Rework long-term memory around explicit collections and reproducible retrieval.
 - [ ] Add workspace, network, and write policies for built-in tools.
 - [ ] Publish notebook tutorials for literature review, data analysis, and local-model labs.
