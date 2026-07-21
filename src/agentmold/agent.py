@@ -86,6 +86,9 @@ class AgentTrace:
     ended_at: str | None = None
     duration_ms: float | None = None
     error: str | None = None
+    user_input: str = ""
+    agent_name: str = ""
+    instructions: str = ""
     event_times: list[str] = field(default_factory=list, repr=False)
     _started_monotonic: float = field(default_factory=time.perf_counter, repr=False)
 
@@ -115,6 +118,9 @@ class AgentTrace:
             events.append({"recorded_at": recorded_at, **step})
         return {
             "run_id": self.run_id,
+            "input": self.user_input,
+            "agent_name": self.agent_name,
+            "instructions": self.instructions,
             "model": self.model,
             "model_config": self.model_config,
             "usage": self.usage,
@@ -267,7 +273,7 @@ class Agent:
                 if step["type"] == "tool_call":
                     print(f"Calling {step['name']}...")
         """
-        trace = self._start_trace()
+        trace = self._start_trace(user_input)
         try:
             self.log.answer(f"Running agent {self.name!r}...")
             self.memory.add(Message(role="user", content=user_input))
@@ -347,7 +353,7 @@ class Agent:
 
     async def arun_stream(self, user_input: str) -> AsyncIterator[AgentEvent]:
         """Asynchronously yield the same execution events as :meth:`run_stream`."""
-        trace = self._start_trace()
+        trace = self._start_trace(user_input)
         try:
             self.log.answer(f"Running agent {self.name!r}...")
             self.memory.add(Message(role="user", content=user_input))
@@ -464,7 +470,7 @@ class Agent:
             )
         return "\n".join(parts)
 
-    def _start_trace(self) -> AgentTrace:
+    def _start_trace(self, user_input: str = "") -> AgentTrace:
         """Create and expose the trace for the next run."""
         config: dict[str, Any] = {
             "provider": type(self.llm).__name__,
@@ -478,6 +484,9 @@ class Agent:
             config["base_url"] = base_url
         config.update(self.llm.kwargs)
         trace = AgentTrace(
+            user_input=user_input,
+            agent_name=self.name,
+            instructions=self.instructions,
             model=self.llm.model,
             model_config=_redact_config(config),
         )
@@ -512,6 +521,10 @@ def _extract_usage(raw_response: Any) -> dict[str, int | float]:
                     "total_tokens",
                     "input_tokens",
                     "output_tokens",
+                    "cost",
+                    "cost_usd",
+                    "total_cost",
+                    "total_cost_usd",
                 )
                 if key in raw_response
             }
@@ -532,6 +545,10 @@ def _extract_usage(raw_response: Any) -> dict[str, int | float]:
                 "total_tokens",
                 "input_tokens",
                 "output_tokens",
+                "cost",
+                "cost_usd",
+                "total_cost",
+                "total_cost_usd",
             )
             if hasattr(usage, key)
         }

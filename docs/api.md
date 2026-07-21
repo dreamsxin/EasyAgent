@@ -84,6 +84,10 @@ if trace is not None:
 
 Trace model configuration is redacted by key name for common credentials. Usage counters
 are best-effort because providers expose different response metadata.
+Trace headers also contain the user input, Agent name, and instructions so the visual lab
+can compare prompt and configuration changes. Open **TRACE LAB · 回放与对比** to import
+one or more JSONL files, scrub through their events, compare two runs, or export the merged
+session. Cost is shown only when the provider includes a numeric cost field in usage data.
 
 Use standard asyncio controls for a whole run:
 

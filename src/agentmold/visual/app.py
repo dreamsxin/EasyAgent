@@ -25,6 +25,13 @@ from agentmold.visual.settings import (
     save_visual_profile,
     visual_profile_key,
 )
+from agentmold.visual.traces import (
+    merge_trace_runs,
+    parse_trace_jsonl,
+    summarize_trace_run,
+    trace_label,
+    traces_to_jsonl,
+)
 
 # Streamlit is imported lazily so that importing this module for the
 # launch() entrypoint does not hard-fail when the visual extra is absent.
@@ -224,6 +231,212 @@ def _initial_run_meta() -> dict[str, Any]:
         "run_id": None,
         "error": None,
     }
+
+
+def _remember_trace(st, trace) -> None:
+    """Keep completed traces in the current session for replay and export."""
+    runs = st.session_state.get("trace_runs", [])
+    st.session_state.trace_runs = merge_trace_runs(runs, [trace.to_dict()])[-50:]
+
+
+def _trace_metrics_html(summary: dict[str, Any]) -> str:
+    """Render the compact metrics strip used by the trace replay panel."""
+    duration = summary.get("duration_ms")
+    duration_text = f"{float(duration):.0f} ms" if duration is not None else "—"
+    tokens = summary.get("total_tokens")
+    token_text = f"{float(tokens):.0f}" if tokens is not None else "—"
+    cost = summary.get("cost")
+    cost_text = f"${float(cost):.6f}" if cost is not None else "—"
+    status_text = html.escape(str(summary.get("status", "unknown")).upper())
+    model_text = html.escape(str(summary.get("model", "unknown")))
+    return (
+        '<div class="ea-trace-metrics">'
+        f"<div><span>STATUS</span><strong>{status_text}</strong></div>"
+        f"<div><span>MODEL</span><strong>{model_text}</strong></div>"
+        f"<div><span>EVENTS</span><strong>{int(summary.get('event_count', 0))}</strong></div>"
+        f"<div><span>TOOLS</span><strong>{int(summary.get('tool_calls', 0))}</strong></div>"
+        f"<div><span>TOKENS</span><strong>{html.escape(token_text)}</strong></div>"
+        f"<div><span>LATENCY</span><strong>{html.escape(duration_text)}</strong></div>"
+        f"<div><span>COST USD</span><strong>{html.escape(cost_text)}</strong></div>"
+        "</div>"
+    )
+
+
+def _trace_compare_html(left: dict[str, Any], right: dict[str, Any]) -> str:
+    """Render two trace summaries side by side without exposing model secrets."""
+
+    def metric(label: str, value: str) -> str:
+        return f"<div><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>"
+
+    def value(summary: dict[str, Any], key: str, formatter=str) -> str:
+        raw = summary.get(key)
+        return "—" if raw is None else formatter(raw)
+
+    def card(summary: dict[str, Any], side: str) -> str:
+        run_id = str(summary.get("run_id", ""))[:12] or "unknown"
+        prompt = str(summary.get("input") or "")
+        if len(prompt) > 180:
+            prompt = prompt[:180] + "…"
+        prompt_text = html.escape(prompt or "（旧版 Trace 未记录）")
+        instructions = str(summary.get("instructions") or "")
+        if len(instructions) > 180:
+            instructions = instructions[:180] + "…"
+        instructions_text = html.escape(instructions or "（旧版 Trace 未记录）")
+        return (
+            f'<section class="ea-compare-run {side}">'
+            f'<div class="ea-compare-run-head"><span>{html.escape(side.upper())}</span>'
+            f"<strong>{html.escape(run_id)}</strong></div>"
+            '<div class="ea-compare-grid-metrics">'
+            + metric("MODEL", value(summary, "model"))
+            + metric("LATENCY", value(summary, "duration_ms", lambda item: f"{float(item):.0f} ms"))
+            + metric("TOKENS", value(summary, "total_tokens", lambda item: f"{float(item):.0f}"))
+            + metric("COST USD", value(summary, "cost", lambda item: f"${float(item):.6f}"))
+            + metric("TOOLS", str(summary.get("tool_calls", 0)))
+            + metric("STATUS", str(summary.get("status", "unknown")).upper())
+            + "</div>"
+            f'<div class="ea-compare-prompt"><span>INPUT</span><p>{prompt_text}</p></div>'
+            f'<div class="ea-compare-prompt"><span>SYSTEM</span><p>{instructions_text}</p></div>'
+            "</section>"
+        )
+
+    return '<div class="ea-compare-grid">' + card(left, "run-a") + card(right, "run-b") + "</div>"
+
+
+def _render_trace_lab(st, Config, agraph, trace_to_graph) -> None:
+    """Render trace import, scrubbed replay, export, and two-run comparison."""
+    with st.expander("TRACE LAB · 回放与对比", expanded=False):
+        session_runs = st.session_state.get("trace_runs", [])
+        upload_col, export_col = st.columns([2, 1])
+        uploaded = upload_col.file_uploader(
+            "导入 JSONL Trace",
+            type=["jsonl", "ndjson", "txt"],
+            accept_multiple_files=True,
+            help="可导入 AgentTrace.to_jsonl() 生成的文件；旧文件也可读取。",
+        )
+
+        imported_runs: list[dict[str, Any]] = []
+        for uploaded_file in uploaded or []:
+            try:
+                imported_runs.extend(parse_trace_jsonl(uploaded_file.getvalue()))
+            except ValueError as exc:
+                st.error(f"{uploaded_file.name}: {exc}")
+
+        runs = merge_trace_runs(session_runs, imported_runs)
+        if runs:
+            export_col.download_button(
+                "导出当前 Trace",
+                data=traces_to_jsonl(runs),
+                file_name="easyagent-traces.jsonl",
+                mime="application/x-ndjson",
+                use_container_width=True,
+            )
+        else:
+            export_col.caption("运行后或导入 JSONL 后可回放。")
+
+        if not runs:
+            st.markdown('<div class="ea-empty">暂无可回放 Trace。</div>', unsafe_allow_html=True)
+            return
+
+        run_ids = [str(run["run_id"]) for run in runs]
+        labels = {str(run["run_id"]): trace_label(run) for run in runs}
+        replay_id = st.selectbox(
+            "回放运行",
+            options=run_ids,
+            index=len(run_ids) - 1,
+            format_func=lambda run_id: labels[run_id],
+            key="ea_replay_run",
+        )
+        replay = next(run for run in runs if run["run_id"] == replay_id)
+        summary = summarize_trace_run(replay)
+        st.markdown(_trace_metrics_html(summary), unsafe_allow_html=True)
+
+        prompt_col, config_col = st.columns(2)
+        with prompt_col:
+            st.markdown("**INPUT**")
+            st.code(summary["input"] or "（旧版 Trace 未记录）", language="text")
+            st.markdown("**SYSTEM INSTRUCTIONS**")
+            st.code(summary["instructions"] or "（旧版 Trace 未记录）", language="text")
+        with config_col:
+            st.markdown("**RUN CONFIG**")
+            config = {
+                "agent": summary["agent_name"] or "—",
+                "model": summary["model"],
+                "temperature": summary["model_config"].get("temperature", "—"),
+                "run_id": summary["run_id"],
+            }
+            st.json(config, expanded=False)
+
+        events = replay.get("events", [])
+        if events:
+            progress = st.slider(
+                "回放进度",
+                min_value=0,
+                max_value=len(events),
+                value=len(events),
+                format="第 %d 步",
+                key=f"ea_replay_progress_{replay_id}",
+            )
+            visible_events = events[:progress]
+        else:
+            visible_events = []
+            st.caption("该 Trace 没有事件记录。")
+
+        replay_col, graph_col = st.columns([1.15, 0.85])
+        with replay_col:
+            st.markdown("**TIMELINE REPLAY**")
+            st.markdown(_timeline_html(visible_events), unsafe_allow_html=True)
+        with graph_col:
+            st.markdown("**EXECUTION MAP**")
+            nodes, edges = trace_to_graph(
+                visible_events,
+                user_input=summary["input"] or None,
+            )
+            graph_config = Config(
+                width=420,
+                height=320,
+                directed=True,
+                physics=False,
+                hierarchical=True,
+                levelSeparation=78,
+                nodeSpacing=62,
+                sortMethod="directed",
+            )
+            agraph(nodes=nodes, edges=edges, config=graph_config)
+
+        st.markdown("**COMPARE RUNS**")
+        compare_key = "ea_compare_runs"
+        option_signature = tuple(run_ids)
+        if st.session_state.get("ea_compare_run_options") != option_signature:
+            selected = [
+                run_id for run_id in st.session_state.get(compare_key, []) if run_id in run_ids
+            ]
+            for run_id in reversed(run_ids):
+                if len(selected) >= 2:
+                    break
+                if run_id not in selected:
+                    selected.append(run_id)
+            st.session_state[compare_key] = selected[:2] if len(run_ids) >= 2 else []
+            st.session_state.ea_compare_run_options = option_signature
+        compare_ids = st.multiselect(
+            "选择两个运行",
+            options=run_ids,
+            format_func=lambda run_id: labels[run_id],
+            max_selections=2,
+            key=compare_key,
+        )
+        if len(compare_ids) == 2:
+            compare_runs = [
+                next(run for run in runs if run["run_id"] == run_id) for run_id in compare_ids
+            ]
+            st.markdown(
+                _trace_compare_html(
+                    summarize_trace_run(compare_runs[0]),
+                    summarize_trace_run(compare_runs[1]),
+                ),
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption("选择两个运行后，会并排显示提示词、模型、延迟、token、成本和工具调用。")
 
 
 def _profile_setting(
@@ -498,6 +711,98 @@ def _inject_theme(st) -> None:
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-size: 0.78rem;
             padding: 1rem;
+        }
+        .ea-trace-metrics {
+            align-items: stretch;
+            background: #0c131d;
+            border: 1px solid #3c5068;
+            border-radius: 8px;
+            display: grid;
+            gap: 0.45rem;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            margin: 0.75rem 0;
+            padding: 0.55rem;
+        }
+        .ea-trace-metrics > div {
+            border-right: 1px solid #1d2a39;
+            min-width: 0;
+            padding: 0.2rem 0.55rem;
+        }
+        .ea-trace-metrics > div:last-child { border-right: 0; }
+        .ea-trace-metrics span,
+        .ea-compare-run-head span,
+        .ea-compare-prompt span,
+        .ea-compare-grid-metrics span {
+            color: #62758b;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+        }
+        .ea-trace-metrics strong,
+        .ea-compare-grid-metrics strong {
+            color: var(--ea-text);
+            display: block;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.78rem;
+            margin-top: 0.2rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .ea-compare-grid {
+            display: grid;
+            gap: 0.8rem;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-top: 0.7rem;
+        }
+        .ea-compare-run {
+            background: #0c131d;
+            border: 1px solid #33485e;
+            border-radius: 8px;
+            min-width: 0;
+            padding: 0.8rem;
+        }
+        .ea-compare-run.run-a { border-top: 2px solid var(--ea-cyan); }
+        .ea-compare-run.run-b { border-top: 2px solid var(--ea-magenta); }
+        .ea-compare-run-head {
+            align-items: center;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.6rem;
+        }
+        .ea-compare-run-head strong {
+            color: var(--ea-text);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.78rem;
+        }
+        .ea-compare-grid-metrics {
+            display: grid;
+            gap: 0.5rem;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .ea-compare-grid-metrics > div { min-width: 0; }
+        .ea-compare-prompt {
+            border-top: 1px solid #1d2a39;
+            margin-top: 0.7rem;
+            padding-top: 0.55rem;
+        }
+        .ea-compare-prompt p {
+            color: #b8c7d6;
+            font-size: 0.78rem;
+            line-height: 1.45;
+            margin: 0.3rem 0 0;
+            overflow-wrap: anywhere;
+        }
+        @media (max-width: 1200px) {
+            .ea-trace-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+            .ea-trace-metrics > div:nth-child(4) { border-right: 0; }
+        }
+        @media (max-width: 720px) {
+            .ea-trace-metrics,
+            .ea-compare-grid { grid-template-columns: 1fr; }
+            .ea-trace-metrics > div { border-right: 0; }
+            .ea-compare-grid-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         .stButton > button {
             background: var(--ea-surface-2);
@@ -839,6 +1144,8 @@ def _run_app() -> None:
 
     agent = st.session_state.agent
 
+    _render_trace_lab(st, Config, agraph, trace_to_graph)
+
     # If an agent already exists but the config changed, rebuild it
     # automatically so the overview card always reflects reality — no
     # "please rebuild" blocking prompt.
@@ -950,6 +1257,8 @@ def _run_app() -> None:
                     live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                     status.update(label="出错", state="error")
                     st.error(f"Agent 出错: {exc}")
+                    if agent.last_trace is not None:
+                        _remember_trace(st, agent.last_trace)
                     st.stop()
 
                 trace = agent.last_trace
@@ -968,6 +1277,8 @@ def _run_app() -> None:
                 live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                 if answer_text:
                     st.markdown(answer_text)
+                if trace is not None:
+                    _remember_trace(st, trace)
 
             st.session_state.messages.append({"role": "assistant", "content": answer_text})
             st.session_state.last_steps = steps

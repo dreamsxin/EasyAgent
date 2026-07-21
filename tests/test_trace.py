@@ -19,6 +19,9 @@ def test_agent_exposes_and_exports_last_trace(tmp_path):
     trace = agent.last_trace
     assert trace is not None
     assert trace.model == "mock"
+    assert trace.user_input == "hello"
+    assert trace.agent_name == "TraceBot"
+    assert trace.instructions == "You are a helpful assistant."
     assert trace.ended_at is not None
     assert trace.duration_ms is not None
     assert [step["type"] for step in trace.steps] == ["answer"]
@@ -27,6 +30,8 @@ def test_agent_exposes_and_exports_last_trace(tmp_path):
     records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
     assert records[0]["record_type"] == "run"
     assert records[0]["run_id"] == trace.run_id
+    assert records[0]["input"] == "hello"
+    assert records[0]["agent_name"] == "TraceBot"
     assert records[1]["record_type"] == "event"
     assert records[1]["type"] == "answer"
 
