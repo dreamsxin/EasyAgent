@@ -11,6 +11,8 @@ LLM, tools, iterations), build it with a clear button, then chat with it
 
 from __future__ import annotations
 
+import html
+import json
 import sys
 from pathlib import Path
 
@@ -72,6 +74,246 @@ def _agent_signature(name, instructions, llm, selected_tools, max_iterations):
     return (name, instructions, llm, tuple(sorted(selected_tools)), max_iterations)
 
 
+def _timeline_html(steps: list[dict]) -> str:
+    """Render trace steps as a compact, escaped HTML timeline."""
+    if not steps:
+        return '<div class="ea-empty">暂无执行事件。提交问题后，运行轨迹会在这里展开。</div>'
+
+    labels = {
+        "tool_call": ("CALL", "↗"),
+        "tool_result": ("RESULT", "←"),
+        "answer": ("ANSWER", "✓"),
+        "thought": ("THOUGHT", "·"),
+    }
+    rows = []
+    for index, step in enumerate(steps, start=1):
+        step_type = str(step.get("type", "event"))
+        label, icon = labels.get(step_type, (step_type.upper(), "·"))
+        name = step.get("name", "agent")
+        if step_type == "tool_call":
+            detail = json.dumps(step.get("arguments", {}), ensure_ascii=False, default=str)
+        else:
+            detail = str(step.get("content", ""))
+        detail = detail.strip()
+        if len(detail) > 220:
+            detail = detail[:220] + "…"
+        rows.append(
+            "<div class='ea-timeline-row'>"
+            f"<div class='ea-timeline-index'>{index:02d}</div>"
+            f"<div class='ea-timeline-icon ea-{html.escape(step_type)}'>{html.escape(icon)}</div>"
+            "<div class='ea-timeline-copy'>"
+            f"<div class='ea-timeline-label'>{html.escape(label)}"
+            f"<span>{html.escape(str(name))}</span></div>"
+            f"<div class='ea-timeline-detail'>{html.escape(detail)}</div>"
+            "</div></div>"
+        )
+    return "<div class='ea-timeline'>" + "".join(rows) + "</div>"
+
+
+def _inject_theme(st) -> None:
+    """Apply the visual research-console theme without changing Streamlit semantics."""
+    st.markdown(
+        """
+        <style>
+        :root {
+            --ea-bg: #080c12;
+            --ea-surface: #101823;
+            --ea-surface-2: #141f2c;
+            --ea-line: #253447;
+            --ea-text: #e8f0f7;
+            --ea-muted: #8ea0b4;
+            --ea-cyan: #5de4ff;
+            --ea-magenta: #e68cff;
+            --ea-lime: #b6f36b;
+            --ea-amber: #ffc36b;
+        }
+        .stApp, [data-testid="stAppViewContainer"] {
+            background: var(--ea-bg);
+            color: var(--ea-text);
+        }
+        [data-testid="stHeader"] {
+            background: rgba(8, 12, 18, 0.92);
+        }
+        [data-testid="stSidebar"] {
+            background: #0c121b;
+            border-right: 1px solid var(--ea-line);
+        }
+        [data-testid="stSidebar"] > div:first-child {
+            padding-top: 1.2rem;
+        }
+        .main .block-container {
+            max-width: 1500px;
+            padding: 2rem 2.6rem 4rem;
+        }
+        .ea-masthead {
+            padding: 0.2rem 0 1.35rem;
+            margin-bottom: 1.25rem;
+            border-bottom: 1px solid var(--ea-line);
+        }
+        .ea-kicker {
+            color: var(--ea-cyan);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+        }
+        .ea-title {
+            color: var(--ea-text);
+            font-size: 2.55rem;
+            font-weight: 760;
+            letter-spacing: 0.01em;
+            line-height: 1.1;
+            margin-top: 0.35rem;
+        }
+        .ea-title span { color: var(--ea-magenta); }
+        .ea-subtitle {
+            color: var(--ea-muted);
+            font-size: 0.92rem;
+            margin-top: 0.55rem;
+        }
+        .ea-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+        .ea-chip {
+            border: 1px solid var(--ea-line);
+            border-radius: 999px;
+            color: var(--ea-muted);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.68rem;
+            letter-spacing: 0.08em;
+            padding: 0.28rem 0.58rem;
+        }
+        .ea-chip.live { border-color: #3c8c7a; color: var(--ea-lime); }
+        .ea-chip.trace { border-color: #76538f; color: var(--ea-magenta); }
+        .ea-section-label {
+            color: var(--ea-cyan);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            margin: 0.15rem 0 0.7rem;
+            text-transform: uppercase;
+        }
+        .ea-status-line {
+            background: var(--ea-surface);
+            border: 1px solid var(--ea-line);
+            border-radius: 8px;
+            color: var(--ea-muted);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.72rem;
+            padding: 0.55rem 0.7rem;
+        }
+        .ea-status-line strong { color: var(--ea-lime); }
+        .ea-timeline {
+            background: #0c131d;
+            border: 1px solid var(--ea-line);
+            border-radius: 8px;
+            padding: 0.55rem 0.75rem;
+        }
+        .ea-timeline-row {
+            display: grid;
+            grid-template-columns: 2rem 1.6rem minmax(0, 1fr);
+            gap: 0.65rem;
+            padding: 0.65rem 0.1rem;
+            border-bottom: 1px solid #1d2a39;
+        }
+        .ea-timeline-row:last-child { border-bottom: 0; }
+        .ea-timeline-index {
+            color: #53677d;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.68rem;
+            padding-top: 0.15rem;
+        }
+        .ea-timeline-icon {
+            align-items: center;
+            border: 1px solid currentColor;
+            border-radius: 50%;
+            display: flex;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.72rem;
+            height: 1.35rem;
+            justify-content: center;
+            width: 1.35rem;
+        }
+        .ea-tool_call { color: var(--ea-amber); }
+        .ea-tool_result { color: var(--ea-lime); }
+        .ea-answer { color: var(--ea-magenta); }
+        .ea-thought { color: var(--ea-cyan); }
+        .ea-timeline-label {
+            color: var(--ea-text);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+        .ea-timeline-label span {
+            color: var(--ea-muted);
+            font-weight: 500;
+            letter-spacing: 0;
+            margin-left: 0.45rem;
+        }
+        .ea-timeline-detail {
+            color: #b8c7d6;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.75rem;
+            line-height: 1.4;
+            margin-top: 0.22rem;
+            overflow-wrap: anywhere;
+        }
+        .ea-empty {
+            background: #0c131d;
+            border: 1px dashed var(--ea-line);
+            border-radius: 8px;
+            color: var(--ea-muted);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.78rem;
+            padding: 1rem;
+        }
+        .stButton > button {
+            background: var(--ea-surface-2);
+            border: 1px solid #33485e;
+            border-radius: 7px;
+            color: var(--ea-text);
+            font-weight: 650;
+        }
+        .stButton > button:hover {
+            background: #1c2e40;
+            border-color: var(--ea-cyan);
+            color: #ffffff;
+        }
+        [data-testid="stChatMessage"] {
+            background: #0f1722;
+            border: 1px solid #213044;
+            border-radius: 8px;
+            margin-bottom: 0.55rem;
+        }
+        [data-testid="stChatInput"] {
+            border-color: #33485e;
+        }
+        [data-testid="stChatInput"] textarea:focus {
+            border-color: var(--ea-cyan);
+            box-shadow: 0 0 0 1px var(--ea-cyan);
+        }
+        [data-testid="stMetric"] {
+            background: var(--ea-surface);
+            border: 1px solid var(--ea-line);
+            border-radius: 8px;
+            padding: 0.7rem;
+        }
+        @media (max-width: 900px) {
+            .main .block-container { padding: 1.2rem 1rem 3rem; }
+            .ea-title { font-size: 2rem; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _run_app() -> None:
     """The actual Streamlit application body."""
     import streamlit as st
@@ -80,9 +322,23 @@ def _run_app() -> None:
     from agentmold.tools import calculate
     from agentmold.visual.graph import STEP_COLORS, trace_to_graph
 
-    st.set_page_config(page_title="EasyAgent Visual Editor", page_icon="🚀", layout="wide")
-    st.title("🚀 EasyAgent Visual Editor")
-    st.caption("配置 → 生成 Agent → 提问，全程可视化，无需写代码。")
+    st.set_page_config(page_title="EasyAgent Research Console", page_icon="◈", layout="wide")
+    _inject_theme(st)
+    st.markdown(
+        """
+        <div class="ea-masthead">
+            <div class="ea-kicker">EASYAGENT // RESEARCH CONSOLE</div>
+            <div class="ea-title">Make agents <span>observable.</span></div>
+            <div class="ea-subtitle">把代码、对话与执行轨迹放进同一个清晰的研究工作台。</div>
+            <div class="ea-strip">
+                <span class="ea-chip live">● LIVE SESSION</span>
+                <span class="ea-chip trace">TRACE READY</span>
+                <span class="ea-chip">CODE-FIRST</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # ------------------------------------------------------------------
     # Sidebar: either load a code-defined agent or configure a small demo.
@@ -220,6 +476,7 @@ def _run_app() -> None:
 
         with st.container(border=True):
             tool_list = ", ".join(t.name for t in agent.tools) if agent.tools else "（无）"
+            st.markdown('<div class="ea-section-label">AGENT STATUS</div>', unsafe_allow_html=True)
             st.markdown(f"**🤖 Agent「{agent.name}」已就绪**")
             st.markdown(f"- **LLM:** `{agent.llm.model}`")
             st.markdown(f"- **工具:** {tool_list}")
@@ -232,7 +489,7 @@ def _run_app() -> None:
                 )
                 st.caption(message)
 
-        st.subheader("💬 对话")
+        st.markdown('<div class="ea-section-label">CONVERSATION</div>', unsafe_allow_html=True)
         if "messages" not in st.session_state:
             st.session_state.messages = []
         for msg in st.session_state.messages:
@@ -251,9 +508,11 @@ def _run_app() -> None:
             answer_text = ""
             with st.chat_message("assistant"):
                 status = st.status("思考中…", expanded=True)
+                live_timeline = st.empty()
                 try:
                     for step in agent.run_stream(user_input):
                         steps.append(step)
+                        live_timeline.markdown(_timeline_html(steps), unsafe_allow_html=True)
                         if step["type"] == "tool_call":
                             status.update(label=f"🔧 调用 {step['name']}…")
                             st.write(f"🔧 **工具调用:** `{step['name']}({step['arguments']})`")
@@ -276,12 +535,14 @@ def _run_app() -> None:
             st.rerun()
 
     with col_graph:
-        st.subheader("📊 执行流程")
+        st.markdown('<div class="ea-section-label">RUN TIMELINE</div>', unsafe_allow_html=True)
         steps = st.session_state.get("last_steps", [])
         user_input = st.session_state.get("last_user_input")
         if not steps:
-            st.info("提问后，Agent 的执行流程会在此显示。")
+            st.markdown(_timeline_html([]), unsafe_allow_html=True)
         else:
+            st.markdown(_timeline_html(steps), unsafe_allow_html=True)
+            st.markdown('<div class="ea-section-label">EXECUTION MAP</div>', unsafe_allow_html=True)
             nodes, edges = trace_to_graph(steps, user_input=user_input)
             config = Config(
                 width=500,

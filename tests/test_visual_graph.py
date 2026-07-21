@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agentmold.visual.app import _agent_signature
+from agentmold.visual.app import _agent_signature, _timeline_html
 from agentmold.visual.graph import STEP_COLORS, trace_to_graph
 
 
@@ -84,3 +84,22 @@ def test_agent_signature_changes_with_instructions():
     before = _agent_signature("A", "old", "mock", ["calculate"], 10)
     after = _agent_signature("A", "new", "mock", ["calculate"], 10)
     assert before != after
+
+
+def test_timeline_renders_events_and_escapes_content():
+    timeline = _timeline_html(
+        [
+            {"type": "tool_call", "name": "search", "arguments": {"q": "<tag>"}},
+            {"type": "tool_result", "name": "search", "content": "results"},
+            {"type": "answer", "content": "done"},
+        ]
+    )
+    assert "CALL" in timeline
+    assert "RESULT" in timeline
+    assert "ANSWER" in timeline
+    assert "&lt;tag&gt;" in timeline
+    assert "<tag>" not in timeline
+
+
+def test_timeline_empty_state_is_stable():
+    assert "暂无执行事件" in _timeline_html([])
