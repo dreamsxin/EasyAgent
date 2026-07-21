@@ -92,4 +92,6 @@ print(agent("tool: count the words in this sentence"))
 ```
 
 `agent.run(text)` and `agent(text)` are equivalent. `run_stream(text)` yields execution
-events such as `tool_call`, `tool_result`, and `answer`; it does not yield token deltas.
+events such as `text_delta`, `tool_call`, `tool_result`, and `answer`. `text_delta` is an
+optional provider chunk, not a guaranteed tokenizer token; built-in providers currently
+fall back to complete-response events.

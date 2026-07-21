@@ -222,6 +222,8 @@ def test_run_metrics_show_status_and_escape_errors():
             "event_count": 3,
             "tool_calls": 1,
             "duration_ms": 42.4,
+            "total_tokens": 128,
+            "cache_hit_rate": 0.625,
             "run_id": "0123456789abcdef",
             "error": "bad <response>",
         }
@@ -229,6 +231,10 @@ def test_run_metrics_show_status_and_escape_errors():
     rendered = _run_metrics_html(meta)
     assert "ERROR" in rendered
     assert "EVENTS" in rendered
+    assert "TOKENS" in rendered
+    assert "CACHE HIT" in rendered
+    assert "128" in rendered
+    assert "62.5%" in rendered
     assert "42 ms" in rendered
     assert "0123456789ab" in rendered
     assert "bad &lt;response&gt;" in rendered

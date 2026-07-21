@@ -62,6 +62,7 @@ suite, and the public API is documented.
 Target: every experiment can be recorded, compared, and repeated.
 
 - [x] Export JSONL traces with run IDs, model parameters, timing, token usage, and tool I/O.
+- [x] Normalize common provider usage fields for visual token and cache-hit metrics.
 - [x] Add batch runs and a small evaluation API for datasets and regression cases.
 - [x] Rework long-term memory around explicit collections and reproducible retrieval.
 - [x] Add workspace, network, and write policies for built-in tools.
@@ -101,7 +102,9 @@ Target: make the implementation understandable without overstating what it can d
 - [x] Distinguish Agent execution-event streaming from provider token streaming.
 - [x] Require separate `provider` and `model` fields instead of guessing from volatile names.
 - [x] Stop pre-filling hosted and local model IDs in the visual lab.
-- [ ] Design a token-delta event contract before implementing native provider streaming.
+- [x] Add a provider-neutral `text_delta` contract and sync/async Agent pipeline.
+- [x] Show token usage and cache hit rate in Streamlit run status and trace comparison.
+- [ ] Implement native text streaming in the built-in providers.
 - [ ] Add trace correlation for experimental parent/child Agent runs before stabilizing composition.
 
 Release gate: the README and teaching recipes contain no unsafe execution shortcuts, every

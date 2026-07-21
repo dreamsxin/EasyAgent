@@ -50,17 +50,23 @@ unless the tool or deployment environment imposes a stricter boundary.
 
 | Event | Emitted when |
 |---|---|
+| `text_delta` | A streaming provider emits a non-empty piece of visible assistant text |
 | `tool_call` | A complete provider response has requested a tool |
 | `tool_result` | The Python tool call has completed or returned a handled `ToolError` |
 | `answer` | A complete provider response contains the final answer |
 
-These APIs do not currently emit token or text-delta events. All built-in providers complete
-one model request before the next Agent event is available. `LLM.stream()` is a provider-level
-extension point whose base implementation yields the complete response as one chunk;
-`LLM.supports_native_streaming` is therefore `False` for the built-in providers.
+`text_delta` means a provider chunk, not necessarily one tokenizer token. It is transient:
+the Agent yields it for display but does not add it to `AgentTrace`; the final `answer` remains
+the authoritative persisted text. A provider stream must end with exactly one final
+`LlmResponse`, and concatenated deltas must match that response's content.
 
-The Streamlit timeline is live at the execution-event level. It can show tool calls and
-results as the loop progresses, but it must not be read as a claim of word-by-word output.
+The core sync and async pipelines support this contract, but all built-in providers still
+use the base `LLM.stream()` / `LLM.astream()` fallback, which emits only a final response
+event. Their `supports_native_streaming` flag therefore remains `False`.
+
+Streamlit renders deltas in the answer area when an extension supplies them, while keeping
+the durable timeline and graph focused on tool and answer events. This must not be read as
+a claim that every built-in provider offers word-by-word output.
 
 ## Provider boundary
 
@@ -79,6 +85,13 @@ naming convention because those names change independently of this package.
 Retries in `LLM.complete()` repeat provider requests after normalized `LLMError` failures.
 They do not rewind already completed tools. Trace usage is best-effort because provider
 response objects expose different accounting fields.
+
+When usage metadata is available, `AgentTrace` stores numeric counters without hiding the
+provider-specific field names. Nested counters are flattened with dot notation, so OpenAI
+compatible `input_tokens_details.cached_tokens`, DeepSeek `prompt_cache_hit_tokens` /
+`prompt_cache_miss_tokens`, and Anthropic `cache_read_input_tokens` remain inspectable.
+The visual lab normalizes those fields into total token count and cache hit rate. If a
+provider does not return cache details, cache hit rate remains unknown rather than guessed.
 
 ## Memory and concurrency
 

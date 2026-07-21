@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import time
+import typing
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 from agentmold.exceptions import ConfigurationError, LLMError
 
@@ -24,6 +25,9 @@ __all__ = [
     "LLM",
     "Message",
     "LlmResponse",
+    "LlmResponseEvent",
+    "LlmStreamEvent",
+    "LlmTextDelta",
     "LlmProvider",
     "create_llm",
     "register_provider",
@@ -62,6 +66,23 @@ class LlmResponse:
     content: str
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     raw: Any = None
+
+
+class LlmTextDelta(TypedDict):
+    """One incremental piece of visible assistant text."""
+
+    type: Literal["text_delta"]
+    content: str
+
+
+class LlmResponseEvent(TypedDict):
+    """The single final response event in one provider stream."""
+
+    type: Literal["response"]
+    response: LlmResponse
+
+
+LlmStreamEvent = typing.Union[LlmTextDelta, LlmResponseEvent]  # noqa: UP007
 
 
 class LLM(ABC):
@@ -142,16 +163,25 @@ class LLM(ABC):
 
     def stream(
         self,
-        messages: list[Message],  # noqa: ARG002 - unused by base
-    ) -> Iterator[str]:
-        """Yield provider response chunks.
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> Iterator[LlmStreamEvent]:
+        """Yield text deltas followed by exactly one final response event.
 
-        The base implementation yields one complete response, not individual
-        tokens. A provider that overrides this method should also set
-        ``supports_native_streaming = True``. ``Agent.run_stream()`` is a
-        separate event stream and does not call this provider-level method.
+        The base implementation emits only the final response, so providers
+        remain non-streaming unless they explicitly override this method and
+        set ``supports_native_streaming = True``. A text delta is a provider
+        chunk, not necessarily one tokenizer token.
         """
-        yield self.complete(messages).content
+        yield {"type": "response", "response": self.complete(messages, tools)}
+
+    async def astream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncIterator[LlmStreamEvent]:
+        """Asynchronously yield the same stream contract as :meth:`stream`."""
+        yield {"type": "response", "response": await self.acomplete(messages, tools)}
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(model={self.model!r})"

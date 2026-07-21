@@ -8,6 +8,7 @@ from agentmold.visual.traces import (
     merge_trace_runs,
     parse_trace_jsonl,
     summarize_trace_run,
+    summarize_usage,
     trace_label,
     traces_to_jsonl,
 )
@@ -55,6 +56,43 @@ def test_summary_normalizes_metrics_and_label():
     assert summary["event_count"] == 3
     assert summary["answer"] == "done"
     assert "research-model" in trace_label(run)
+
+
+def test_summary_normalizes_cache_hit_metrics():
+    summary = summarize_trace_run(
+        {
+            "run_id": "cached",
+            "ended_at": "now",
+            "usage": {
+                "prompt_cache_hit_tokens": 80,
+                "prompt_cache_miss_tokens": 20,
+                "completion_tokens": 5,
+            },
+            "events": [],
+        }
+    )
+
+    assert summary["input_tokens"] == 100
+    assert summary["total_tokens"] == 105
+    assert summary["cache_hit_tokens"] == 80
+    assert summary["cache_miss_tokens"] == 20
+    assert summary["cache_input_tokens"] == 100
+    assert summary["cache_hit_rate"] == pytest.approx(0.8)
+
+
+def test_usage_summary_handles_nested_cached_token_fields():
+    summary = summarize_usage(
+        {
+            "input_tokens": 50,
+            "output_tokens": 6,
+            "input_tokens_details.cached_tokens": 10,
+        }
+    )
+
+    assert summary["total_tokens"] == 56
+    assert summary["cache_hit_tokens"] == 10
+    assert summary["cache_miss_tokens"] == 40
+    assert summary["cache_hit_rate"] == pytest.approx(0.2)
 
 
 def test_merge_replaces_duplicate_ids_and_parser_rejects_bad_records():

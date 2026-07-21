@@ -71,6 +71,31 @@ def test_trace_contains_tool_io_and_usage():
     assert trace.steps[1]["content"] == "hi"
 
 
+def test_trace_preserves_nested_usage_and_cache_counters():
+    class CachedUsageLLM(LLM):
+        def _complete(self, messages, tools=None):
+            return LlmResponse(
+                content="cached",
+                raw={
+                    "usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 8,
+                        "input_tokens_details": {"cached_tokens": 75},
+                    }
+                },
+            )
+
+    agent = Agent(llm=CachedUsageLLM(model="cache-model"), log_level=LogLevel.SILENT)
+
+    assert agent.run("go") == "cached"
+    assert agent.last_trace is not None
+    assert agent.last_trace.usage == {
+        "input_tokens": 100,
+        "output_tokens": 8,
+        "input_tokens_details.cached_tokens": 75,
+    }
+
+
 def test_failed_run_is_recorded_in_trace():
     class LoopyLLM(LLM):
         def _complete(self, messages, tools=None):

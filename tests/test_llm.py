@@ -96,4 +96,7 @@ def test_base_stream_is_explicitly_a_single_chunk_fallback():
 
     llm = TestLLM(model="test")
     assert llm.supports_native_streaming is False
-    assert list(llm.stream([Message(role="user", content="hello")])) == ["complete response"]
+    events = list(llm.stream([Message(role="user", content="hello")]))
+    assert len(events) == 1
+    assert events[0]["type"] == "response"
+    assert events[0]["response"].content == "complete response"

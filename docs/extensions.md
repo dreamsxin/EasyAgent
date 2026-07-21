@@ -18,6 +18,38 @@ class StudyLLM(LLM):
         return LlmResponse(content="plugin response")
 ```
 
+### Optional native text streaming
+
+An extension can opt into the provider-neutral stream contract without changing Agent code:
+
+```python
+class StudyLLM(LLM):
+    supports_native_streaming = True
+
+    def _complete(self, messages, tools=None):
+        return LlmResponse(content="plugin response")
+
+    def stream(self, messages, tools=None):
+        yield {"type": "text_delta", "content": "plugin "}
+        yield {"type": "text_delta", "content": "response"}
+        yield {
+            "type": "response",
+            "response": LlmResponse(content="plugin response"),
+        }
+```
+
+The final response event is required and must be last. Non-empty deltas must concatenate to
+the same `LlmResponse.content`. They are transient UI events and are not written into traces.
+Async-native providers override `astream()` with the same event dictionaries. Providers that
+do not override either method continue to work through the complete-response fallback.
+Native streaming adapters own request and retry behavior; after a delta is emitted, an
+automatic retry cannot retract text that the UI has already shown.
+
+For token accounting, return the provider response object in `LlmResponse(raw=...)` when it
+contains usage metadata. EasyAgent preserves numeric usage fields, including nested cache
+details such as `input_tokens_details.cached_tokens`, so the visual lab can display token
+usage and cache hit rate when the provider exposes them.
+
 Declare it in the extension package's `pyproject.toml`:
 
 ```toml

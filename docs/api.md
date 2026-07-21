@@ -41,10 +41,11 @@ async for event in agent.arun_stream("question"):
         print(event["name"], event["arguments"])
 ```
 
-The event types are `tool_call`, `tool_result`, and `answer`. A provider request completes
-before the next event is emitted. The built-in providers do not currently implement native
-token streaming; the base `LLM.stream()` returns one complete response chunk and advertises
-`supports_native_streaming = False`.
+The event types are `text_delta`, `tool_call`, `tool_result`, and `answer`. `text_delta` is
+optional and means a provider text chunk, not necessarily one token. Delta events are not
+stored in `AgentTrace`; the final `answer` is persisted. The built-in providers do not yet
+implement native streaming, so their base `LLM.stream()` / `LLM.astream()` path emits only
+the final response and advertises `supports_native_streaming = False`.
 
 One `Agent` owns one mutable conversation memory. Use a separate `Agent` or `Memory`
 instance per concurrent conversation instead of calling the same agent concurrently.
@@ -108,6 +109,10 @@ Trace headers also contain the user input, Agent name, and instructions so the v
 can compare prompt and configuration changes. Open **TRACE LAB · 回放与对比** to import
 one or more JSONL files, scrub through their events, compare two runs, or export the merged
 session. Cost is shown only when the provider includes a numeric cost field in usage data.
+Common token counters are normalized for display, including `prompt_tokens`,
+`completion_tokens`, `input_tokens`, `output_tokens`, and cache fields such as
+`prompt_cache_hit_tokens`, `prompt_cache_miss_tokens`, nested `cached_tokens`, and
+`cache_read_input_tokens`. Cache hit rate is shown only when enough usage data is present.
 
 The visual lab's **PYTHON EXPORT · agent.py** panel generates the same code-first shape
 accepted by `load_agent()`: a readable `build_agent()` function with the current name,

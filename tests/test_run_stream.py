@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 
 from agentmold import Agent, LogLevel, tool
-from agentmold.exceptions import MaxIterationsError
+from agentmold.exceptions import LLMError, MaxIterationsError
+from agentmold.llm import LLM, LlmResponse
 
 
 def test_run_stream_direct_answer_yields_answer_step():
@@ -70,9 +71,59 @@ def test_run_stream_and_run_produce_same_answer():
     assert direct == streamed
 
 
+def test_native_text_deltas_are_transient_and_end_with_answer():
+    class StreamingLLM(LLM):
+        supports_native_streaming = True
+
+        def _complete(self, messages, tools=None):
+            return LlmResponse(content="unused")
+
+        def stream(self, messages, tools=None):
+            yield {"type": "text_delta", "content": "Hel"}
+            yield {"type": "text_delta", "content": ""}
+            yield {"type": "text_delta", "content": "lo"}
+            yield {"type": "response", "response": LlmResponse(content="Hello")}
+
+    agent = Agent(llm=StreamingLLM(model="stream"), log_level=LogLevel.SILENT)
+    events = list(agent.run_stream("hi"))
+
+    assert [event["type"] for event in events] == ["text_delta", "text_delta", "answer"]
+    assert [event["content"] for event in events] == ["Hel", "lo", "Hello"]
+    assert agent.last_trace is not None
+    assert [event["type"] for event in agent.last_trace.steps] == ["answer"]
+
+
+@pytest.mark.parametrize(
+    "stream_events",
+    [
+        [{"type": "text_delta", "content": "unfinished"}],
+        [
+            {"type": "text_delta", "content": "one"},
+            {"type": "response", "response": LlmResponse(content="different")},
+        ],
+        [
+            {"type": "response", "response": LlmResponse(content="done")},
+            {"type": "text_delta", "content": "late"},
+        ],
+    ],
+)
+def test_invalid_native_stream_contract_is_rejected(stream_events):
+    class InvalidStreamingLLM(LLM):
+        supports_native_streaming = True
+
+        def _complete(self, messages, tools=None):
+            return LlmResponse(content="unused")
+
+        def stream(self, messages, tools=None):
+            yield from stream_events
+
+    agent = Agent(llm=InvalidStreamingLLM(model="invalid"), log_level=LogLevel.SILENT)
+    with pytest.raises(LLMError):
+        list(agent.run_stream("hi"))
+
+
 def test_run_stream_max_iterations_raises():
     """An LLM that always calls tools must hit the iteration cap."""
-    from agentmold.llm import LLM, LlmResponse
 
     class AlwaysTool(LLM):
         def _complete(self, messages, tools=None):

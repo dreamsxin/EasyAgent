@@ -21,12 +21,40 @@ from typing import Any, Literal, TypedDict
 from uuid import uuid4
 
 from agentmold.exceptions import (
+    LLMError,
     MaxIterationsError,
     ToolError,
 )
-from agentmold.llm import LLM, Message, create_llm
+from agentmold.llm import LLM, LlmResponse, Message, create_llm
 from agentmold.memory import BaseMemory, Memory
 from agentmold.tool import Tool, ToolRegistry
+
+_USAGE_NUMERIC_KEYS = (
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "total_token_count",
+    "input_tokens",
+    "output_tokens",
+    "prompt_eval_count",
+    "eval_count",
+    "prompt_cache_hit_tokens",
+    "prompt_cache_miss_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+    "cached_tokens",
+    "reasoning_tokens",
+    "cost",
+    "cost_usd",
+    "total_cost",
+    "total_cost_usd",
+)
+_USAGE_DETAIL_KEYS = (
+    "prompt_tokens_details",
+    "completion_tokens_details",
+    "input_tokens_details",
+    "output_tokens_details",
+)
 
 __all__ = [
     "Agent",
@@ -34,6 +62,7 @@ __all__ = [
     "AgentTrace",
     "AgentEvent",
     "AnswerEvent",
+    "TextDeltaEvent",
     "ToolCallEvent",
     "ToolResultEvent",
 ]
@@ -41,6 +70,13 @@ __all__ = [
 
 class AnswerEvent(TypedDict):
     type: Literal["answer"]
+    content: str
+
+
+class TextDeltaEvent(TypedDict):
+    """Transient visible text emitted before the final answer event."""
+
+    type: Literal["text_delta"]
     content: str
 
 
@@ -58,7 +94,8 @@ class ToolResultEvent(TypedDict):
     content: str
 
 
-AgentEvent = typing.Union[AnswerEvent, ToolCallEvent, ToolResultEvent]  # noqa: UP007
+TraceEvent = typing.Union[AnswerEvent, ToolCallEvent, ToolResultEvent]  # noqa: UP007
+AgentEvent = typing.Union[TextDeltaEvent, TraceEvent]  # noqa: UP007
 
 
 class LogLevel(enum.IntEnum):
@@ -73,11 +110,12 @@ class LogLevel(enum.IntEnum):
 class AgentTrace:
     """A serializable record of one agent run.
 
-    ``steps`` preserves the same dictionaries yielded by ``run_stream``.
-    Timestamps and run metadata are added only when exporting.
+    ``steps`` preserves durable tool and answer events. Transient
+    ``text_delta`` events are intentionally not stored. Timestamps and run
+    metadata are added only when exporting.
     """
 
-    steps: list[AgentEvent] = field(default_factory=list)
+    steps: list[TraceEvent] = field(default_factory=list)
     run_id: str = field(default_factory=lambda: uuid4().hex)
     model: str = ""
     model_config: dict[str, Any] = field(default_factory=dict)
@@ -92,7 +130,7 @@ class AgentTrace:
     event_times: list[str] = field(default_factory=list, repr=False)
     _started_monotonic: float = field(default_factory=time.perf_counter, repr=False)
 
-    def add(self, step: AgentEvent) -> None:
+    def add(self, step: TraceEvent) -> None:
         self.steps.append(step)
         self.event_times.append(_utc_now())
 
@@ -195,8 +233,8 @@ class Agent:
     tools:
         List of :class:`Tool` objects (created via the ``@tool`` decorator).
     llm:
-        A model shorthand (``"gpt-4o-mini"``), an :class:`LLM` instance,
-        or a config dict.
+        The offline string ``"mock"``, an :class:`LLM` instance, or an
+        explicit config dict containing ``provider`` and ``model``.
     memory:
         A :class:`BaseMemory` instance.  Defaults to short-term
         :class:`Memory` with a 20-message window.
@@ -282,7 +320,10 @@ class Agent:
             tool_schemas = self.registry.schemas()
             for iteration in range(1, self.max_iterations + 1):
                 messages = self.memory.messages()
-                response = self.llm.complete(messages, tools=tool_schemas or None)
+                response = yield from self._stream_llm_response(
+                    messages,
+                    tool_schemas or None,
+                )
                 trace.add_usage(response.raw)
 
                 if not response.tool_calls:
@@ -362,7 +403,22 @@ class Agent:
             tool_schemas = self.registry.schemas()
             for iteration in range(1, self.max_iterations + 1):
                 messages = self.memory.messages()
-                response = await self.llm.acomplete(messages, tools=tool_schemas or None)
+                response: LlmResponse | None = None
+                streamed_text: list[str] = []
+                async for llm_event in self.llm.astream(messages, tools=tool_schemas or None):
+                    if response is not None:
+                        raise LLMError("LLM stream emitted an event after its final response.")
+                    if llm_event["type"] == "text_delta":
+                        content = llm_event["content"]
+                        if content:
+                            streamed_text.append(content)
+                            yield TextDeltaEvent(type="text_delta", content=content)
+                        continue
+                    if llm_event["type"] == "response":
+                        response = llm_event["response"]
+                        continue
+                    raise LLMError(f"Unsupported LLM stream event: {llm_event!r}")
+                response = _validate_stream_response(response, streamed_text)
                 trace.add_usage(response.raw)
 
                 if not response.tool_calls:
@@ -461,6 +517,28 @@ class Agent:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+    def _stream_llm_response(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None,
+    ) -> typing.Generator[TextDeltaEvent, None, LlmResponse]:
+        response: LlmResponse | None = None
+        streamed_text: list[str] = []
+        for llm_event in self.llm.stream(messages, tools=tools):
+            if response is not None:
+                raise LLMError("LLM stream emitted an event after its final response.")
+            if llm_event["type"] == "text_delta":
+                content = llm_event["content"]
+                if content:
+                    streamed_text.append(content)
+                    yield TextDeltaEvent(type="text_delta", content=content)
+                continue
+            if llm_event["type"] == "response":
+                response = llm_event["response"]
+                continue
+            raise LLMError(f"Unsupported LLM stream event: {llm_event!r}")
+        return _validate_stream_response(response, streamed_text)
+
     def _build_system_prompt(self) -> str:
         parts = [f"You are {self.name}.", self.instructions]
         if len(self.registry):
@@ -504,6 +582,20 @@ def _memory_has_system(memory: BaseMemory) -> bool:
         return False
 
 
+def _validate_stream_response(
+    response: LlmResponse | None,
+    streamed_text: list[str],
+) -> LlmResponse:
+    """Validate the provider-neutral stream termination contract."""
+    if response is None:
+        raise LLMError("LLM stream ended without a final response event.")
+    if not isinstance(response, LlmResponse):
+        raise LLMError("LLM stream final response must contain an LlmResponse.")
+    if streamed_text and "".join(streamed_text) != response.content:
+        raise LLMError("LLM text deltas do not match the final response content.")
+    return response
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -517,50 +609,44 @@ def _extract_usage(raw_response: Any) -> dict[str, int | float]:
         if usage is None:
             usage = {
                 key: raw_response[key]
-                for key in (
-                    "prompt_tokens",
-                    "completion_tokens",
-                    "total_tokens",
-                    "input_tokens",
-                    "output_tokens",
-                    "cost",
-                    "cost_usd",
-                    "total_cost",
-                    "total_cost_usd",
-                )
+                for key in (*_USAGE_NUMERIC_KEYS, *_USAGE_DETAIL_KEYS)
                 if key in raw_response
             }
     else:
         usage = getattr(raw_response, "usage", None)
     if usage is None:
         return {}
-    if hasattr(usage, "model_dump"):
-        usage = usage.model_dump()
-    elif hasattr(usage, "to_dict"):
-        usage = usage.to_dict()
-    elif not isinstance(usage, dict):
-        usage = {
-            key: getattr(usage, key)
-            for key in (
-                "prompt_tokens",
-                "completion_tokens",
-                "total_tokens",
-                "input_tokens",
-                "output_tokens",
-                "cost",
-                "cost_usd",
-                "total_cost",
-                "total_cost_usd",
-            )
-            if hasattr(usage, key)
-        }
-    if not isinstance(usage, dict):
+    usage = _usage_mapping(usage)
+    if not usage:
         return {}
+    return _flatten_numeric_usage(usage)
+
+
+def _usage_mapping(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return {str(key): item for key, item in value.items()}
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump()
+        return dumped if isinstance(dumped, dict) else {}
+    if hasattr(value, "to_dict"):
+        dumped = value.to_dict()
+        return dumped if isinstance(dumped, dict) else {}
     return {
-        str(key): value
-        for key, value in usage.items()
-        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        key: getattr(value, key)
+        for key in (*_USAGE_NUMERIC_KEYS, *_USAGE_DETAIL_KEYS)
+        if hasattr(value, key)
     }
+
+
+def _flatten_numeric_usage(value: Any, prefix: str = "") -> dict[str, int | float]:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return {prefix: value} if prefix else {}
+    mapping = _usage_mapping(value)
+    flattened: dict[str, int | float] = {}
+    for key, item in mapping.items():
+        full_key = f"{prefix}.{key}" if prefix else key
+        flattened.update(_flatten_numeric_usage(item, full_key))
+    return flattened
 
 
 def _redact_config(config: dict[str, Any]) -> dict[str, Any]:

@@ -51,6 +51,30 @@ async def test_arun_supports_async_tools_and_yields_same_events():
 
 
 @pytest.mark.asyncio
+async def test_arun_stream_yields_transient_text_deltas():
+    class AsyncStreamingLLM(LLM):
+        supports_native_streaming = True
+
+        def _complete(self, messages, tools=None):
+            return LlmResponse(content="unused")
+
+        async def astream(self, messages, tools=None):
+            yield {"type": "text_delta", "content": "Async "}
+            yield {"type": "text_delta", "content": "answer"}
+            yield {
+                "type": "response",
+                "response": LlmResponse(content="Async answer"),
+            }
+
+    agent = Agent(llm=AsyncStreamingLLM(model="stream"), log_level=LogLevel.SILENT)
+    events = [event async for event in agent.arun_stream("hi")]
+
+    assert [event["type"] for event in events] == ["text_delta", "text_delta", "answer"]
+    assert agent.last_trace is not None
+    assert [event["type"] for event in agent.last_trace.steps] == ["answer"]
+
+
+@pytest.mark.asyncio
 async def test_arun_runs_sync_tools_off_the_event_loop():
     @tool
     def sync_tool(value: int) -> int:

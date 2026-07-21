@@ -13,6 +13,7 @@ from typing import Any
 __all__ = [
     "merge_trace_runs",
     "parse_trace_jsonl",
+    "summarize_usage",
     "summarize_trace_run",
     "trace_label",
     "traces_to_jsonl",
@@ -135,23 +136,13 @@ def summarize_trace_run(run: dict[str, Any]) -> dict[str, Any]:
     usage: dict[str, Any] = (
         {str(key): value for key, value in raw_usage.items()} if isinstance(raw_usage, dict) else {}
     )
+    usage_summary = summarize_usage(usage)
     raw_model_config = run.get("model_config")
     model_config = (
         {str(key): value for key, value in raw_model_config.items()}
         if isinstance(raw_model_config, dict)
         else {}
     )
-    total_tokens = _first_number(
-        usage,
-        "total_tokens",
-        "total_token_count",
-    )
-    if total_tokens is None:
-        total_tokens = _sum_numbers(usage, ("prompt_tokens", "completion_tokens"))
-    if total_tokens is None:
-        total_tokens = _sum_numbers(usage, ("input_tokens", "output_tokens"))
-
-    cost = _first_number(usage, "cost_usd", "total_cost_usd", "cost", "total_cost")
     status = "error" if run.get("error") else "complete" if run.get("ended_at") else "unknown"
     return {
         "run_id": str(run.get("run_id", "")),
@@ -162,8 +153,7 @@ def summarize_trace_run(run: dict[str, Any]) -> dict[str, Any]:
         "model_config": model_config,
         "usage": usage,
         "duration_ms": _number(run.get("duration_ms")),
-        "total_tokens": total_tokens,
-        "cost": cost,
+        **usage_summary,
         "event_count": len(events),
         "tool_calls": sum(event.get("type") == "tool_call" for event in events),
         "status": status,
@@ -188,6 +178,54 @@ def trace_label(run: dict[str, Any]) -> str:
     return f"{timestamp} · {summary['model']} · {run_id}"
 
 
+def summarize_usage(usage: dict[str, Any]) -> dict[str, int | float | None]:
+    """Normalize token, cache, and cost counters from provider-specific usage data."""
+    total_tokens = _first_number(usage, "total_tokens", "total_token_count")
+    input_tokens = _first_number(usage, "prompt_tokens", "input_tokens", "prompt_eval_count")
+    output_tokens = _first_number(usage, "completion_tokens", "output_tokens", "eval_count")
+    cache_hit_tokens = _first_number(
+        usage,
+        "prompt_cache_hit_tokens",
+        "prompt_tokens_details.cached_tokens",
+        "input_tokens_details.cached_tokens",
+        "cached_tokens",
+        "cache_read_input_tokens",
+    )
+    cache_miss_tokens = _first_number(usage, "prompt_cache_miss_tokens")
+
+    if input_tokens is None and cache_hit_tokens is not None and cache_miss_tokens is not None:
+        input_tokens = cache_hit_tokens + cache_miss_tokens
+    if total_tokens is None and input_tokens is not None and output_tokens is not None:
+        total_tokens = input_tokens + output_tokens
+
+    cache_input_tokens = _cache_input_tokens(
+        usage,
+        cache_hit_tokens=cache_hit_tokens,
+        cache_miss_tokens=cache_miss_tokens,
+        input_tokens=input_tokens,
+    )
+    if (
+        cache_miss_tokens is None
+        and cache_input_tokens is not None
+        and cache_hit_tokens is not None
+    ):
+        cache_miss_tokens = max(cache_input_tokens - cache_hit_tokens, 0)
+    cache_hit_rate = None
+    if cache_hit_tokens is not None and cache_input_tokens is not None and cache_input_tokens > 0:
+        cache_hit_rate = cache_hit_tokens / cache_input_tokens
+
+    return {
+        "total_tokens": total_tokens,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cache_hit_tokens": cache_hit_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "cache_input_tokens": cache_input_tokens,
+        "cache_hit_rate": cache_hit_rate,
+        "cost": _first_number(usage, "cost_usd", "total_cost_usd", "cost", "total_cost"),
+    }
+
+
 def _number(value: Any) -> int | float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return value
@@ -207,3 +245,27 @@ def _sum_numbers(values: dict[str, Any], keys: tuple[str, str]) -> int | float |
     if all(value is not None for value in numbers):
         return sum(value for value in numbers if value is not None)
     return None
+
+
+def _cache_input_tokens(
+    usage: dict[str, Any],
+    *,
+    cache_hit_tokens: int | float | None,
+    cache_miss_tokens: int | float | None,
+    input_tokens: int | float | None,
+) -> int | float | None:
+    if cache_hit_tokens is None:
+        return None
+    if cache_miss_tokens is not None:
+        return cache_hit_tokens + cache_miss_tokens
+    if _first_number(usage, "cache_read_input_tokens") is not None:
+        return sum(
+            value
+            for value in (
+                _number(usage.get("cache_read_input_tokens")),
+                _number(usage.get("cache_creation_input_tokens")),
+                _number(usage.get("input_tokens")),
+            )
+            if value is not None
+        )
+    return input_tokens

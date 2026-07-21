@@ -270,6 +270,8 @@ def _run_metrics_html(meta: dict[str, Any]) -> str:
     state_label, phase, state_class = labels.get(state, (state.upper(), state, "ea-state-idle"))
     duration = meta.get("duration_ms")
     duration_text = f"{float(duration):.0f} ms" if duration is not None else "—"
+    token_text = _format_token_count(meta.get("total_tokens"))
+    cache_hit_text = _format_percent(meta.get("cache_hit_rate"))
     run_id = str(meta.get("run_id") or "—")
     if len(run_id) > 12:
         run_id = run_id[:12]
@@ -283,6 +285,10 @@ def _run_metrics_html(meta: dict[str, Any]) -> str:
         f"<strong>{int(meta.get('event_count', 0))}</strong></div>"
         "<div class='ea-run-metric'><span>TOOLS</span>"
         f"<strong>{int(meta.get('tool_calls', 0))}</strong></div>"
+        "<div class='ea-run-metric'><span>TOKENS</span>"
+        f"<strong>{html.escape(token_text)}</strong></div>"
+        "<div class='ea-run-metric'><span>CACHE HIT</span>"
+        f"<strong>{html.escape(cache_hit_text)}</strong></div>"
         "<div class='ea-run-metric'><span>TIME</span>"
         f"<strong>{html.escape(duration_text)}</strong></div>"
         f"<div class='ea-run-id'><span>RUN</span><strong>{html.escape(run_id)}</strong></div>"
@@ -297,10 +303,35 @@ def _initial_run_meta() -> dict[str, Any]:
         "phase": "待命",
         "event_count": 0,
         "tool_calls": 0,
+        "total_tokens": None,
+        "input_tokens": None,
+        "output_tokens": None,
+        "cache_hit_tokens": None,
+        "cache_miss_tokens": None,
+        "cache_input_tokens": None,
+        "cache_hit_rate": None,
         "duration_ms": None,
         "run_id": None,
         "error": None,
     }
+
+
+def _apply_trace_usage_to_run_meta(meta: dict[str, Any], trace: AgentTrace | None) -> None:
+    if trace is None:
+        return
+    summary = summarize_trace_run(trace.to_dict())
+    meta["run_id"] = summary["run_id"]
+    for key in (
+        "total_tokens",
+        "input_tokens",
+        "output_tokens",
+        "cache_hit_tokens",
+        "cache_miss_tokens",
+        "cache_input_tokens",
+        "cache_hit_rate",
+        "cost",
+    ):
+        meta[key] = summary.get(key)
 
 
 def _remember_trace(st: Any, trace: AgentTrace) -> None:
@@ -309,12 +340,26 @@ def _remember_trace(st: Any, trace: AgentTrace) -> None:
     st.session_state.trace_runs = merge_trace_runs(runs, [trace.to_dict()])[-50:]
 
 
+def _format_token_count(value: Any) -> str:
+    return (
+        f"{float(value):.0f}"
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        else "—"
+    )
+
+
+def _format_percent(value: Any) -> str:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return "—"
+    return f"{value * 100:.1f}%"
+
+
 def _trace_metrics_html(summary: dict[str, Any]) -> str:
     """Render the compact metrics strip used by the trace replay panel."""
     duration = summary.get("duration_ms")
     duration_text = f"{float(duration):.0f} ms" if duration is not None else "—"
-    tokens = summary.get("total_tokens")
-    token_text = f"{float(tokens):.0f}" if tokens is not None else "—"
+    token_text = _format_token_count(summary.get("total_tokens"))
+    cache_hit_text = _format_percent(summary.get("cache_hit_rate"))
     cost = summary.get("cost")
     cost_text = f"${float(cost):.6f}" if cost is not None else "—"
     status_text = html.escape(str(summary.get("status", "unknown")).upper())
@@ -326,6 +371,7 @@ def _trace_metrics_html(summary: dict[str, Any]) -> str:
         f"<div><span>EVENTS</span><strong>{int(summary.get('event_count', 0))}</strong></div>"
         f"<div><span>TOOLS</span><strong>{int(summary.get('tool_calls', 0))}</strong></div>"
         f"<div><span>TOKENS</span><strong>{html.escape(token_text)}</strong></div>"
+        f"<div><span>CACHE HIT</span><strong>{html.escape(cache_hit_text)}</strong></div>"
         f"<div><span>LATENCY</span><strong>{html.escape(duration_text)}</strong></div>"
         f"<div><span>COST USD</span><strong>{html.escape(cost_text)}</strong></div>"
         "</div>"
@@ -363,7 +409,8 @@ def _trace_compare_html(left: dict[str, Any], right: dict[str, Any]) -> str:
             '<div class="ea-compare-grid-metrics">'
             + metric("MODEL", value(summary, "model"))
             + metric("LATENCY", value(summary, "duration_ms", lambda item: f"{float(item):.0f} ms"))
-            + metric("TOKENS", value(summary, "total_tokens", lambda item: f"{float(item):.0f}"))
+            + metric("TOKENS", _format_token_count(summary.get("total_tokens")))
+            + metric("CACHE HIT", _format_percent(summary.get("cache_hit_rate")))
             + metric("COST USD", value(summary, "cost", lambda item: f"${float(item):.6f}"))
             + metric("TOOLS", str(summary.get("tool_calls", 0)))
             + metric("STATUS", str(summary.get("status", "unknown")).upper())
@@ -720,8 +767,8 @@ def _inject_theme(st: Any) -> None:
             border-radius: 8px;
             display: grid;
             gap: 0.5rem;
-            grid-template-columns: minmax(8rem, 1.5fr) repeat(3, minmax(4.2rem, 0.75fr))
-                minmax(5rem, 1fr);
+            grid-template-columns: minmax(8rem, 1.35fr) repeat(5, minmax(4.2rem, 0.7fr))
+                minmax(5rem, 0.9fr);
             margin-bottom: 0.8rem;
             padding: 0.55rem;
         }
@@ -843,7 +890,7 @@ def _inject_theme(st: Any) -> None:
             border-radius: 8px;
             display: grid;
             gap: 0.45rem;
-            grid-template-columns: repeat(7, minmax(0, 1fr));
+            grid-template-columns: repeat(8, minmax(0, 1fr));
             margin: 0.75rem 0;
             padding: 0.55rem;
         }
@@ -929,7 +976,8 @@ def _inject_theme(st: Any) -> None:
         }
         @media (max-width: 1200px) {
             .ea-trace-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-            .ea-trace-metrics > div:nth-child(4) { border-right: 0; }
+            .ea-trace-metrics > div:nth-child(4),
+            .ea-trace-metrics > div:nth-child(8) { border-right: 0; }
         }
         @media (max-width: 720px) {
             .ea-trace-metrics,
@@ -1534,13 +1582,27 @@ def _run_app() -> None:
                 status = st.status("思考中…", expanded=True)
                 live_timeline = st.empty()
                 live_metrics = st.empty()
+                live_answer: Any | None = None
                 live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                 try:
                     for step in agent.run_stream(user_input):
+                        if step["type"] == "text_delta":
+                            answer_text += step["content"]
+                            run_meta["phase"] = "生成回答"
+                            run_meta["duration_ms"] = round(
+                                (time.perf_counter() - run_started) * 1000, 1
+                            )
+                            status.update(label="生成回答…")
+                            if live_answer is None:
+                                live_answer = st.empty()
+                            live_answer.markdown(answer_text)
+                            live_metrics.markdown(
+                                _run_metrics_html(run_meta), unsafe_allow_html=True
+                            )
+                            continue
                         steps.append(step)
                         trace = agent.last_trace
-                        if trace is not None:
-                            run_meta["run_id"] = trace.run_id
+                        _apply_trace_usage_to_run_meta(run_meta, trace)
                         run_meta["event_count"] = len(steps)
                         run_meta["tool_calls"] = sum(
                             item.get("type") == "tool_call" for item in steps
@@ -1559,6 +1621,8 @@ def _run_app() -> None:
                         elif step["type"] == "answer":
                             answer_text = step["content"]
                             run_meta["phase"] = "生成回答"
+                            if live_answer is not None:
+                                live_answer.markdown(answer_text)
                             status.update(label="完成！", state="complete", expanded=False)
                         live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                 except Exception as exc:  # noqa: BLE001
@@ -1572,6 +1636,7 @@ def _run_app() -> None:
                             "tool_calls": sum(item.get("type") == "tool_call" for item in steps),
                         }
                     )
+                    _apply_trace_usage_to_run_meta(run_meta, agent.last_trace)
                     st.session_state.run_meta = run_meta
                     live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                     status.update(label="出错", state="error")
@@ -1581,6 +1646,7 @@ def _run_app() -> None:
                     st.stop()
 
                 trace = agent.last_trace
+                _apply_trace_usage_to_run_meta(run_meta, trace)
                 run_meta.update(
                     {
                         "state": "complete",
@@ -1594,7 +1660,7 @@ def _run_app() -> None:
                 )
                 st.session_state.run_meta = run_meta
                 live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
-                if answer_text:
+                if answer_text and live_answer is None:
                     st.markdown(answer_text)
                 if trace is not None:
                     _remember_trace(st, trace)
