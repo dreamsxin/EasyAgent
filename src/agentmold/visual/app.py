@@ -24,10 +24,11 @@ def _build_agent(
 ):
     """Construct an Agent from the UI configuration."""
     from agentmold import Agent, LogLevel
-    from agentmold.tools import BUILTIN_TOOLS
+    from agentmold.tools import calculate
 
-    # Map tool names → Tool objects.
-    tool_map = {t.name: t for t in BUILTIN_TOOLS}
+    # The visual editor only exposes side-effect-free tools. Workspace and
+    # network tools require explicit policy configuration in Python.
+    tool_map = {calculate.name: calculate}
     tools = [tool_map[n] for n in selected_tools if n in tool_map]
 
     return Agent(
@@ -50,7 +51,7 @@ def _run_app() -> None:
     import streamlit as st
     from streamlit_agraph import Config, agraph
 
-    from agentmold.tools import BUILTIN_TOOLS
+    from agentmold.tools import calculate
     from agentmold.visual.graph import STEP_COLORS, trace_to_graph
 
     st.set_page_config(page_title="EasyAgent Visual Editor", page_icon="🚀", layout="wide")
@@ -84,13 +85,12 @@ def _run_app() -> None:
 
     st.sidebar.divider()
     st.sidebar.header("🛠️ 工具")
-    tool_names = [t.name for t in BUILTIN_TOOLS]
-    tool_help = {t.name: t.description for t in BUILTIN_TOOLS}
+    safe_tools = [calculate]
+    tool_names = [t.name for t in safe_tools]
+    tool_help = {t.name: t.description for t in safe_tools}
     selected_tools = []
     for tn in tool_names:
-        if st.sidebar.checkbox(
-            tn, value=(tn in ("calculate", "read_file")), help=tool_help.get(tn, "")
-        ):
+        if st.sidebar.checkbox(tn, value=(tn == "calculate"), help=tool_help.get(tn, "")):
             selected_tools.append(tn)
 
     st.sidebar.divider()

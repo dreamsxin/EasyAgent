@@ -1,71 +1,151 @@
-"""Tests for the built-in tool library."""
+"""Tests for explicitly scoped built-in tools."""
 
 from __future__ import annotations
 
+import socket
+
 import pytest
 
-from agentmold.tools import (
-    BUILTIN_TOOLS,
-    calculate,
-    http_get,
-    list_directory,
-    read_file,
-    write_file,
-)
-
-# ---------------------------------------------------------------------------
-# read_file / write_file / list_directory
-# ---------------------------------------------------------------------------
+from agentmold.tools import calculate, http_tools, workspace_tools
 
 
-def test_read_file_returns_content(tmp_path):
-    f = tmp_path / "hello.txt"
-    f.write_text("hello world", encoding="utf-8")
-    result = read_file.call({"file_path": str(f)})
-    assert result == "hello world"
+def test_workspace_tools_are_confined_to_root(tmp_path):
+    (tmp_path / "hello.txt").write_text("hello world", encoding="utf-8")
+    outside = tmp_path.parent / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    tools = {item.name: item for item in workspace_tools(tmp_path)}
+
+    assert tools["read_file"].call({"file_path": "hello.txt"}) == "hello world"
+    assert "outside" in tools["read_file"].call({"file_path": "../outside.txt"})
+    assert "outside" in tools["read_file"].call({"file_path": str(outside)})
+    assert "write_file" not in tools
 
 
-def test_read_file_truncates_long_content(tmp_path):
-    f = tmp_path / "big.txt"
-    f.write_text("x" * 500, encoding="utf-8")
-    result = read_file.call({"file_path": str(f), "max_chars": 10})
-    assert result.startswith("xxxxxxxxxx")
-    assert "truncated" in result
+def test_workspace_tools_support_read_listing_and_explicit_write(tmp_path):
+    (tmp_path / "big.txt").write_text("x" * 500, encoding="utf-8")
+    tools = {item.name: item for item in workspace_tools(tmp_path, allow_write=True)}
+
+    assert tools["read_file"].call({"file_path": "big.txt"}).startswith("x" * 500)
+    listing = tools["list_directory"].call({})
+    assert "[file] big.txt" in listing
+
+    result = tools["write_file"].call({"file_path": "sub/out.txt", "content": "data"})
+    assert result == "Wrote 4 characters to sub/out.txt"
+    assert (tmp_path / "sub" / "out.txt").read_text(encoding="utf-8") == "data"
 
 
-def test_read_file_missing_file(tmp_path):
-    result = read_file.call({"file_path": str(tmp_path / "nope.txt")})
-    assert "not found" in result.lower()
+def test_workspace_tools_reject_symlink_escape(tmp_path):
+    outside = tmp_path.parent / "secret.txt"
+    outside.write_text("secret", encoding="utf-8")
+    link = tmp_path / "link.txt"
+    try:
+        link.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable in this environment")
+
+    read_file = {item.name: item for item in workspace_tools(tmp_path)}["read_file"]
+    assert "outside" in read_file.call({"file_path": "link.txt"})
 
 
-def test_write_file_creates_file(tmp_path):
-    target = tmp_path / "sub" / "out.txt"
-    result = write_file.call({"file_path": str(target), "content": "data"})
-    assert target.read_text(encoding="utf-8") == "data"
-    assert "Wrote 4 characters" in result
+def test_workspace_tools_validate_limits(tmp_path):
+    with pytest.raises(ValueError, match="existing directory"):
+        workspace_tools(tmp_path / "missing")
+    with pytest.raises(ValueError, match="max_read_chars"):
+        workspace_tools(tmp_path, max_read_chars=0)
+    with pytest.raises(ValueError, match="max_write_chars"):
+        workspace_tools(tmp_path, max_write_chars=0)
 
 
-def test_list_directory(tmp_path):
-    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
-    (tmp_path / "sub").mkdir()
-    result = list_directory.call({"dir_path": str(tmp_path)})
-    assert "[file] a.txt" in result
-    assert "[dir] sub" in result
+class _FakeResponse:
+    def __init__(self, body: str = "ok", status_code: int = 200):
+        self.text = body
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError("HTTP error")
 
 
-def test_list_directory_empty(tmp_path):
-    result = list_directory.call({"dir_path": str(tmp_path)})
-    assert "empty" in result.lower()
+def _public_dns(*args, **kwargs):  # noqa: ARG001
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80))]
 
 
-def test_list_directory_missing(tmp_path):
-    result = list_directory.call({"dir_path": str(tmp_path / "nope")})
-    assert "not found" in result.lower()
+def test_http_tools_require_allowlisted_host(monkeypatch):
+    http_get = http_tools({"example.com"})[0]
+    monkeypatch.setattr(
+        "agentmold.tools.httpx.get",
+        lambda *args, **kwargs: pytest.fail("request should not be made"),
+    )
+    result = http_get.call({"url": "https://other.example.com/data"})
+    assert "allowlisted" in result
 
 
-# ---------------------------------------------------------------------------
-# calculate
-# ---------------------------------------------------------------------------
+def test_http_tools_block_private_destinations(monkeypatch):
+    http_get = http_tools({"127.0.0.1"})[0]
+    monkeypatch.setattr(
+        "agentmold.tools.httpx.get",
+        lambda *args, **kwargs: pytest.fail("request should not be made"),
+    )
+    result = http_get.call({"url": "http://127.0.0.1:8000/"})
+    assert "non-global" in result
+
+
+def test_http_tools_validate_dns_before_request(monkeypatch):
+    http_get = http_tools({"internal.example"})[0]
+    monkeypatch.setattr(
+        "agentmold.tools.socket.getaddrinfo",
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.20", 80))],
+    )
+    monkeypatch.setattr(
+        "agentmold.tools.httpx.get",
+        lambda *args, **kwargs: pytest.fail("request should not be made"),
+    )
+    result = http_get.call({"url": "http://internal.example/data"})
+    assert "non-global" in result
+
+
+def test_http_tools_request_public_host_without_redirects(monkeypatch):
+    http_get = http_tools({"example.com"}, max_chars=4)[0]
+    monkeypatch.setattr("agentmold.tools.socket.getaddrinfo", _public_dns)
+    calls = {}
+
+    def fake_get(url, **kwargs):
+        calls.update(url=url, **kwargs)
+        return _FakeResponse("abcdef")
+
+    monkeypatch.setattr("agentmold.tools.httpx.get", fake_get)
+    assert http_get.call({"url": "https://example.com/data"}) == (
+        "abcd\n... (truncated, 2 more chars)"
+    )
+    assert calls["follow_redirects"] is False
+
+
+def test_http_tools_reject_redirects(monkeypatch):
+    http_get = http_tools({"example.com"})[0]
+    monkeypatch.setattr("agentmold.tools.socket.getaddrinfo", _public_dns)
+    monkeypatch.setattr(
+        "agentmold.tools.httpx.get",
+        lambda *args, **kwargs: _FakeResponse(status_code=302),
+    )
+    result = http_get.call({"url": "https://example.com/redirect"})
+    assert "redirects are disabled" in result
+
+
+def test_http_tools_can_explicitly_allow_private_destinations(monkeypatch):
+    http_get = http_tools({"127.0.0.1"}, allow_private=True)[0]
+    monkeypatch.setattr("agentmold.tools.httpx.get", lambda *args, **kwargs: _FakeResponse("local"))
+    assert http_get.call({"url": "http://127.0.0.1:8000/"}) == "local"
+
+
+def test_http_tools_validate_policy_arguments():
+    with pytest.raises(ValueError, match="must not be empty"):
+        http_tools([])
+    with pytest.raises(ValueError, match="must not include ports"):
+        http_tools(["example.com:443"])
+    with pytest.raises(ValueError, match="max_chars"):
+        http_tools(["example.com"], max_chars=0)
+    with pytest.raises(ValueError, match="timeout"):
+        http_tools(["example.com"], timeout=0)
 
 
 @pytest.mark.parametrize(
@@ -86,52 +166,18 @@ def test_calculate_valid_expressions(expr, expected):
     assert calculate.call({"expression": expr}) == expected
 
 
-def test_calculate_rejects_variables():
-    result = calculate.call({"expression": "x + 1"})
-    assert "Error" in result
+def test_calculate_rejects_unsafe_or_unbounded_inputs():
+    assert "Error" in calculate.call({"expression": "x + 1"})
+    assert "Error" in calculate.call({"expression": "__import__('os')"})
+    assert "Error" in calculate.call({"expression": "2 + "})
+    assert "Error" in calculate.call({"expression": "2 ** 101"})
+    assert "Error" in calculate.call({"expression": "9" * 201})
 
 
-def test_calculate_rejects_function_calls():
-    result = calculate.call({"expression": "__import__('os')"})
-    assert "Error" in result
-
-
-def test_calculate_rejects_syntax_error():
-    result = calculate.call({"expression": "2 + "})
-    assert "Error" in result
-
-
-# ---------------------------------------------------------------------------
-# http_get
-# ---------------------------------------------------------------------------
-
-
-def test_http_get_rejects_non_http_url():
-    result = http_get.call({"url": "ftp://example.com"})
-    assert "Error" in result
-
-
-def test_http_get_handles_invalid_host():
-    # A non-routable host fails fast — no network dependency in practice.
-    result = http_get.call(
-        {"url": "http://agentmold-nonexistent-host-12345.invalid/x", "timeout": 3}
-    )
-    assert "Error" in result
-
-
-# ---------------------------------------------------------------------------
-# BUILTIN_TOOLS aggregate
-# ---------------------------------------------------------------------------
-
-
-def test_builtin_tools_list_is_complete():
-    names = {t.name for t in BUILTIN_TOOLS}
-    assert names == {"read_file", "write_file", "list_directory", "http_get", "calculate"}
-
-
-def test_builtin_tools_have_schemas():
-    for t in BUILTIN_TOOLS:
-        schema = t.to_dict()
+def test_scoped_tools_have_openai_schemas(tmp_path):
+    tools = [calculate, *workspace_tools(tmp_path), *http_tools({"example.com"})]
+    for item in tools:
+        schema = item.to_dict()
         assert schema["name"]
         assert schema["description"]
         assert "properties" in schema["parameters"]

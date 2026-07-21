@@ -227,35 +227,32 @@ def read_file(file_path: str) -> str:
 
 EasyAgent 会自动从函数的**类型注解**和**docstring**生成工具描述，无需手动维护 JSON Schema。
 
-### 内置工具库
+### 内置工具与权限策略
 
-EasyAgent 自带 5 个常用工具，开箱即用：
-
-| 工具 | 说明 |
-|------|------|
-| `read_file` | 读取文本文件（支持截断长文件） |
-| `write_file` | 写入文件（自动创建父目录） |
-| `list_directory` | 列出目录内容 |
-| `http_get` | 发起 HTTP GET 请求 |
-| `calculate` | 安全求值数学表达式（AST 白名单，禁止变量/函数调用） |
+`calculate` 是唯一默认导出的无副作用工具。文件和网络工具必须由应用显式配置权限：
 
 ```python
 from agentmold import Agent
-from agentmold.tools import read_file, write_file, list_directory, calculate
+from agentmold.tools import calculate, http_tools, workspace_tools
 
+tools = [
+    calculate,
+    *workspace_tools("./research", allow_write=True),
+    *http_tools({"api.example.com"}),
+]
 agent = Agent(
-    name="Coder Assistant",
-    instructions="You are a coding assistant.",
-    tools=[read_file, write_file, list_directory, calculate],
+    name="Research Assistant",
+    instructions="You are a careful research assistant.",
+    tools=tools,
     llm="gpt-4o-mini",
 )
-
-# 或一次性导入全部
-from agentmold.tools import BUILTIN_TOOLS
-agent = Agent(tools=BUILTIN_TOOLS, llm="gpt-4o-mini")
 ```
 
-> 💡 `calculate` 使用 AST 白名单安全求值，仅允许 `+ - * / // % **` 和括号，拒绝变量与函数调用，可放心交给 Agent 使用。
+- `workspace_tools(root)` 将读文件和列目录限制在 `root`，`allow_write=True` 才会加入写文件工具。
+- `http_tools(allowed_hosts)` 只允许精确匹配的主机，默认拒绝私有/非公网地址并禁用重定向。
+- `calculate` 使用 AST 白名单和资源上限，仅允许 `+ - * / // % **` 与括号，拒绝变量和函数调用。
+
+完整策略说明见 [内置工具权限](docs/tool-policies.md)。
 
 ## 🧠 记忆管理
 
@@ -349,10 +346,10 @@ pip install "agentmold[all]"
 - [x] 离线 mock、OpenAI、Anthropic、Ollama 适配器
 - [x] DeepSeek OpenAI/Anthropic 兼容端点配置
 - [x] CLI 项目模板与执行事件流
-- [x] VectorMemory 原型与内置工具库
+- [x] VectorMemory Collection 与内置工具权限策略
 - [x] Streamlit 可视化实验室原型
-- [ ] 可复现 trace、评测与批量实验（v0.3）
-- [ ] 稳定的异步 API 与工具策略（v0.2）
+- [x] 可复现 trace、评测与批量实验（v0.3）
+- [x] 稳定的异步 API 与工具策略（v0.2）
 - [ ] 多代理组合与扩展生态（v0.5 之后）
 
 完整计划见 [ROADMAP.md](ROADMAP.md)。
@@ -379,6 +376,7 @@ print(report.mean_score)
 - [API 参考](docs/api.md)
 - [批量实验与评测](docs/evaluation.md)
 - [长期记忆 Collection](docs/memory.md)
+- [内置工具权限](docs/tool-policies.md)
 - [教程与示例](examples/)
 
 ## 🤝 贡献

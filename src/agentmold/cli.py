@@ -51,11 +51,12 @@ if __name__ == "__main__":
 
 _CODER_TEMPLATE = '''"""Coder agent project scaffolded by EasyAgent."""
 from agentmold import Agent
-from agentmold.tools import read_file, write_file, list_directory, calculate
+from agentmold.tools import calculate, workspace_tools
 
 
 def build_agent() -> Agent:
     """Create a coding assistant agent with file & math tools."""
+    file_tools = workspace_tools(".", allow_write=True)
     return Agent(
         name="Coder Assistant",
         instructions=(
@@ -63,7 +64,7 @@ def build_agent() -> Agent:
             "list directories, and evaluate math expressions. "
             "Always explain what you are about to do before using a tool."
         ),
-        tools=[read_file, write_file, list_directory, calculate],
+        tools=[calculate, *file_tools],
         llm="__LLM_PLACEHOLDER__",
     )
 

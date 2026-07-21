@@ -36,8 +36,8 @@ def test_cli_init_coder_template(tmp_path):
     assert rc == 0
     content = (project / "agent.py").read_text(encoding="utf-8")
     assert "Coder Assistant" in content
-    assert "read_file" in content
-    assert "write_file" in content
+    assert "workspace_tools" in content
+    assert "allow_write=True" in content
     assert "gpt-4o" in content
 
 
