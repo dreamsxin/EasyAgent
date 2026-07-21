@@ -5,6 +5,10 @@ from __future__ import annotations
 import pytest
 
 from agentmold.visual.traces import (
+    append_trace_run,
+    diagnose_trace_run,
+    find_trace_run,
+    load_trace_runs,
     merge_trace_runs,
     parse_trace_jsonl,
     summarize_trace_run,
@@ -93,6 +97,44 @@ def test_usage_summary_handles_nested_cached_token_fields():
     assert summary["cache_hit_tokens"] == 10
     assert summary["cache_miss_tokens"] == 40
     assert summary["cache_hit_rate"] == pytest.approx(0.2)
+
+
+def test_trace_log_round_trip_and_prefix_lookup(tmp_path):
+    path = tmp_path / "visual_runs.jsonl"
+    run = {
+        "run_id": "abcdef123456",
+        "ended_at": "now",
+        "model": "mock",
+        "events": [{"type": "answer", "content": "ok"}],
+    }
+
+    assert append_trace_run(run, path) == path
+    loaded = load_trace_runs(path)
+
+    assert loaded == [run]
+    assert find_trace_run("abcdef", loaded) == run
+    assert find_trace_run("missing", loaded) is None
+
+
+def test_diagnose_max_iterations_after_tool_call():
+    run = {
+        "run_id": "failed",
+        "error": (
+            "MaxIterationsError: Agent 'Assistant' exceeded max_iterations=1 "
+            "without producing a final answer."
+        ),
+        "max_iterations": 1,
+        "events": [
+            {"type": "tool_call", "name": "calculate", "arguments": {"expression": "2+2"}},
+            {"type": "tool_result", "name": "calculate", "content": "4"},
+        ],
+    }
+
+    diagnosis = diagnose_trace_run(run)
+
+    assert "第一轮选择了调用工具" in diagnosis
+    assert "最大迭代次数为 1" in diagnosis
+    assert "调到 2" in diagnosis
 
 
 def test_merge_replaces_duplicate_ids_and_parser_rejects_bad_records():

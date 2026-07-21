@@ -8,9 +8,17 @@ object or execution engine.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
+DEFAULT_VISUAL_TRACE_LOG = Path(".agentmold/visual_runs.jsonl")
+
 __all__ = [
+    "DEFAULT_VISUAL_TRACE_LOG",
+    "append_trace_run",
+    "diagnose_trace_run",
+    "find_trace_run",
+    "load_trace_runs",
     "merge_trace_runs",
     "parse_trace_jsonl",
     "summarize_usage",
@@ -107,6 +115,38 @@ def traces_to_jsonl(runs: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + ("\n" if lines else "")
 
 
+def append_trace_run(
+    run: dict[str, Any],
+    path: str | Path = DEFAULT_VISUAL_TRACE_LOG,
+) -> Path:
+    """Append one replayable run to a local JSONL log and return its path."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("a", encoding="utf-8") as output:
+        output.write(traces_to_jsonl([run]))
+    return output_path
+
+
+def load_trace_runs(path: str | Path = DEFAULT_VISUAL_TRACE_LOG) -> list[dict[str, Any]]:
+    """Load replayable runs from a local JSONL log if it exists."""
+    input_path = Path(path)
+    if not input_path.exists():
+        return []
+    return parse_trace_jsonl(input_path.read_text(encoding="utf-8"))
+
+
+def find_trace_run(log_id: str, runs: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Find a run by exact ID or an unambiguous prefix."""
+    needle = log_id.strip()
+    if not needle:
+        return None
+    exact = [run for run in runs if str(run.get("run_id", "")) == needle]
+    if exact:
+        return exact[0]
+    prefix = [run for run in runs if str(run.get("run_id", "")).startswith(needle)]
+    return prefix[0] if len(prefix) == 1 else None
+
+
 def merge_trace_runs(*collections: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Merge session and imported runs, replacing duplicate IDs predictably."""
     merged: dict[str, dict[str, Any]] = {}
@@ -149,6 +189,7 @@ def summarize_trace_run(run: dict[str, Any]) -> dict[str, Any]:
         "input": str(run.get("input") or ""),
         "agent_name": str(run.get("agent_name") or ""),
         "instructions": str(run.get("instructions") or ""),
+        "max_iterations": _int_number(run.get("max_iterations")),
         "model": str(run.get("model") or "unknown"),
         "model_config": model_config,
         "usage": usage,
@@ -226,8 +267,60 @@ def summarize_usage(usage: dict[str, Any]) -> dict[str, int | float | None]:
     }
 
 
+def diagnose_trace_run(run: dict[str, Any]) -> str:
+    """Return a short human-readable diagnosis for common visual run failures."""
+    summary = summarize_trace_run(run)
+    error = summary["error"]
+    if not error:
+        return "该运行已完成，没有记录错误。"
+
+    raw_events = run.get("events")
+    events: list[Any] = raw_events if isinstance(raw_events, list) else []
+    tool_calls = [
+        event for event in events if isinstance(event, dict) and event.get("type") == "tool_call"
+    ]
+    tool_results = [
+        event for event in events if isinstance(event, dict) and event.get("type") == "tool_result"
+    ]
+    has_answer = any(isinstance(event, dict) and event.get("type") == "answer" for event in events)
+
+    if "MaxIterationsError" in error:
+        max_iterations = summary.get("max_iterations")
+        if tool_calls and tool_results and not has_answer:
+            if max_iterations == 1 or "max_iterations=1" in error:
+                return (
+                    "模型第一轮选择了调用工具，工具也已经返回结果；但最大迭代次数为 1，"
+                    "Agent 没有第二轮模型请求来读取工具结果并生成最终回答。"
+                    "把最大迭代次数调到 2 或更高，或取消工具/让提示词要求直接回答。"
+                )
+            return (
+                "模型持续请求工具但没有在迭代上限内给出最终回答。"
+                "可以提高最大迭代次数，或收紧指令让模型在拿到工具结果后必须总结。"
+            )
+        return (
+            "模型没有在最大迭代次数内返回最终回答。" "可以提高最大迭代次数，或简化问题与系统指令。"
+        )
+    if "ConfigurationError" in error:
+        return "这是模型接口配置问题。请检查 provider、model、Base URL、API Key 和超时设置。"
+    if "LLM stream" in error or "Unsupported LLM stream event" in error:
+        return (
+            "这是自定义 Provider 的流式事件契约问题。"
+            "stream()/astream() 必须以唯一的 response 事件结束，"
+            "且 text_delta 拼接后要等于最终回答。"
+        )
+    if "LLMError" in error:
+        return "这是模型调用或响应解析失败。请结合日志里的模型配置、usage 和最后一个事件排查。"
+    return "日志已记录错误、输入、模型配置和事件时间线；请根据日志 ID 查找该运行继续分析。"
+
+
 def _number(value: Any) -> int | float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _int_number(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool):
         return value
     return None
 

@@ -127,6 +127,7 @@ class AgentTrace:
     user_input: str = ""
     agent_name: str = ""
     instructions: str = ""
+    max_iterations: int | None = None
     event_times: list[str] = field(default_factory=list, repr=False)
     _started_monotonic: float = field(default_factory=time.perf_counter, repr=False)
 
@@ -167,6 +168,7 @@ class AgentTrace:
             "duration_ms": self.duration_ms,
             "error": self.error,
             "events": events,
+            "max_iterations": self.max_iterations,
         }
 
     def to_jsonl(self, path: str | Path, append: bool = False) -> Path:
@@ -567,6 +569,7 @@ class Agent:
             user_input=user_input,
             agent_name=self.name,
             instructions=self.instructions,
+            max_iterations=self.max_iterations,
             model=self.llm.model,
             model_config=_redact_config(config),
         )

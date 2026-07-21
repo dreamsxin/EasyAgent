@@ -114,6 +114,12 @@ Common token counters are normalized for display, including `prompt_tokens`,
 `prompt_cache_hit_tokens`, `prompt_cache_miss_tokens`, nested `cached_tokens`, and
 `cache_read_input_tokens`. Cache hit rate is shown only when enough usage data is present.
 
+The visual lab automatically appends successful and failed runs to
+`.agentmold/visual_runs.jsonl`. The displayed Log ID is the trace `run_id`, so a user can
+look up one failed run by ID and inspect the redacted model configuration, events, usage,
+and diagnosis. Because `.agentmold/` is ignored by Git, this log is local to the project
+checkout.
+
 The visual lab's **PYTHON EXPORT · agent.py** panel generates the same code-first shape
 accepted by `load_agent()`: a readable `build_agent()` function with the current name,
 instructions, tools, model configuration, and iteration limit. Credentials are represented

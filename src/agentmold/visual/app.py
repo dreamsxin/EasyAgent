@@ -40,6 +40,11 @@ from agentmold.visual.tool_uploads import (
     uploaded_tools_signature,
 )
 from agentmold.visual.traces import (
+    DEFAULT_VISUAL_TRACE_LOG,
+    append_trace_run,
+    diagnose_trace_run,
+    find_trace_run,
+    load_trace_runs,
     merge_trace_runs,
     parse_trace_jsonl,
     summarize_trace_run,
@@ -291,7 +296,7 @@ def _run_metrics_html(meta: dict[str, Any]) -> str:
         f"<strong>{html.escape(cache_hit_text)}</strong></div>"
         "<div class='ea-run-metric'><span>TIME</span>"
         f"<strong>{html.escape(duration_text)}</strong></div>"
-        f"<div class='ea-run-id'><span>RUN</span><strong>{html.escape(run_id)}</strong></div>"
+        f"<div class='ea-run-id'><span>LOG ID</span><strong>{html.escape(run_id)}</strong></div>"
         f"{error_html}</div>"
     )
 
@@ -336,8 +341,49 @@ def _apply_trace_usage_to_run_meta(meta: dict[str, Any], trace: AgentTrace | Non
 
 def _remember_trace(st: Any, trace: AgentTrace) -> None:
     """Keep completed traces in the current session for replay and export."""
+    run = trace.to_dict()
     runs = st.session_state.get("trace_runs", [])
-    st.session_state.trace_runs = merge_trace_runs(runs, [trace.to_dict()])[-50:]
+    st.session_state.trace_runs = merge_trace_runs(runs, [run])[-50:]
+    logged_ids = set(st.session_state.get("ea_logged_trace_ids", []))
+    if trace.run_id in logged_ids:
+        return
+    try:
+        path = append_trace_run(run)
+    except OSError as exc:
+        st.session_state.ea_trace_log_error = str(exc)
+        return
+    logged_ids.add(trace.run_id)
+    st.session_state.ea_logged_trace_ids = sorted(logged_ids)
+    st.session_state.ea_trace_log_path = str(path)
+
+
+def _trace_support_payload(run: dict[str, Any]) -> dict[str, Any]:
+    summary = summarize_trace_run(run)
+    raw_events = run.get("events")
+    events: list[Any] = raw_events if isinstance(raw_events, list) else []
+    compact_events = []
+    for event in events[-6:]:
+        if not isinstance(event, dict):
+            continue
+        compact: dict[str, Any] = {"type": event.get("type")}
+        if event.get("name"):
+            compact["name"] = event.get("name")
+        if event.get("arguments") is not None:
+            compact["arguments"] = event.get("arguments")
+        if event.get("content") is not None:
+            compact["content"] = str(event.get("content"))[:500]
+        compact_events.append(compact)
+    return {
+        "log_id": summary["run_id"],
+        "status": summary["status"],
+        "error": summary["error"],
+        "diagnosis": diagnose_trace_run(run),
+        "model": summary["model"],
+        "max_iterations": summary.get("max_iterations"),
+        "event_count": summary["event_count"],
+        "tool_calls": summary["tool_calls"],
+        "events_tail": compact_events,
+    }
 
 
 def _format_token_count(value: Any) -> str:
@@ -432,6 +478,11 @@ def _render_trace_lab(
     """Render trace import, scrubbed replay, export, and two-run comparison."""
     with st.expander("TRACE LAB · 回放与对比", expanded=False):
         session_runs = st.session_state.get("trace_runs", [])
+        try:
+            logged_runs = load_trace_runs()
+        except (OSError, ValueError) as exc:
+            logged_runs = []
+            st.error(f"读取本地 Trace 日志失败: {exc}")
         upload_col, export_col = st.columns([2, 1])
         uploaded = upload_col.file_uploader(
             "导入 JSONL Trace",
@@ -447,7 +498,7 @@ def _render_trace_lab(
             except ValueError as exc:
                 st.error(f"{uploaded_file.name}: {exc}")
 
-        runs = merge_trace_runs(session_runs, imported_runs)
+        runs = merge_trace_runs(logged_runs, session_runs, imported_runs)
         if runs:
             export_col.download_button(
                 "导出当前 Trace",
@@ -458,6 +509,7 @@ def _render_trace_lab(
             )
         else:
             export_col.caption("运行后或导入 JSONL 后可回放。")
+        st.caption(f"本地日志: `{DEFAULT_VISUAL_TRACE_LOG}` · Log ID 即 run_id")
 
         if not runs:
             st.markdown('<div class="ea-empty">暂无可回放 Trace。</div>', unsafe_allow_html=True)
@@ -465,6 +517,20 @@ def _render_trace_lab(
 
         run_ids = [str(run["run_id"]) for run in runs]
         labels = {str(run["run_id"]): trace_label(run) for run in runs}
+        lookup_id = st.text_input(
+            "按日志 ID 查找",
+            placeholder="输入完整 run_id 或唯一前缀",
+            key="ea_trace_log_lookup",
+        )
+        lookup_run = find_trace_run(lookup_id, runs) if lookup_id else None
+        if lookup_id and lookup_run is None:
+            st.warning("没有找到匹配的日志 ID，或前缀匹配了多条记录。")
+        if lookup_run is not None:
+            st.info(diagnose_trace_run(lookup_run))
+            st.code(
+                json.dumps(_trace_support_payload(lookup_run), ensure_ascii=False, indent=2),
+                language="json",
+            )
         replay_id = st.selectbox(
             "回放运行",
             options=run_ids,
@@ -475,6 +541,12 @@ def _render_trace_lab(
         replay = next(run for run in runs if run["run_id"] == replay_id)
         summary = summarize_trace_run(replay)
         st.markdown(_trace_metrics_html(summary), unsafe_allow_html=True)
+        if summary["error"]:
+            st.warning(diagnose_trace_run(replay))
+            st.code(
+                json.dumps(_trace_support_payload(replay), ensure_ascii=False, indent=2),
+                language="json",
+            )
 
         prompt_col, config_col = st.columns(2)
         with prompt_col:
@@ -487,8 +559,9 @@ def _render_trace_lab(
             config = {
                 "agent": summary["agent_name"] or "—",
                 "model": summary["model"],
+                "max_iterations": summary.get("max_iterations") or "—",
                 "temperature": summary["model_config"].get("temperature", "—"),
-                "run_id": summary["run_id"],
+                "log_id": summary["run_id"],
             }
             st.json(config, expanded=False)
 
@@ -1643,6 +1716,23 @@ def _run_app() -> None:
                     st.error(f"Agent 出错: {exc}")
                     if agent.last_trace is not None:
                         _remember_trace(st, agent.last_trace)
+                        failed_run = agent.last_trace.to_dict()
+                        st.info(
+                            f"日志 ID: `{agent.last_trace.run_id}` · 本地日志: "
+                            f"`{DEFAULT_VISUAL_TRACE_LOG}`"
+                        )
+                        st.warning(diagnose_trace_run(failed_run))
+                        st.code(
+                            json.dumps(
+                                _trace_support_payload(failed_run),
+                                ensure_ascii=False,
+                                indent=2,
+                            ),
+                            language="json",
+                        )
+                    log_error = st.session_state.get("ea_trace_log_error")
+                    if log_error:
+                        st.warning(f"本地日志写入失败: {log_error}")
                     st.stop()
 
                 trace = agent.last_trace

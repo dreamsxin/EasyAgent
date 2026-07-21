@@ -233,6 +233,7 @@ def test_run_metrics_show_status_and_escape_errors():
     assert "EVENTS" in rendered
     assert "TOKENS" in rendered
     assert "CACHE HIT" in rendered
+    assert "LOG ID" in rendered
     assert "128" in rendered
     assert "62.5%" in rendered
     assert "42 ms" in rendered

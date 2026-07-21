@@ -22,6 +22,7 @@ def test_agent_exposes_and_exports_last_trace(tmp_path):
     assert trace.user_input == "hello"
     assert trace.agent_name == "TraceBot"
     assert trace.instructions == "You are a helpful assistant."
+    assert trace.max_iterations == 10
     assert trace.ended_at is not None
     assert trace.duration_ms is not None
     assert [step["type"] for step in trace.steps] == ["answer"]
@@ -32,6 +33,7 @@ def test_agent_exposes_and_exports_last_trace(tmp_path):
     assert records[0]["run_id"] == trace.run_id
     assert records[0]["input"] == "hello"
     assert records[0]["agent_name"] == "TraceBot"
+    assert records[0]["max_iterations"] == 10
     assert records[1]["record_type"] == "event"
     assert records[1]["type"] == "answer"
 

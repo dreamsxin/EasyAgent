@@ -41,3 +41,11 @@ def test_usage_docs_explain_cache_metrics_are_best_effort():
     assert "缓存命中率显示为 `—`" in readme
     assert "Cache hit rate is shown only when enough usage data is present." in api
     assert "cache hit rate remains unknown rather than guessed" in concepts
+
+
+def test_visual_log_id_is_documented():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    api = (ROOT / "docs" / "api.md").read_text(encoding="utf-8")
+    assert ".agentmold/visual_runs.jsonl" in readme
+    assert "Log ID" in readme
+    assert ".agentmold/visual_runs.jsonl" in api

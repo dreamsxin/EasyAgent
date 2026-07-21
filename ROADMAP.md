@@ -79,6 +79,7 @@ Target: make agent behavior observable without making the UI a second programmin
 - [x] Render execution events as a live timeline.
 - [x] Replay traces and compare runs, prompts, models, cost, and latency.
 - [x] Export UI configuration back to readable Python.
+- [x] Persist local visual run logs with Log IDs and common failure diagnostics.
 
 Release gate: code-to-UI-to-code round trips preserve the agent configuration.
 
