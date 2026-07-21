@@ -34,6 +34,7 @@ htmlcov/
 
 # EasyAgent runtime
 .agentmold/
+artifacts/
 
 # OS
 .DS_Store
