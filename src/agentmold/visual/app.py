@@ -11,10 +11,12 @@ LLM, tools, iterations), build it with a clear button, then chat with it
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 # Streamlit is imported lazily so that importing this module for the
 # launch() entrypoint does not hard-fail when the visual extra is absent.
@@ -46,7 +48,7 @@ def _code_agent_signature(path: Path) -> tuple[str, int | None, int | None]:
 def _build_agent(
     name: str,
     instructions: str,
-    llm: str,
+    llm: str | dict[str, Any],
     selected_tools: list,
     max_iterations: int,
 ):
@@ -71,7 +73,68 @@ def _build_agent(
 
 def _agent_signature(name, instructions, llm, selected_tools, max_iterations):
     """A hashable fingerprint of the config, to detect changes."""
-    return (name, instructions, llm, tuple(sorted(selected_tools)), max_iterations)
+    return (
+        name,
+        instructions,
+        _llm_signature(llm),
+        tuple(sorted(selected_tools)),
+        max_iterations,
+    )
+
+
+def _llm_signature(llm: str | dict[str, Any]) -> str:
+    """Serialize LLM settings without retaining an API key in session state."""
+    if isinstance(llm, str):
+        return llm
+    safe = dict(llm)
+    if safe.get("api_key"):
+        safe["api_key"] = hashlib.sha256(str(safe["api_key"]).encode()).hexdigest()[:12]
+    return json.dumps(safe, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _llm_config_from_ui(
+    connection_type: str,
+    model: str,
+    api_key: str,
+    base_url: str,
+    temperature: float,
+    timeout: float,
+    max_tokens: int,
+    custom_interface: str = "OpenAI 兼容",
+) -> str | dict[str, Any]:
+    """Map the visual provider controls to the public ``Agent(llm=...)`` shape."""
+    if connection_type == "Mock（离线）":
+        return "mock"
+
+    if connection_type == "Ollama（本地）":
+        config: dict[str, Any] = {"provider": "ollama", "model": model}
+        if base_url.strip():
+            config["host"] = base_url.strip()
+        config["temperature"] = temperature
+        return config
+
+    provider = {
+        "DeepSeek OpenAI": "deepseek",
+        "DeepSeek Anthropic": "deepseek-anthropic",
+        "OpenAI 兼容": "openai",
+        "Anthropic 兼容": "anthropic",
+    }.get(connection_type)
+    if connection_type == "自定义提供商":
+        provider = "anthropic" if custom_interface == "Anthropic 兼容" else "openai"
+    if provider is None:
+        raise ValueError(f"未知接口类型: {connection_type}")
+
+    config = {
+        "provider": provider,
+        "model": model.strip(),
+        "api_key": api_key.strip(),
+        "base_url": base_url.strip(),
+        "temperature": temperature,
+        "timeout": timeout,
+    }
+    if provider in {"anthropic", "deepseek-anthropic"}:
+        config["max_tokens"] = max_tokens
+    return {key: value for key, value in config.items() if value not in {"", None}}
 
 
 def _timeline_html(steps: list[dict]) -> str:
@@ -140,6 +203,22 @@ def _inject_theme(st) -> None:
         }
         [data-testid="stSidebar"] > div:first-child {
             padding-top: 1.2rem;
+        }
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+            color: #c6d3e1 !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {
+            color: #8295aa !important;
+        }
+        [data-testid="stSidebar"] [data-baseweb="select"] > div,
+        [data-testid="stSidebar"] input,
+        [data-testid="stSidebar"] textarea {
+            border-color: #3a5068;
         }
         .main .block-container {
             max-width: 1500px;
@@ -361,17 +440,91 @@ def _run_app() -> None:
             value="You are a helpful assistant. Use tools when useful.",
             height=100,
         )
-        llm = st.sidebar.selectbox(
-            "LLM",
+        connection_type = st.sidebar.selectbox(
+            "接口提供商",
             options=[
-                "mock",
-                "deepseek/deepseek-v4-flash",
-                "deepseek/deepseek-v4-pro",
-                "gpt-4o-mini",
-                "ollama/llama3",
-                "claude-3-5-sonnet",
+                "Mock（离线）",
+                "DeepSeek OpenAI",
+                "DeepSeek Anthropic",
+                "OpenAI 兼容",
+                "Anthropic 兼容",
+                "Ollama（本地）",
+                "自定义提供商",
             ],
-            help="选 'mock' 无需任何 API Key 即可体验。",
+            help="自定义提供商可连接任意 OpenAI 或 Anthropic 兼容接口。",
+        )
+        custom_interface = "OpenAI 兼容"
+        if connection_type == "自定义提供商":
+            custom_interface = st.sidebar.selectbox(
+                "自定义接口类型",
+                options=["OpenAI 兼容", "Anthropic 兼容"],
+                help="选择服务端遵循的请求协议。",
+            )
+
+        defaults = {
+            "Mock（离线）": ("mock", ""),
+            "DeepSeek OpenAI": ("deepseek-v4-flash", "https://api.deepseek.com"),
+            "DeepSeek Anthropic": (
+                "deepseek-v4-flash",
+                "https://api.deepseek.com/anthropic",
+            ),
+            "OpenAI 兼容": ("gpt-4o-mini", "https://api.openai.com/v1"),
+            "Anthropic 兼容": ("claude-3-5-sonnet-20241022", "https://api.anthropic.com"),
+            "Ollama（本地）": ("llama3", "http://localhost:11434"),
+            "自定义提供商": ("", ""),
+        }
+        default_model, default_base_url = defaults[connection_type]
+        widget_suffix = connection_type.replace(" ", "-")
+        if connection_type == "自定义提供商":
+            widget_suffix += f"-{custom_interface}"
+        with st.sidebar.expander("接口参数", expanded=connection_type != "Mock（离线）"):
+            model = st.text_input("模型", value=default_model, key=f"ea_model_{widget_suffix}")
+            api_key = st.text_input(
+                "API Key",
+                value="",
+                type="password",
+                key=f"ea_api_key_{widget_suffix}",
+                help="仅保存在当前 Streamlit 会话，不会写入项目文件或 trace。",
+            )
+            base_url = st.text_input(
+                "Base URL",
+                value=default_base_url,
+                key=f"ea_base_url_{widget_suffix}",
+                help="填服务根地址，不要填完整的 chat/completions 路径。",
+            )
+            temperature = st.slider(
+                "Temperature",
+                min_value=0.0,
+                max_value=2.0,
+                value=0.7,
+                step=0.1,
+                key=f"ea_temperature_{widget_suffix}",
+            )
+            timeout = st.number_input(
+                "请求超时（秒）",
+                min_value=1.0,
+                max_value=300.0,
+                value=30.0,
+                step=1.0,
+                key=f"ea_timeout_{widget_suffix}",
+            )
+            max_tokens = st.number_input(
+                "最大输出 tokens",
+                min_value=1,
+                max_value=131072,
+                value=4096,
+                step=256,
+                key=f"ea_max_tokens_{widget_suffix}",
+            )
+        llm = _llm_config_from_ui(
+            connection_type,
+            model,
+            api_key,
+            base_url,
+            temperature,
+            timeout,
+            max_tokens,
+            custom_interface,
         )
         max_iterations = st.sidebar.slider("最大迭代次数", min_value=1, max_value=20, value=10)
 

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from agentmold.visual.app import _agent_signature, _timeline_html
+from agentmold.visual.app import (
+    _agent_signature,
+    _llm_config_from_ui,
+    _llm_signature,
+    _timeline_html,
+)
 from agentmold.visual.graph import STEP_COLORS, trace_to_graph
 
 
@@ -103,3 +108,45 @@ def test_timeline_renders_events_and_escapes_content():
 
 def test_timeline_empty_state_is_stable():
     assert "暂无执行事件" in _timeline_html([])
+
+
+def test_custom_openai_config_from_visual_controls():
+    config = _llm_config_from_ui(
+        "自定义提供商",
+        "research-model",
+        "secret-key",
+        "https://llm.example/v1",
+        0.2,
+        45,
+        2048,
+        "OpenAI 兼容",
+    )
+    assert config == {
+        "provider": "openai",
+        "model": "research-model",
+        "api_key": "secret-key",
+        "base_url": "https://llm.example/v1",
+        "temperature": 0.2,
+        "timeout": 45,
+    }
+
+
+def test_custom_anthropic_config_and_key_redaction():
+    config = _llm_config_from_ui(
+        "自定义提供商",
+        "claude-compatible",
+        "secret-key",
+        "https://llm.example",
+        0.7,
+        30,
+        4096,
+        "Anthropic 兼容",
+    )
+    assert config["provider"] == "anthropic"
+    assert config["max_tokens"] == 4096
+    assert "secret-key" not in _llm_signature(config)
+    assert _llm_signature(config) != _llm_signature({**config, "api_key": "other-key"})
+
+
+def test_mock_config_does_not_require_credentials():
+    assert _llm_config_from_ui("Mock（离线）", "ignored", "", "", 0.7, 30, 4096) == "mock"
