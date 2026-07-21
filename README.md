@@ -112,6 +112,8 @@ easyagent visual --file agent.py
 侧栏的 **接口提供商** 支持 `Mock`、DeepSeek、OpenAI/Anthropic 兼容接口、Ollama
 和自定义提供商。选择自定义提供商后，只需选择接口类型并填写模型、API Key、Base URL、
 Temperature、超时和最大输出 tokens；API Key 只存在当前 Streamlit 会话。
+点击“保存配置”后，这些非敏感接口参数会保存到项目的 `.agentmold/visual_profiles.json`，
+下次切换到同一接口类型时自动填充；“清除配置”可删除对应记录。
 
 选择 `mock` 模型即可零配置体验——无需任何 API Key。流程图中：
 

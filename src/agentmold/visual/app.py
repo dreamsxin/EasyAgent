@@ -19,6 +19,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agentmold.visual.settings import (
+    delete_visual_profile,
+    load_visual_profiles,
+    save_visual_profile,
+    visual_profile_key,
+)
+
 # Streamlit is imported lazily so that importing this module for the
 # launch() entrypoint does not hard-fail when the visual extra is absent.
 
@@ -219,6 +226,19 @@ def _initial_run_meta() -> dict[str, Any]:
     }
 
 
+def _profile_setting(
+    profile: dict[str, Any],
+    key: str,
+    default: Any,
+    converter: type,
+) -> Any:
+    """Read a saved setting defensively so a hand-edited file cannot break the UI."""
+    try:
+        return converter(profile.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
 def _inject_theme(st) -> None:
     """Apply the visual research-console theme without changing Streamlit semantics."""
     st.markdown(
@@ -265,6 +285,29 @@ def _inject_theme(st) -> None:
         [data-testid="stSidebar"] input,
         [data-testid="stSidebar"] textarea {
             border-color: #3a5068;
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] {
+            background: #111d2a;
+            border: 1px solid #3a5068;
+            border-radius: 8px;
+            margin: 0.45rem 0 0.7rem;
+            overflow: hidden;
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] details[open] {
+            background: #142638;
+            border-color: var(--ea-cyan);
+            box-shadow: inset 0 2px 0 rgba(93, 228, 255, 0.65);
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary {
+            background: #182b3e;
+            color: var(--ea-text) !important;
+            font-weight: 700;
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
+            background: #203a52;
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] {
+            background: #142638;
         }
         .main .block-container {
             max-width: 1500px;
@@ -573,6 +616,10 @@ def _run_app() -> None:
             value="You are a helpful assistant. Use tools when useful.",
             height=100,
         )
+        saved_profiles = load_visual_profiles()
+        profile_notice = st.session_state.pop("ea_profile_notice", None)
+        if profile_notice:
+            st.toast(profile_notice, icon="💾")
         connection_type = st.sidebar.selectbox(
             "接口提供商",
             options=[
@@ -593,6 +640,8 @@ def _run_app() -> None:
                 options=["OpenAI 兼容", "Anthropic 兼容"],
                 help="选择服务端遵循的请求协议。",
             )
+        profile_key = visual_profile_key(connection_type, custom_interface)
+        saved_profile = saved_profiles.get(profile_key, {})
 
         defaults = {
             "Mock（离线）": ("mock", ""),
@@ -610,8 +659,26 @@ def _run_app() -> None:
         widget_suffix = connection_type.replace(" ", "-")
         if connection_type == "自定义提供商":
             widget_suffix += f"-{custom_interface}"
+        profile_defaults = {
+            "model": _profile_setting(saved_profile, "model", default_model, str),
+            "base_url": _profile_setting(saved_profile, "base_url", default_base_url, str),
+            "temperature": _profile_setting(saved_profile, "temperature", 0.7, float),
+            "timeout": _profile_setting(saved_profile, "timeout", 30.0, float),
+            "max_tokens": _profile_setting(saved_profile, "max_tokens", 4096, int),
+        }
+        if st.session_state.get("ea_active_profile") != profile_key:
+            st.session_state[f"ea_model_{widget_suffix}"] = profile_defaults["model"]
+            st.session_state[f"ea_base_url_{widget_suffix}"] = profile_defaults["base_url"]
+            st.session_state[f"ea_temperature_{widget_suffix}"] = profile_defaults["temperature"]
+            st.session_state[f"ea_timeout_{widget_suffix}"] = profile_defaults["timeout"]
+            st.session_state[f"ea_max_tokens_{widget_suffix}"] = profile_defaults["max_tokens"]
+            st.session_state.ea_active_profile = profile_key
         with st.sidebar.expander("接口参数", expanded=connection_type != "Mock（离线）"):
-            model = st.text_input("模型", value=default_model, key=f"ea_model_{widget_suffix}")
+            model = st.text_input(
+                "模型",
+                value=profile_defaults["model"],
+                key=f"ea_model_{widget_suffix}",
+            )
             api_key = st.text_input(
                 "API Key",
                 value="",
@@ -621,7 +688,7 @@ def _run_app() -> None:
             )
             base_url = st.text_input(
                 "Base URL",
-                value=default_base_url,
+                value=profile_defaults["base_url"],
                 key=f"ea_base_url_{widget_suffix}",
                 help="填服务根地址，不要填完整的 chat/completions 路径。",
             )
@@ -629,7 +696,7 @@ def _run_app() -> None:
                 "Temperature",
                 min_value=0.0,
                 max_value=2.0,
-                value=0.7,
+                value=float(profile_defaults["temperature"]),
                 step=0.1,
                 key=f"ea_temperature_{widget_suffix}",
             )
@@ -637,7 +704,7 @@ def _run_app() -> None:
                 "请求超时（秒）",
                 min_value=1.0,
                 max_value=300.0,
-                value=30.0,
+                value=float(profile_defaults["timeout"]),
                 step=1.0,
                 key=f"ea_timeout_{widget_suffix}",
             )
@@ -645,10 +712,43 @@ def _run_app() -> None:
                 "最大输出 tokens",
                 min_value=1,
                 max_value=131072,
-                value=4096,
+                value=int(profile_defaults["max_tokens"]),
                 step=256,
                 key=f"ea_max_tokens_{widget_suffix}",
             )
+            save_col, clear_col = st.columns(2)
+            if save_col.button("保存配置", key=f"ea_save_{widget_suffix}"):
+                try:
+                    save_visual_profile(
+                        profile_key,
+                        {
+                            "model": model,
+                            "base_url": base_url,
+                            "temperature": temperature,
+                            "timeout": timeout,
+                            "max_tokens": max_tokens,
+                        },
+                    )
+                    st.session_state.ea_profile_notice = "接口配置已保存（API Key 不会保存）"
+                    st.rerun()
+                except OSError as exc:
+                    st.error(f"保存配置失败: {exc}")
+            if clear_col.button(
+                "清除配置",
+                key=f"ea_clear_{widget_suffix}",
+                disabled=not bool(saved_profile),
+            ):
+                delete_visual_profile(profile_key)
+                st.session_state.pop(f"ea_model_{widget_suffix}", None)
+                st.session_state.pop(f"ea_base_url_{widget_suffix}", None)
+                st.session_state.pop(f"ea_temperature_{widget_suffix}", None)
+                st.session_state.pop(f"ea_timeout_{widget_suffix}", None)
+                st.session_state.pop(f"ea_max_tokens_{widget_suffix}", None)
+                st.session_state.pop("ea_active_profile", None)
+                st.session_state.ea_profile_notice = "已清除当前接口的本地配置"
+                st.rerun()
+            if saved_profile:
+                st.caption("已自动加载本地保存配置；API Key 需要在当前会话重新输入。")
         llm = _llm_config_from_ui(
             connection_type,
             model,
