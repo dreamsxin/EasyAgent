@@ -61,6 +61,18 @@ agent = Agent(llm={
 `retry_delay` uses exponential backoff. Configuration errors are never retried. Async
 tools accept `await tool.acall(arguments, timeout=5)`.
 
+After a run, `agent.last_trace` contains the structured event history. Export it as JSONL
+for later analysis:
+
+```python
+trace = agent.last_trace
+if trace is not None:
+    trace.to_jsonl("runs/experiment.jsonl")
+```
+
+Trace model configuration is redacted by key name for common credentials. Usage counters
+are best-effort because providers expose different response metadata.
+
 Use standard asyncio controls for a whole run:
 
 ```python

@@ -46,7 +46,7 @@ suite, and public API compatibility is documented.
 
 Target: every experiment can be recorded, compared, and repeated.
 
-- [ ] Export JSONL traces with run IDs, model parameters, timing, token usage, and tool I/O.
+- [x] Export JSONL traces with run IDs, model parameters, timing, token usage, and tool I/O.
 - [ ] Add batch runs and a small evaluation API for datasets and regression cases.
 - [ ] Rework long-term memory around explicit collections and reproducible retrieval.
 - [ ] Add workspace, network, and write policies for built-in tools.

@@ -288,6 +288,11 @@ agent = Agent(
     log_level=LogLevel.DEBUG,  # 打印每一步执行事件
 )
 
+# 保存本次运行的研究记录（包含事件、工具 I/O、耗时和可用的 token usage）
+agent.run("问题")
+if agent.last_trace is not None:
+    agent.last_trace.to_jsonl("runs/experiment.jsonl")
+
 # 默认情况下，agent.run() 会打印执行事件：
 # [THOUGHT] Iteration 1: calling tool search_web(...)
 # [ACTION] Calling tool: search_web(...)
