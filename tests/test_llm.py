@@ -59,3 +59,30 @@ def test_llm_complete_wraps_errors():
 
     with pytest.raises(LLMError, match="network down"):
         BadLLM(model="bad").complete([Message(role="user", content="hi")])
+
+
+def test_llm_complete_retries_transient_errors():
+    class FlakyLLM(LLM):
+        def __init__(self):
+            super().__init__(model="flaky", max_retries=2, retry_delay=0)
+            self.calls = 0
+
+        def _complete(self, messages, tools=None):
+            self.calls += 1
+            if self.calls < 3:
+                raise RuntimeError("temporary")
+            return LlmResponse(content="recovered")
+
+    llm = FlakyLLM()
+    response = llm.complete([Message(role="user", content="hi")])
+    assert response.content == "recovered"
+    assert llm.calls == 3
+
+
+def test_llm_rejects_invalid_retry_configuration():
+    class TestLLM(LLM):
+        def _complete(self, messages, tools=None):
+            return LlmResponse(content="ok")
+
+    with pytest.raises(ValueError, match="max_retries"):
+        TestLLM(model="test", max_retries=-1)

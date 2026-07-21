@@ -56,7 +56,7 @@ def test_openai_provider_serializes_tool_round_trip():
     )
     recorder = _CreateRecorder(response)
     llm = OpenAILLM.__new__(OpenAILLM)
-    LLM.__init__(llm, model="test-model", temperature=0.1)
+    LLM.__init__(llm, model="test-model", temperature=0.1, max_tokens=50)
     llm._client = SimpleNamespace(chat=SimpleNamespace(completions=recorder))
 
     result = llm._complete(_conversation(), tools=[_tool_schema()])
@@ -74,6 +74,7 @@ def test_openai_provider_serializes_tool_round_trip():
         "tool_call_id": "call_1",
     }
     assert recorder.kwargs["tools"][0]["function"]["name"] == "lookup"
+    assert recorder.kwargs["max_tokens"] == 50
 
 
 def test_openai_provider_parses_tool_call():
@@ -103,7 +104,7 @@ def test_anthropic_provider_serializes_and_parses_tools():
     )
     recorder = _CreateRecorder(response)
     llm = AnthropicLLM.__new__(AnthropicLLM)
-    LLM.__init__(llm, model="test-model", temperature=0.1)
+    LLM.__init__(llm, model="test-model", temperature=0.1, stop_sequences=["STOP"])
     llm.max_tokens = 100
     llm._client = SimpleNamespace(messages=recorder)
 
@@ -111,6 +112,7 @@ def test_anthropic_provider_serializes_and_parses_tools():
 
     assert recorder.kwargs["system"] == "Be concise."
     assert recorder.kwargs["tools"][0]["input_schema"] == _tool_schema()["parameters"]
+    assert recorder.kwargs["stop_sequences"] == ["STOP"]
     assert recorder.kwargs["messages"][-1] == {
         "role": "user",
         "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "result-x"}],
@@ -143,7 +145,7 @@ def test_ollama_provider_serializes_and_parses_tools():
     assert result.tool_calls[0]["arguments"] == {"query": "z"}
 
 
-def test_deepseek_shorthand_uses_safe_defaults(monkeypatch):
+def test_deepseek_config_uses_safe_defaults_and_timeout(monkeypatch):
     from agentmold.llm.providers import openai_provider
 
     captured = {}
@@ -155,8 +157,15 @@ def test_deepseek_shorthand_uses_safe_defaults(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
     monkeypatch.setattr(openai_provider, "openai", SimpleNamespace(OpenAI=build_client))
 
-    llm = create_llm("deepseek/deepseek-v4-flash")
+    llm = create_llm(
+        {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "timeout": 12,
+        }
+    )
 
     assert llm.model == "deepseek-v4-flash"
     assert captured["api_key"] == "test-key"
     assert captured["base_url"] == "https://api.deepseek.com"
+    assert captured["timeout"] == 12

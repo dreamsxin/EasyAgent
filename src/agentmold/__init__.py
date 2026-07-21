@@ -5,7 +5,7 @@ from agentmold.llm import LLM
 from agentmold.memory import Memory
 from agentmold.tool import Tool, tool
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 __all__ = [
     "Agent",

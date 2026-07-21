@@ -27,6 +27,7 @@ class OpenAILLM(LLM):
         temperature: float = 0.7,
         api_key: str | None = None,
         base_url: str | None = None,
+        timeout: float | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(model, temperature, **kwargs)
@@ -40,7 +41,10 @@ class OpenAILLM(LLM):
                 "OpenAI requires an API key. Set OPENAI_API_KEY or pass api_key."
             )
         self.base_url = base_url
-        self._client = openai.OpenAI(api_key=resolved_key, base_url=base_url)
+        client_kwargs: dict[str, Any] = {"api_key": resolved_key, "base_url": base_url}
+        if timeout is not None:
+            client_kwargs["timeout"] = timeout
+        self._client = openai.OpenAI(**client_kwargs)
 
     def _complete(
         self,
@@ -48,10 +52,16 @@ class OpenAILLM(LLM):
         tools: list[dict[str, Any]] | None = None,
     ) -> LlmResponse:
         payload = [_to_openai_message(m) for m in messages]
-        kwargs: dict[str, Any] = {"model": self.model, "messages": payload}
+        request_options = dict(self.kwargs)
+        tool_choice = request_options.pop("tool_choice", "auto")
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": payload,
+            **request_options,
+        }
         if tools:
             kwargs["tools"] = [{"type": "function", "function": t} for t in tools]
-            kwargs["tool_choice"] = self.kwargs.get("tool_choice", "auto")
+            kwargs["tool_choice"] = tool_choice
         if self.temperature is not None and not self.model.startswith(("o1", "o3")):
             kwargs["temperature"] = self.temperature
 
@@ -89,6 +99,7 @@ class DeepSeekLLM(OpenAILLM):
         temperature: float = 0.7,
         api_key: str | None = None,
         base_url: str | None = None,
+        timeout: float | None = None,
         **kwargs: Any,
     ) -> None:
         resolved_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
@@ -102,6 +113,7 @@ class DeepSeekLLM(OpenAILLM):
             temperature=temperature,
             api_key=resolved_key,
             base_url=resolved_url,
+            timeout=timeout,
             **kwargs,
         )
 

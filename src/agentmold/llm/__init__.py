@@ -13,6 +13,7 @@ single :class:`LLM` interface.  The ``llm`` argument accepted by
 from __future__ import annotations
 
 import asyncio
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -73,9 +74,22 @@ class LLM(ABC):
     errors uniformly.
     """
 
-    def __init__(self, model: str, temperature: float = 0.7, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        model: str,
+        temperature: float = 0.7,
+        max_retries: int = 0,
+        retry_delay: float = 0.5,
+        **kwargs: Any,
+    ) -> None:
+        if max_retries < 0:
+            raise ValueError("max_retries must be >= 0")
+        if retry_delay < 0:
+            raise ValueError("retry_delay must be >= 0")
         self.model = model
         self.temperature = temperature
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
         self.kwargs = kwargs
 
     @abstractmethod
@@ -97,12 +111,21 @@ class LLM(ABC):
         tools: list[dict[str, Any]] | None = None,
     ) -> LlmResponse:
         """Send ``messages`` (and optional ``tools``) to the model."""
-        try:
-            return self._complete(messages, tools)
-        except (LLMError, ConfigurationError):
-            raise
-        except Exception as exc:  # noqa: BLE001 - normalise provider errors
-            raise LLMError(f"{type(self).__name__} request failed: {exc}") from exc
+        last_error: LLMError | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                return self._complete(messages, tools)
+            except ConfigurationError:
+                raise
+            except LLMError as exc:
+                last_error = exc
+            except Exception as exc:  # noqa: BLE001 - normalise provider errors
+                last_error = LLMError(f"{type(self).__name__} request failed: {exc}")
+                last_error.__cause__ = exc
+            if attempt < self.max_retries and self.retry_delay:
+                time.sleep(self.retry_delay * (2**attempt))
+        assert last_error is not None
+        raise last_error
 
     async def acomplete(
         self,

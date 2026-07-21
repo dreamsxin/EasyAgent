@@ -26,6 +26,7 @@ class AnthropicLLM(LLM):
         temperature: float = 0.7,
         api_key: str | None = None,
         base_url: str | None = None,
+        timeout: float | None = None,
         max_tokens: int = 4096,
         **kwargs: Any,
     ) -> None:
@@ -41,7 +42,10 @@ class AnthropicLLM(LLM):
                 "Anthropic requires an API key. Set ANTHROPIC_API_KEY or pass api_key."
             )
         self.base_url = base_url
-        self._client = anthropic.Anthropic(api_key=resolved_key, base_url=base_url)
+        client_kwargs: dict[str, Any] = {"api_key": resolved_key, "base_url": base_url}
+        if timeout is not None:
+            client_kwargs["timeout"] = timeout
+        self._client = anthropic.Anthropic(**client_kwargs)
         self.max_tokens = max_tokens
 
     def _complete(
@@ -65,6 +69,13 @@ class AnthropicLLM(LLM):
             "system": system_text,
             "messages": _to_anthropic_messages(convo),
         }
+        kwargs.update(
+            {
+                key: value
+                for key, value in self.kwargs.items()
+                if key not in {"model", "messages", "system"}
+            }
+        )
         if tools:
             kwargs["tools"] = [
                 {
@@ -95,6 +106,7 @@ class DeepSeekAnthropicLLM(AnthropicLLM):
         temperature: float = 0.7,
         api_key: str | None = None,
         base_url: str | None = None,
+        timeout: float | None = None,
         **kwargs: Any,
     ) -> None:
         resolved_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
@@ -112,6 +124,7 @@ class DeepSeekAnthropicLLM(AnthropicLLM):
             temperature=temperature,
             api_key=resolved_key,
             base_url=resolved_url,
+            timeout=timeout,
             **kwargs,
         )
 

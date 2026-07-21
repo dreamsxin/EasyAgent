@@ -151,16 +151,25 @@ class Tool:
             )
         return self._stringify(result)
 
-    async def acall(self, arguments: dict[str, Any]) -> str:
+    async def acall(self, arguments: dict[str, Any], timeout: float | None = None) -> str:
         """Invoke sync or async tools without blocking the event loop."""
         self._validate_arguments(arguments)
-        try:
+
+        if timeout is not None and timeout <= 0:
+            raise ValueError("timeout must be greater than 0")
+
+        async def invoke() -> Any:
             if inspect.iscoroutinefunction(self.func):
-                result = await self.func(**arguments)
-            else:
-                result = await asyncio.to_thread(self.func, **arguments)
-                if inspect.isawaitable(result):
-                    result = await result
+                return await self.func(**arguments)
+            result = await asyncio.to_thread(self.func, **arguments)
+            if inspect.isawaitable(result):
+                return await result
+            return result
+
+        try:
+            result = await asyncio.wait_for(invoke(), timeout) if timeout else await invoke()
+        except asyncio.TimeoutError as exc:
+            raise ToolError(f"Tool {self.name!r} timed out after {timeout:g}s.") from exc
         except ToolError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -247,8 +256,10 @@ class ToolRegistry:
     def call(self, name: str, arguments: dict[str, Any]) -> str:
         return self.get(name).call(arguments)
 
-    async def acall(self, name: str, arguments: dict[str, Any]) -> str:
-        return await self.get(name).acall(arguments)
+    async def acall(
+        self, name: str, arguments: dict[str, Any], timeout: float | None = None
+    ) -> str:
+        return await self.get(name).acall(arguments, timeout=timeout)
 
     def schemas(self) -> list[dict[str, Any]]:
         """Return all tool schemas for passing to the LLM."""

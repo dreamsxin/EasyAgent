@@ -36,7 +36,7 @@ Target: the public API behaves like normal Python and remains easy to inspect.
 - [x] Keep decorated tools callable as their original Python functions.
 - [x] Add async agents and async tools without changing the synchronous learning path.
 - [x] Improve schemas for optional values, containers, literals, and enums.
-- [ ] Add argument validation, timeouts, retries, and cancellation.
+- [x] Add argument validation, timeouts, retries, and cancellation.
 - [x] Define a stable, typed execution-event contract.
 
 Release gate: synchronous and asynchronous tool loops pass the same provider conformance

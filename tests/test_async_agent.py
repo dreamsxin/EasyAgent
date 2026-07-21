@@ -60,6 +60,41 @@ async def test_arun_runs_sync_tools_off_the_event_loop():
     assert await sync_tool.acall({"value": 2}) == "3"
 
 
+@pytest.mark.asyncio
+async def test_async_tool_timeout_is_reported_as_tool_error():
+    @tool
+    async def slow_tool() -> str:
+        """Wait longer than the configured timeout."""
+        await asyncio.sleep(1)
+        return "done"
+
+    with pytest.raises(ToolError, match="timed out"):
+        await slow_tool.acall({}, timeout=0.01)
+
+
+@pytest.mark.asyncio
+async def test_async_tool_cancellation_propagates():
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    @tool
+    async def cancellable_tool() -> str:
+        """Wait until the caller cancels the task."""
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        finally:
+            cancelled.set()
+        return "done"
+
+    task = asyncio.create_task(cancellable_tool.acall({}))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cancelled.is_set()
+
+
 def test_sync_call_rejects_async_tool_with_actionable_error():
     @tool
     async def async_tool() -> str:

@@ -44,6 +44,38 @@ async for event in agent.arun_stream("question"):
 One `Agent` owns one mutable conversation memory. Use a separate `Agent` or `Memory`
 instance per concurrent conversation instead of calling the same agent concurrently.
 
+## Retries, timeouts, and cancellation
+
+LLM configuration accepts framework-level retries and provider-native request timeouts:
+
+```python
+agent = Agent(llm={
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "timeout": 30,
+    "max_retries": 2,
+    "retry_delay": 0.5,
+})
+```
+
+`retry_delay` uses exponential backoff. Configuration errors are never retried. Async
+tools accept `await tool.acall(arguments, timeout=5)`.
+
+Use standard asyncio controls for a whole run:
+
+```python
+import asyncio
+
+answer = await asyncio.wait_for(agent.arun("question"), timeout=60)
+
+task = asyncio.create_task(agent.arun("question"))
+task.cancel()
+```
+
+Cancellation stops native async tools immediately. A synchronous function already running
+in a worker thread cannot be forcibly terminated by Python, so side-effecting sync tools
+must also implement their own cooperative timeout.
+
 ## LLM configuration
 
 The `llm` argument accepts a shorthand, an `LLM` instance, or a dictionary:

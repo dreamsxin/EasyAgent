@@ -134,7 +134,7 @@ build-backend = "setuptools.build_meta"
 name = "{package_name}"
 version = "0.1.0"
 requires-python = ">=3.9"
-dependencies = ["agentmold>=0.1.1"]
+dependencies = ["agentmold>=0.2.0"]
 """
 
 _GITIGNORE = """\

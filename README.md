@@ -119,6 +119,9 @@ easyagent visual
 异步应用可以使用同样的接口：`await agent.arun("问题")` 或
 `async for step in agent.arun_stream("问题")`。同步工具会在线程中运行，异步工具会直接等待。
 
+模型配置支持 `timeout`、`max_retries` 和 `retry_delay`；整次异步运行可以直接使用
+Python 标准库的 `asyncio.wait_for()` 或任务取消。
+
 ### 交互式创建项目
 
 ```bash

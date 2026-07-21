@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentmold"
-version = "0.1.1"
+version = "0.2.0"
 description = "The easiest way to build AI agents in Python — 10 lines of code, zero framework concepts."
 readme = "README.md"
 license = "MIT"
