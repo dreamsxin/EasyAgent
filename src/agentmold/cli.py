@@ -98,16 +98,206 @@ if __name__ == "__main__":
     agent.chat()
 '''
 
+_RESEARCH_TEMPLATE = '''"""Offline research assistant template scaffolded by EasyAgent."""
+from agentmold import Agent, tool
+
+
+NOTES = [
+    "Reproducible experiments record inputs, model settings, and execution traces.",
+    "Small tools keep an agent easy to inspect, test, and replace.",
+    "Offline fixtures make the first run useful without an API key or network service.",
+]
+
+
+@tool
+def search_notes(query: str) -> str:
+    """Search the local research notes for matching evidence.
+
+    Args:
+        query: Terms to search for.
+    """
+    terms = set(query.lower().split())
+    matches = [note for note in NOTES if terms & set(note.lower().split())]
+    return "\\n".join(matches) if matches else "No matching notes found."
+
+
+def build_agent() -> Agent:
+    """Create an offline-first research assistant."""
+    return Agent(
+        name="Research Assistant",
+        instructions=(
+            "You are a careful research assistant. Search the local notes when useful, "
+            "separate evidence from assumptions, and state when evidence is missing."
+        ),
+        tools=[search_notes],
+        llm="__LLM_PLACEHOLDER__",
+    )
+
+
+if __name__ == "__main__":
+    print(build_agent().run("What makes an experiment reproducible?"))
+'''
+
+_RAG_TEMPLATE = '''"""Minimal retrieval-augmented generation template scaffolded by EasyAgent."""
+from agentmold import Agent, tool
+
+
+DOCUMENTS = [
+    {"id": "doc-1", "text": "Retrieval supplies relevant context before generation."},
+    {"id": "doc-2", "text": "A small corpus makes retrieval behavior easy to inspect."},
+    {"id": "doc-3", "text": "Answers should distinguish retrieved facts from model assumptions."},
+]
+
+
+@tool
+def retrieve_context(query: str) -> str:
+    """Retrieve local document chunks related to a query.
+
+    Args:
+        query: The question or terms to retrieve.
+    """
+    terms = set(query.lower().split())
+    matches = [
+        f"[{document['id']}] {document['text']}"
+        for document in DOCUMENTS
+        if terms & set(document["text"].lower().split())
+    ]
+    return "\\n".join(matches) if matches else "No relevant context was retrieved."
+
+
+def build_agent() -> Agent:
+    """Create a transparent RAG agent backed by an in-memory corpus."""
+    return Agent(
+        name="RAG Assistant",
+        instructions=(
+            "You answer questions using retrieved context. Quote document IDs when "
+            "making a claim, and say when the corpus does not contain the answer."
+        ),
+        tools=[retrieve_context],
+        llm="__LLM_PLACEHOLDER__",
+    )
+
+
+if __name__ == "__main__":
+    print(build_agent().run("tool: retrieve context about retrieval"))
+'''
+
+_DATA_ANALYSIS_TEMPLATE = '''"""Small data-analysis agent template scaffolded by EasyAgent."""
+import csv
+import io
+import statistics
+
+from agentmold import Agent, tool
+
+
+@tool
+def summarize_csv(csv_text: str) -> str:
+    """Summarize numeric columns from a CSV string.
+
+    Args:
+        csv_text: CSV text with a header row and numeric data columns.
+    """
+    rows = list(csv.DictReader(io.StringIO(csv_text)))
+    if not rows:
+        return "No rows found."
+    summaries = []
+    for column in rows[0]:
+        try:
+            values = [float(row[column]) for row in rows]
+        except (KeyError, TypeError, ValueError):
+            continue
+        summaries.append(
+            f"{column}: count={len(values)}, mean={statistics.mean(values):.3f}, "
+            f"min={min(values):.3f}, max={max(values):.3f}"
+        )
+    return "\\n".join(summaries) if summaries else "No numeric columns found."
+
+
+def build_agent() -> Agent:
+    """Create a data-analysis assistant with a deterministic CSV tool."""
+    return Agent(
+        name="Data Analyst",
+        instructions=(
+            "You are a careful data analyst. Ask for the data shape when needed, "
+            "use summarize_csv for numeric summaries, and explain assumptions."
+        ),
+        tools=[summarize_csv],
+        llm="__LLM_PLACEHOLDER__",
+    )
+
+
+if __name__ == "__main__":
+    sample = "name,score\\nA,3\\nB,5\\nC,4\\n"
+    print(build_agent().run(f"Summarize this CSV:\\n{sample}"))
+'''
+
+_CITATION_TEMPLATE = '''"""Citation-aware research agent template scaffolded by EasyAgent."""
+from agentmold import Agent, tool
+
+
+SOURCES = {
+    "S1": {"title": "Reproducible Research Notes", "year": 2024},
+    "S2": {"title": "Transparent Agent Design", "year": 2025},
+}
+
+
+@tool
+def lookup_sources(topic: str) -> str:
+    """Return source records that can support a claim.
+
+    Args:
+        topic: The topic to match against the source catalogue.
+    """
+    terms = set(topic.lower().split())
+    matches = []
+    for source_id, source in SOURCES.items():
+        if terms & set(source["title"].lower().split()) or not terms:
+            matches.append(f"[{source_id}] {source['title']} ({source['year']})")
+    return "\\n".join(matches) if matches else "No matching sources found."
+
+
+def build_agent() -> Agent:
+    """Create an assistant that keeps claims tied to source IDs."""
+    return Agent(
+        name="Citation Assistant",
+        instructions=(
+            "You are a citation-aware research assistant. Look up sources before "
+            "making factual claims, cite them as [S1], and never invent a citation."
+        ),
+        tools=[lookup_sources],
+        llm="__LLM_PLACEHOLDER__",
+    )
+
+
+if __name__ == "__main__":
+    print(build_agent().run("tool: look up sources about reproducible research"))
+'''
+
 # template name → (agent.py body, description shown in --help)
 TEMPLATES: dict[str, tuple[str, str]] = {
     "default": (_AGENT_TEMPLATE, "A research assistant with a custom search tool."),
     "coder": (_CODER_TEMPLATE, "A coding assistant with file & math tools."),
     "chatbot": (_CHATBOT_TEMPLATE, "A conversational chatbot with larger memory."),
+    "research-assistant": (
+        _RESEARCH_TEMPLATE,
+        "An offline research assistant with searchable notes.",
+    ),
+    "rag": (_RAG_TEMPLATE, "A transparent retrieval-augmented generation assistant."),
+    "data-analysis": (
+        _DATA_ANALYSIS_TEMPLATE,
+        "A CSV analysis assistant using standard-library tools.",
+    ),
+    "citation-aware": (
+        _CITATION_TEMPLATE,
+        "A research assistant that keeps claims tied to source IDs.",
+    ),
 }
 
 _README_TEMPLATE = """# {name}
 
 An AI agent built with [EasyAgent](https://github.com/your-org/agentmold).
+
+Template: `{template}` — {template_description}
 
 ## Setup
 
@@ -211,7 +401,10 @@ def _cmd_init(args) -> int:
         template_body.replace("__LLM_PLACEHOLDER__", args.llm), encoding="utf-8"
     )
     (project_dir / "README.md").write_text(
-        _README_TEMPLATE.replace("{name}", args.name), encoding="utf-8"
+        _README_TEMPLATE.replace("{name}", args.name)
+        .replace("{template}", args.template)
+        .replace("{template_description}", template_desc),
+        encoding="utf-8",
     )
     (project_dir / ".gitignore").write_text(_GITIGNORE, encoding="utf-8")
     package_name = _normalise_package_name(Path(args.name).name)

@@ -13,6 +13,23 @@ easyagent run
 The generated project uses `mock`, so the first run does not need an API key. Replace
 `llm="mock"` in `agent.py` when you are ready to use a hosted or local model.
 
+## Teaching templates
+
+Use `--template` to start from an offline, editable example without adding framework
+concepts:
+
+```bash
+easyagent init research-lab --template research-assistant
+easyagent init rag-lab --template rag
+easyagent init data-lab --template data-analysis
+easyagent init citation-lab --template citation-aware
+```
+
+The templates contain, respectively, searchable local notes, transparent in-memory
+retrieval, CSV numeric summaries, and source-ID citation discipline. Each generated
+`agent.py` defines ordinary `@tool` functions and the same zero-argument `build_agent()`
+used by `easyagent run` and `easyagent visual --file`.
+
 ## DeepSeek
 
 Install the OpenAI-compatible extra and set the key in the shell:

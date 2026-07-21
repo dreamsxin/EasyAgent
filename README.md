@@ -153,6 +153,18 @@ cd my-agent-project
 easyagent run
 ```
 
+通过 `--template` 可以直接生成可离线运行、方便修改的教学项目：
+
+```bash
+easyagent init literature-lab --template research-assistant
+easyagent init rag-lab --template rag
+easyagent init data-lab --template data-analysis
+easyagent init citation-lab --template citation-aware
+```
+
+这些模板分别提供本地研究笔记检索、透明的内存 RAG、标准库 CSV 汇总和来源 ID 引用；
+另外保留 `default`、`coder` 与 `chatbot` 模板。所有模板默认使用 `mock`，无需 API Key。
+
 ## 🧩 核心概念
 
 EasyAgent 只有三个核心概念，全部使用标准 Python 原语：

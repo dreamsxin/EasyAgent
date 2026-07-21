@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from agentmold import load_agent
 from agentmold.cli import main as cli_main
 
 
@@ -48,6 +49,54 @@ def test_cli_init_chatbot_template(tmp_path):
     content = (project / "agent.py").read_text(encoding="utf-8")
     assert "ChatBot" in content
     assert "agent.chat()" in content
+
+
+@pytest.mark.parametrize(
+    ("template", "agent_name", "tool_name", "tool_input", "expected"),
+    [
+        (
+            "research-assistant",
+            "Research Assistant",
+            "search_notes",
+            "reproducible experiments",
+            "execution traces",
+        ),
+        ("rag", "RAG Assistant", "retrieve_context", "retrieval", "[doc-1]"),
+        (
+            "data-analysis",
+            "Data Analyst",
+            "summarize_csv",
+            "name,score\nA,3\nB,5\nC,4\n",
+            "mean=4.000",
+        ),
+        (
+            "citation-aware",
+            "Citation Assistant",
+            "lookup_sources",
+            "reproducible research",
+            "[S1]",
+        ),
+    ],
+)
+def test_cli_init_teaching_templates_round_trip(
+    tmp_path,
+    template,
+    agent_name,
+    tool_name,
+    tool_input,
+    expected,
+):
+    project = tmp_path / template
+    rc = cli_main(["init", str(project), "--template", template])
+    assert rc == 0
+
+    agent = load_agent(project / "agent.py")
+    assert agent.name == agent_name
+    assert agent.llm.model == "mock"
+    assert [tool.name for tool in agent.tools] == [tool_name]
+    assert expected in agent.tools[0](tool_input)
+    readme = (project / "README.md").read_text(encoding="utf-8")
+    assert f"Template: `{template}`" in readme
 
 
 def test_cli_init_rejects_bad_template(tmp_path):
