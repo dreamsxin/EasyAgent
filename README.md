@@ -268,6 +268,7 @@ agent = Agent(memory=Memory(max_messages=20))
 # 长期记忆（向量存储，需要安装扩展）
 from agentmold.memory import VectorMemory
 agent = Agent(memory=VectorMemory(
+    collection="literature-review",
     storage_path="./.agentmold/memory",
     embed_model="text-embedding-3-small",
 ))
@@ -377,6 +378,7 @@ print(report.mean_score)
 - [核心概念](docs/concepts.md)
 - [API 参考](docs/api.md)
 - [批量实验与评测](docs/evaluation.md)
+- [长期记忆 Collection](docs/memory.md)
 - [教程与示例](examples/)
 
 ## 🤝 贡献

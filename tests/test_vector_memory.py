@@ -36,6 +36,7 @@ def _hash_embedder(dim: int = 64):
 @pytest.fixture
 def vector_memory(tmp_path):
     return VectorMemory(
+        collection="test-memory",
         storage_path=str(tmp_path / "mem"),
         embedder=_hash_embedder(),
         max_messages=10,
@@ -94,11 +95,19 @@ def test_vector_memory_empty_content_not_persisted(vector_memory):
 
 def test_vector_memory_reopens_without_id_collisions_and_clears(tmp_path):
     storage_path = str(tmp_path / "persistent-mem")
-    first = VectorMemory(storage_path=storage_path, embedder=_hash_embedder())
+    first = VectorMemory(
+        collection="persistent-memory",
+        storage_path=storage_path,
+        embedder=_hash_embedder(),
+    )
     first.add(Message(role="user", content="first process message"))
     first_id = first._stored_ids[0]
 
-    reopened = VectorMemory(storage_path=storage_path, embedder=_hash_embedder())
+    reopened = VectorMemory(
+        collection="persistent-memory",
+        storage_path=storage_path,
+        embedder=_hash_embedder(),
+    )
     assert first_id in reopened._stored_ids
     reopened.add(Message(role="assistant", content="second process message"))
 
@@ -106,3 +115,59 @@ def test_vector_memory_reopens_without_id_collisions_and_clears(tmp_path):
     assert len(set(reopened._stored_ids)) == 2
     reopened.clear()
     assert reopened._collection.count() == 0
+
+
+def test_vector_memory_collections_are_isolated(tmp_path):
+    storage_path = str(tmp_path / "collections")
+    first = VectorMemory(
+        collection="experiment-one",
+        storage_path=storage_path,
+        embedder=_hash_embedder(),
+    )
+    second = VectorMemory(
+        collection="experiment-two",
+        storage_path=storage_path,
+        embedder=_hash_embedder(),
+    )
+
+    first.add(Message(role="user", content="only in the first collection"))
+    assert first._collection.count() == 1
+    assert second._collection.count() == 0
+
+
+def test_vector_memory_search_is_stable_and_excludes_current_message(tmp_path):
+    memory = VectorMemory(
+        collection="search-memory",
+        storage_path=str(tmp_path / "search"),
+        embedder=_hash_embedder(),
+        top_k=3,
+    )
+    memory.add(Message(role="user", content="same text"))
+    old_id = memory._recent_ids[-1]
+    memory.add(Message(role="assistant", content="related answer"))
+    memory.add(Message(role="user", content="same text"))
+    current_id = memory._recent_ids[-1]
+
+    first = memory.search("same text", exclude_ids={current_id})
+    second = memory.search("same text", exclude_ids={current_id})
+
+    assert old_id in {record.id for record in first}
+    assert current_id not in {record.id for record in first}
+    assert [record.id for record in first] == [record.id for record in second]
+
+
+def test_vector_memory_rejects_embed_model_mismatch(tmp_path):
+    storage_path = str(tmp_path / "model-mismatch")
+    VectorMemory(
+        collection="model-memory",
+        storage_path=storage_path,
+        embed_model="model-a",
+        embedder=_hash_embedder(),
+    )
+    with pytest.raises(ValueError, match="embed_model"):
+        VectorMemory(
+            collection="model-memory",
+            storage_path=storage_path,
+            embed_model="model-b",
+            embedder=_hash_embedder(),
+        )

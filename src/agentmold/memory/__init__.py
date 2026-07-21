@@ -12,12 +12,25 @@ Two tiers of memory are provided:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
 from agentmold.llm import Message
 
-__all__ = ["Memory", "BaseMemory", "VectorMemory"]
+__all__ = ["Memory", "BaseMemory", "VectorMemory", "MemoryRecord"]
+
+
+@dataclass(frozen=True)
+class MemoryRecord:
+    """One persistent memory search result."""
+
+    id: str
+    role: str
+    content: str
+    distance: float | None
+    created_at: str | None
 
 
 class BaseMemory(ABC):
@@ -93,6 +106,8 @@ class VectorMemory(BaseMemory):
 
     def __init__(
         self,
+        collection: str,
+        *,
         storage_path: str = "./.agentmold/memory",
         embed_model: str = "text-embedding-3-small",
         max_messages: int = 20,
@@ -101,14 +116,18 @@ class VectorMemory(BaseMemory):
         system: str | None = None,
         embedder: Any | None = None,
     ) -> None:
+        if len(collection) < 3:
+            raise ValueError("collection must contain at least 3 characters")
         self.max_messages = max_messages
         if max_messages < 1:
             raise ValueError("max_messages must be >= 1")
         if top_k < 1:
             raise ValueError("top_k must be >= 1")
         self.top_k = top_k
+        self.collection_name = collection
         self._system = system
         self._recent: list[Message] = []
+        self._recent_ids: list[str | None] = []
         self._embed_model = embed_model
 
         try:
@@ -120,7 +139,21 @@ class VectorMemory(BaseMemory):
             ) from exc
 
         self._client = chromadb.PersistentClient(path=storage_path)
-        self._collection = self._client.get_or_create_collection(name="agentmold_memory")
+        collection_names = {
+            item if isinstance(item, str) else item.name for item in self._client.list_collections()
+        }
+        if collection in collection_names:
+            self._collection = self._client.get_collection(name=collection)
+        else:
+            self._collection = self._client.create_collection(
+                name=collection,
+                metadata={"embed_model": embed_model, "hnsw:space": "cosine"},
+            )
+        stored_model = (self._collection.metadata or {}).get("embed_model")
+        if stored_model and stored_model != embed_model:
+            raise ValueError(
+                f"Collection {collection!r} uses embed_model={stored_model!r}, not {embed_model!r}."
+            )
         self._api_key = api_key or _env("OPENAI_API_KEY")
         # Load existing IDs so clear() also works after a process restart.
         existing = self._collection.get(include=["metadatas"])
@@ -132,9 +165,7 @@ class VectorMemory(BaseMemory):
         if message.role == "system" and self._system is None:
             self._system = message.content
             return
-        self._recent.append(message)
-        if len(self._recent) > self.max_messages:
-            self._recent = self._recent[-self.max_messages :]
+        msg_id: str | None = None
         # Persist non-system messages to the vector store.
         if message.role in ("user", "assistant") and message.content:
             msg_id = f"msg-{uuid4().hex}"
@@ -143,29 +174,42 @@ class VectorMemory(BaseMemory):
                 ids=[msg_id],
                 embeddings=[embedding],
                 documents=[message.content],
-                metadatas=[{"role": message.role}],
+                metadatas=[
+                    {
+                        "role": message.role,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ],
             )
             self._stored_ids.append(msg_id)
+        self._recent.append(message)
+        self._recent_ids.append(msg_id)
+        if len(self._recent) > self.max_messages:
+            self._recent = self._recent[-self.max_messages :]
+            self._recent_ids = self._recent_ids[-self.max_messages :]
 
     def messages(self) -> list[Message]:
         result: list[Message] = []
         if self._system:
             result.append(Message(role="system", content=self._system))
         # Retrieve relevant context from the long-term store.
-        last_user = next((m for m in reversed(self._recent) if m.role == "user"), None)
-        if last_user and self._collection.count() > 0:
-            query_embedding = self._embed(last_user.content)
-            results = self._collection.query(
-                query_embeddings=[query_embedding],
-                n_results=min(self.top_k + 1, self._collection.count()),
+        last_user_index = next(
+            (
+                index
+                for index in range(len(self._recent) - 1, -1, -1)
+                if self._recent[index].role == "user"
+            ),
+            None,
+        )
+        if last_user_index is not None:
+            last_user = self._recent[last_user_index]
+            current_id = self._recent_ids[last_user_index]
+            records = self.search(
+                last_user.content,
+                top_k=self.top_k,
+                exclude_ids={current_id} if current_id else None,
             )
-            relevant: list[str] = []
-            for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
-                # The just-added query is already present in _recent. Avoid
-                # duplicating it in the retrieved context.
-                if doc == last_user.content:
-                    continue
-                relevant.append(f"{meta.get('role', 'user')}: {doc}")
+            relevant = [f"{record.role}: {record.content}" for record in records]
             if relevant:
                 result.append(
                     Message(
@@ -175,6 +219,61 @@ class VectorMemory(BaseMemory):
                 )
         result.extend(self._recent)
         return result
+
+    def search(
+        self,
+        query: str,
+        top_k: int | None = None,
+        exclude_ids: set[str] | None = None,
+    ) -> list[MemoryRecord]:
+        """Search this collection and return deterministically ordered records."""
+        limit = self.top_k if top_k is None else top_k
+        if limit < 1:
+            raise ValueError("top_k must be >= 1")
+        count = self._collection.count()
+        if count == 0:
+            return []
+        excluded = exclude_ids or set()
+        results = self._collection.query(
+            query_embeddings=[self._embed(query)],
+            n_results=min(limit + len(excluded), count),
+            include=["documents", "metadatas", "distances"],
+        )
+        ids = results.get("ids", [[]])[0]
+        documents = (results.get("documents") or [[]])[0]
+        metadatas = (results.get("metadatas") or [[]])[0]
+        distances = (results.get("distances") or [[]])[0]
+        records: list[MemoryRecord] = []
+        for record_id, document, metadata, distance in zip(ids, documents, metadatas, distances):
+            if record_id in excluded or document is None:
+                continue
+            metadata = metadata or {}
+            records.append(
+                MemoryRecord(
+                    id=record_id,
+                    role=str(metadata.get("role", "user")),
+                    content=document,
+                    distance=float(distance) if distance is not None else None,
+                    created_at=(
+                        str(metadata["created_at"])
+                        if metadata.get("created_at") is not None
+                        else None
+                    ),
+                )
+            )
+        records.sort(
+            key=lambda record: (
+                record.distance is None,
+                record.distance if record.distance is not None else float("inf"),
+                record.id,
+            )
+        )
+        return records[:limit]
+
+    def clear_session(self) -> None:
+        """Clear only the current short-term conversation window."""
+        self._recent.clear()
+        self._recent_ids.clear()
 
     def _embed(self, text: str) -> list[float]:
         """Embed text using the configured model (OpenAI by default)."""
@@ -191,7 +290,7 @@ class VectorMemory(BaseMemory):
 
     def clear(self) -> None:
         """Reset both the short-term window and the long-term vector store."""
-        self._recent.clear()
+        self.clear_session()
         if self._stored_ids:
             self._collection.delete(ids=self._stored_ids)
             self._stored_ids.clear()
