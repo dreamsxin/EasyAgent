@@ -6,7 +6,7 @@ Launch with::
 
 The app lets you configure an Agent in the browser (name, instructions,
 LLM, tools, iterations), build it with a clear button, then chat with it
-    and inspect the completed execution flow as an interactive graph.
+    and inspect the completed execution flow as an animated behavior map.
 """
 
 from __future__ import annotations
@@ -263,6 +263,82 @@ def _timeline_html(steps: list[dict[str, Any]]) -> str:
     return "<div class='ea-timeline'>" + "".join(rows) + "</div>"
 
 
+def _execution_map_html(
+    steps: list[dict[str, Any]],
+    user_input: str | None = None,
+    running: bool = False,
+) -> str:
+    """Render a behavior-first node map with a single animated active step.
+
+    The map deliberately uses the same event dictionaries as the timeline. This
+    keeps the visualization honest: each node is an observable Agent event, not
+    an inferred planning graph.
+    """
+    events: list[dict[str, Any]] = []
+    if user_input is not None and user_input.strip():
+        events.append({"type": "user", "content": user_input})
+    events.extend(step for step in steps if isinstance(step, dict))
+    if not events:
+        return (
+            '<div class="ea-execution-map ea-execution-map-empty" role="img" '
+            'aria-label="暂无执行节点">'
+            '<div class="ea-map-empty-orbit"><span></span></div>'
+            "<div><strong>等待 Agent 启动</strong>"
+            "<small>提交问题后，节点会按真实事件顺序点亮</small></div>"
+            "</div>"
+        )
+
+    labels = {
+        "user": ("输入", "USER", "→"),
+        "tool_call": ("调用工具", "TOOL CALL", "↗"),
+        "tool_result": ("工具返回", "TOOL RESULT", "←"),
+        "answer": ("最终回答", "ANSWER", "✓"),
+        "error": ("执行失败", "ERROR", "!"),
+        "thought": ("模型思考", "THOUGHT", "·"),
+        "text_delta": ("回答片段", "TEXT", "∙"),
+    }
+    rows: list[str] = []
+    last_index = len(events) - 1
+    for index, event in enumerate(events):
+        step_type = str(event.get("type", "event"))
+        title, code, icon = labels.get(step_type, (step_type, step_type.upper(), "·"))
+        detail = (
+            json.dumps(event.get("arguments", {}), ensure_ascii=False, default=str)
+            if step_type == "tool_call"
+            else str(event.get("content", ""))
+        ).strip()
+        if len(detail) > 150:
+            detail = detail[:150] + "…"
+        status = "active" if running and index == last_index else "complete"
+        if not running and index == last_index:
+            status = "latest"
+        delay = min(index * 0.06, 0.6)
+        rows.append(
+            f'<div class="ea-flow-step ea-flow-{html.escape(step_type)} ea-flow-{status}" '
+            f'style="--ea-flow-delay:{delay:.2f}s" '
+            f'aria-label="第 {index + 1} 步：{html.escape(title)}">'
+            f'<div class="ea-flow-index">{index + 1:02d}</div>'
+            f'<div class="ea-flow-node"><span>{html.escape(icon)}</span></div>'
+            '<div class="ea-flow-copy">'
+            f'<div class="ea-flow-code">{html.escape(code)}'
+            f"<span>{html.escape(status.upper())}</span></div>"
+            f"<strong>{html.escape(title)}</strong>"
+            f'<small>{html.escape(detail or "事件已记录")}</small>'
+            "</div>"
+            + ('<div class="ea-flow-connector"><i></i></div>' if index < last_index else "")
+            + "</div>"
+        )
+    state_text = "正在响应" if running else "最近一次执行"
+    return (
+        f'<div class="ea-execution-map" role="img" '
+        f'aria-label="Agent 执行地图，共 {len(events)} 个节点">'
+        f'<div class="ea-map-heading"><span><b></b> EXECUTION MAP</span>'
+        f"<small>{state_text} · {len(events)} NODES</small></div>"
+        f'<div class="ea-flow-canvas">{"".join(rows)}</div>'
+        "</div>"
+    )
+
+
 def _run_metrics_html(meta: dict[str, Any]) -> str:
     """Render the current run state as a compact status strip."""
     state = str(meta.get("state", "idle"))
@@ -474,9 +550,6 @@ def _trace_compare_html(left: dict[str, Any], right: dict[str, Any]) -> str:
 
 def _render_trace_lab(
     st: Any,
-    Config: Any,
-    agraph: Callable[..., Any],
-    trace_to_graph: Callable[..., Any],
 ) -> None:
     """Render trace import, scrubbed replay, export, and two-run comparison."""
     with st.expander("TRACE LAB · 回放与对比", expanded=False):
@@ -592,21 +665,13 @@ def _render_trace_lab(
             st.markdown(_timeline_html(visible_events), unsafe_allow_html=True)
         with graph_col:
             st.markdown("**EXECUTION MAP**")
-            nodes, edges = trace_to_graph(
-                visible_events,
-                user_input=summary["input"] or None,
+            st.markdown(
+                _execution_map_html(
+                    visible_events,
+                    user_input=summary["input"] or None,
+                ),
+                unsafe_allow_html=True,
             )
-            graph_config = Config(
-                width=420,
-                height=320,
-                directed=True,
-                physics=False,
-                hierarchical=True,
-                levelSeparation=78,
-                nodeSpacing=62,
-                sortMethod="directed",
-            )
-            agraph(nodes=nodes, edges=edges, config=graph_config)
 
         st.markdown("**COMPARE RUNS**")
         compare_key = "ea_compare_runs"
@@ -711,17 +776,47 @@ def _inject_theme(st: Any) -> None:
             --ea-bg: #080c12;
             --ea-surface: #101823;
             --ea-surface-2: #141f2c;
+            --ea-surface-3: #1a2a3c;
+            --ea-surface-raised: #22384e;
+            --ea-input-bg: #f7fbff;
+            --ea-input-text: #172434;
             --ea-line: #253447;
+            --ea-line-strong: #526d89;
             --ea-text: #e8f0f7;
+            --ea-text-soft: #d6e2ee;
             --ea-muted: #8ea0b4;
+            --ea-muted-strong: #a9bdd0;
             --ea-cyan: #5de4ff;
             --ea-magenta: #e68cff;
             --ea-lime: #b6f36b;
             --ea-amber: #ffc36b;
         }
-        .stApp, [data-testid="stAppViewContainer"] {
+        .stApp,
+        [data-testid="stAppViewContainer"],
+        [data-testid="stMain"],
+        [data-testid="stMainBlockContainer"] {
             background: var(--ea-bg);
             color: var(--ea-text);
+        }
+        .main .block-container,
+        .main .block-container p,
+        .main .block-container li,
+        .main .block-container h1,
+        .main .block-container h2,
+        .main .block-container h3,
+        .main .block-container h4,
+        .main .block-container label,
+        [data-testid="stWidgetLabel"] p {
+            color: var(--ea-text-soft) !important;
+        }
+        .main .block-container a { color: var(--ea-cyan) !important; }
+        [data-testid="stCaptionContainer"] p,
+        [data-testid="stCaptionContainer"] small {
+            color: var(--ea-muted-strong) !important;
+        }
+        [data-testid="stHeader"] button,
+        [data-testid="stToolbar"] button {
+            color: var(--ea-text-soft) !important;
         }
         [data-testid="stHeader"] {
             background: rgba(8, 12, 18, 0.92);
@@ -771,6 +866,158 @@ def _inject_theme(st: Any) -> None:
         }
         [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] {
             background: #142638;
+        }
+        /* Keep the native Streamlit controls legible across light and dark browser themes. */
+        [data-baseweb="input"] > div,
+        [data-baseweb="textarea"] > div,
+        [data-baseweb="select"] > div,
+        [data-testid="stChatInput"] > div {
+            background: var(--ea-input-bg) !important;
+            border-color: #8ba3ba !important;
+            color: var(--ea-input-text) !important;
+        }
+        [data-baseweb="input"] input,
+        [data-baseweb="textarea"] textarea,
+        [data-baseweb="select"] input,
+        [data-testid="stChatInput"] textarea {
+            background: var(--ea-input-bg) !important;
+            caret-color: var(--ea-input-text) !important;
+            color: var(--ea-input-text) !important;
+            -webkit-text-fill-color: var(--ea-input-text) !important;
+        }
+        [data-baseweb="input"] input::placeholder,
+        [data-baseweb="textarea"] textarea::placeholder,
+        [data-testid="stChatInput"] textarea::placeholder {
+            color: #647b91 !important;
+            -webkit-text-fill-color: #647b91 !important;
+        }
+        [data-baseweb="select"] span,
+        [data-baseweb="select"] svg {
+            color: var(--ea-input-text) !important;
+            fill: var(--ea-input-text) !important;
+        }
+        [data-testid="stNumberInput"] button {
+            background: #e7f0f7 !important;
+            border-color: #8ba3ba !important;
+            color: var(--ea-input-text) !important;
+        }
+        [data-testid="stNumberInput"] button:hover {
+            background: #d4e4ef !important;
+            color: #0b1724 !important;
+        }
+        [data-baseweb="popover"],
+        [data-baseweb="popover"] > div,
+        [data-baseweb="menu"],
+        [role="listbox"] {
+            background: var(--ea-surface-3) !important;
+            border: 1px solid var(--ea-line-strong) !important;
+            color: var(--ea-text) !important;
+            z-index: 1001 !important;
+        }
+        [data-baseweb="menu"] li,
+        [role="option"] {
+            color: var(--ea-text-soft) !important;
+        }
+        [data-baseweb="menu"] li:hover,
+        [role="option"]:hover,
+        [role="option"][aria-selected="true"] {
+            background: var(--ea-surface-raised) !important;
+            color: #ffffff !important;
+        }
+        [data-testid*="VirtualDropdown"] {
+            background: var(--ea-surface-3) !important;
+            border: 1px solid var(--ea-line-strong) !important;
+            box-sizing: border-box !important;
+            color: var(--ea-text) !important;
+            overflow: hidden !important;
+            padding: 0.2rem 0 !important;
+        }
+        [data-testid*="VirtualDropdown"] li {
+            box-sizing: border-box !important;
+            padding: 0.45rem 0.75rem !important;
+        }
+        [data-testid*="VirtualDropdown"] li > div,
+        [data-testid*="VirtualDropdown"] li > div > div {
+            background: transparent !important;
+            color: var(--ea-text-soft) !important;
+            max-width: 100% !important;
+            overflow: visible !important;
+        }
+        [data-testid*="VirtualDropdown"] li:hover,
+        [data-testid*="VirtualDropdown"] li[aria-selected="true"] {
+            background: var(--ea-surface-raised) !important;
+            color: #ffffff !important;
+        }
+        [data-baseweb="popover"] input {
+            background: var(--ea-input-bg) !important;
+            color: var(--ea-input-text) !important;
+        }
+        [data-baseweb="tag"] {
+            background: #dceaf5 !important;
+            border: 1px solid #8ba3ba !important;
+            color: var(--ea-input-text) !important;
+        }
+        [data-baseweb="tag"] > span:first-child,
+        [data-baseweb="tag"] svg {
+            color: var(--ea-input-text) !important;
+            fill: var(--ea-input-text) !important;
+        }
+        [data-baseweb="tag"]:hover {
+            background: #c9deec !important;
+            border-color: #5f7c98 !important;
+        }
+        [data-testid="stAlert"],
+        [data-testid="stToast"],
+        [data-testid="stStatus"],
+        [data-testid="stStatusWidget"] {
+            background: var(--ea-surface-3) !important;
+            border: 1px solid var(--ea-line-strong) !important;
+            color: var(--ea-text-soft) !important;
+        }
+        [data-testid="stAlert"] p,
+        [data-testid="stAlert"] div,
+        [data-testid="stToast"] p,
+        [data-testid="stToast"] div,
+        [data-testid="stStatus"] p,
+        [data-testid="stStatus"] div,
+        [data-testid="stStatusWidget"] p,
+        [data-testid="stStatusWidget"] div {
+            color: inherit !important;
+        }
+        [data-testid="stExpander"] {
+            background: var(--ea-surface) !important;
+            border: 1px solid var(--ea-line-strong) !important;
+            border-radius: 8px;
+            color: var(--ea-text-soft) !important;
+        }
+        [data-testid="stExpander"] details,
+        [data-testid="stExpander"] summary,
+        [data-testid="stExpander"] [data-testid="stVerticalBlock"] {
+            background: var(--ea-surface) !important;
+            color: var(--ea-text-soft) !important;
+        }
+        [data-testid="stExpander"] summary:hover,
+        [data-testid="stExpander"] details[open] summary {
+            background: var(--ea-surface-raised) !important;
+            color: #ffffff !important;
+        }
+        [data-testid="stExpander"] summary p,
+        [data-testid="stExpander"] summary span {
+            color: inherit !important;
+        }
+        [data-testid="stFileUploader"] section {
+            background: var(--ea-surface) !important;
+            border: 1px dashed var(--ea-line-strong) !important;
+            color: var(--ea-text-soft) !important;
+        }
+        [data-testid="stFileUploader"] section p,
+        [data-testid="stFileUploader"] section small {
+            color: var(--ea-muted-strong) !important;
+        }
+        [data-testid="stChatMessage"] p,
+        [data-testid="stChatMessage"] li,
+        [data-testid="stChatMessage"] span {
+            color: var(--ea-text-soft) !important;
         }
         .main .block-container {
             max-width: 1500px;
@@ -953,6 +1200,207 @@ def _inject_theme(st: Any) -> None:
             margin-top: 0.22rem;
             overflow-wrap: anywhere;
         }
+        .ea-execution-map {
+            background: #0b131d;
+            border: 1px solid #30455b;
+            border-radius: 8px;
+            min-height: 12rem;
+            overflow: hidden;
+            padding: 0.75rem;
+            position: relative;
+        }
+        .ea-execution-map::after {
+            background: var(--ea-cyan);
+            box-shadow: 0 0 18px 2px rgba(93, 228, 255, 0.4);
+            content: "";
+            height: 1px;
+            left: 0;
+            opacity: 0.2;
+            position: absolute;
+            right: 0;
+            top: 0;
+            transform: translateY(-2px);
+            animation: ea-map-scan 2.8s ease-out 1;
+        }
+        .ea-map-heading {
+            align-items: center;
+            border-bottom: 1px solid #1f3042;
+            color: var(--ea-muted);
+            display: flex;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.64rem;
+            justify-content: space-between;
+            letter-spacing: 0.12em;
+            padding: 0.05rem 0.15rem 0.65rem;
+        }
+        .ea-map-heading span { color: var(--ea-cyan); }
+        .ea-map-heading b {
+            background: var(--ea-lime);
+            border-radius: 50%;
+            box-shadow: 0 0 9px rgba(182, 243, 107, 0.8);
+            display: inline-block;
+            height: 0.4rem;
+            margin-right: 0.3rem;
+            width: 0.4rem;
+        }
+        .ea-map-heading small { color: #62758b; font-size: 0.58rem; letter-spacing: 0.08em; }
+        .ea-flow-canvas { padding: 0.7rem 0.1rem 0.2rem; }
+        .ea-flow-step {
+            align-items: start;
+            display: grid;
+            grid-template-columns: 2.2rem 2.4rem minmax(0, 1fr);
+            min-height: 3.3rem;
+            position: relative;
+            animation: ea-flow-arrive 0.45s cubic-bezier(0.2, 0.8, 0.2, 1)
+                var(--ea-flow-delay) both;
+        }
+        .ea-flow-index {
+            color: #516a82;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.65rem;
+            padding-top: 0.55rem;
+        }
+        .ea-flow-node {
+            align-items: center;
+            background: #121e2b;
+            border: 1px solid #486079;
+            border-radius: 50%;
+            color: var(--ea-text);
+            display: flex;
+            height: 1.85rem;
+            justify-content: center;
+            margin-top: 0.22rem;
+            position: relative;
+            width: 1.85rem;
+            z-index: 1;
+        }
+        .ea-flow-node span {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.82rem;
+        }
+        .ea-flow-tool_call .ea-flow-node { border-radius: 7px; color: var(--ea-amber); }
+        .ea-flow-tool_result .ea-flow-node { border-radius: 7px; color: var(--ea-lime); }
+        .ea-flow-answer .ea-flow-node { color: var(--ea-magenta); transform: rotate(45deg); }
+        .ea-flow-answer .ea-flow-node span { transform: rotate(-45deg); }
+        .ea-flow-error .ea-flow-node { border-radius: 7px; color: #ff8c8c; }
+        .ea-flow-user .ea-flow-node { color: var(--ea-cyan); }
+        .ea-flow-copy { min-width: 0; padding: 0.22rem 0.2rem 0.8rem 0.55rem; }
+        .ea-flow-code {
+            color: #6e849a;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.61rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+        }
+        .ea-flow-code span { color: #4e6478; float: right; font-size: 0.56rem; }
+        .ea-flow-copy strong {
+            color: var(--ea-text);
+            display: block;
+            font-size: 0.8rem;
+            margin-top: 0.14rem;
+        }
+        .ea-flow-copy small {
+            color: #9ab0c4;
+            display: block;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.68rem;
+            line-height: 1.35;
+            margin-top: 0.12rem;
+            overflow-wrap: anywhere;
+        }
+        .ea-flow-connector {
+            border-left: 1px solid #38516a;
+            bottom: -0.1rem;
+            left: 3.1rem;
+            position: absolute;
+            top: 2.1rem;
+        }
+        .ea-flow-connector i {
+            background: var(--ea-cyan);
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(93, 228, 255, 0.8);
+            display: block;
+            height: 0.28rem;
+            left: -0.14rem;
+            position: absolute;
+            top: -0.15rem;
+            width: 0.28rem;
+            animation: ea-flow-travel 0.75s ease-in var(--ea-flow-delay) both;
+        }
+        .ea-flow-active .ea-flow-node {
+            border-color: var(--ea-lime);
+            box-shadow: 0 0 0 4px rgba(182, 243, 107, 0.1), 0 0 18px rgba(182, 243, 107, 0.35);
+            animation: ea-node-pulse 1.7s ease-in-out infinite;
+        }
+        .ea-flow-latest .ea-flow-node {
+            border-color: var(--ea-magenta);
+            box-shadow: 0 0 0 3px rgba(230, 140, 255, 0.1);
+        }
+        .ea-execution-map-empty {
+            align-items: center;
+            display: flex;
+            gap: 0.75rem;
+            justify-content: center;
+        }
+        .ea-execution-map-empty strong {
+            color: var(--ea-text);
+            display: block;
+            font-size: 0.82rem;
+        }
+        .ea-execution-map-empty small {
+            color: var(--ea-muted);
+            display: block;
+            font-size: 0.7rem;
+            margin-top: 0.15rem;
+        }
+        .ea-map-empty-orbit {
+            border: 1px solid #38516a;
+            border-radius: 50%;
+            height: 2rem;
+            position: relative;
+            width: 2rem;
+        }
+        .ea-map-empty-orbit::after {
+            border: 1px solid var(--ea-cyan);
+            border-radius: 50%;
+            content: "";
+            inset: 0.45rem;
+            position: absolute;
+        }
+        .ea-map-empty-orbit span {
+            background: var(--ea-cyan);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--ea-cyan);
+            height: 0.3rem;
+            left: 0.85rem;
+            position: absolute;
+            top: -0.15rem;
+            width: 0.3rem;
+        }
+        @keyframes ea-flow-arrive {
+            from { opacity: 0; transform: translateY(0.45rem); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes ea-flow-travel {
+            from { opacity: 0; transform: translateY(0); }
+            20% { opacity: 1; }
+            to { opacity: 0; transform: translateY(2.9rem); }
+        }
+        @keyframes ea-node-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        @keyframes ea-map-scan {
+            from { opacity: 0; transform: translateY(0); }
+            18% { opacity: 0.35; }
+            to { opacity: 0; transform: translateY(11rem); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .ea-execution-map::after,
+            .ea-flow-step,
+            .ea-flow-connector i,
+            .ea-flow-active .ea-flow-node { animation: none; }
+        }
         .ea-empty {
             background: #0c131d;
             border: 1px dashed var(--ea-line);
@@ -1076,6 +1524,56 @@ def _inject_theme(st: Any) -> None:
             border-color: var(--ea-cyan);
             color: #ffffff;
         }
+        .stButton > button:disabled,
+        [data-testid="stButton"] button:disabled {
+            background: #162231 !important;
+            border-color: #2a3b4d !important;
+            color: #71869a !important;
+            opacity: 1 !important;
+        }
+        [data-testid="stTabs"] [role="tablist"] {
+            border-bottom: 1px solid var(--ea-line);
+            gap: 0.35rem;
+        }
+        [data-testid="stTabs"] button[role="tab"] {
+            background: transparent !important;
+            color: var(--ea-muted-strong) !important;
+            border-bottom-color: transparent !important;
+        }
+        [data-testid="stTabs"] button[role="tab"]:hover,
+        [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+            color: #ffffff !important;
+            border-bottom-color: var(--ea-cyan) !important;
+        }
+        [data-testid="stRadio"] label,
+        [data-testid="stCheckbox"] label,
+        [data-testid="stToggle"] label {
+            color: var(--ea-text-soft) !important;
+        }
+        [data-testid="stRadio"] label:hover,
+        [data-testid="stCheckbox"] label:hover,
+        [data-testid="stToggle"] label:hover {
+            color: #ffffff !important;
+        }
+        [data-testid="stMetric"] label,
+        [data-testid="stMetric"] [data-testid="stMetricLabel"] p {
+            color: var(--ea-muted-strong) !important;
+        }
+        [data-testid="stMetric"] [data-testid="stMetricValue"] {
+            color: #ffffff !important;
+        }
+        [data-testid="stCode"] pre,
+        [data-testid="stCode"] code {
+            color: #dbe8f4 !important;
+        }
+        [data-testid="stCode"] [data-testid="stCodeCopyButton"] {
+            background: var(--ea-surface-raised) !important;
+            border-color: var(--ea-line-strong) !important;
+            color: var(--ea-text-soft) !important;
+        }
+        hr {
+            border-color: var(--ea-line) !important;
+        }
         [data-testid="stChatMessage"] {
             background: #0f1722;
             border: 1px solid #213044;
@@ -1094,13 +1592,6 @@ def _inject_theme(st: Any) -> None:
             border: 1px solid var(--ea-line);
             border-radius: 8px;
             padding: 0.7rem;
-        }
-        iframe[title="streamlit_agraph.agraph"] {
-            background: #f3f6f9;
-            border: 1px solid #d4dae2;
-            border-radius: 8px;
-            filter: invert(0.92) hue-rotate(180deg);
-            max-width: 100%;
         }
         .ea-legend {
             display: flex;
@@ -1137,9 +1628,6 @@ def _inject_theme(st: Any) -> None:
 def _run_app() -> None:
     """The actual Streamlit application body."""
     import streamlit as st
-    from streamlit_agraph import Config, agraph
-
-    from agentmold.visual.graph import STEP_COLORS, trace_to_graph
 
     st.set_page_config(page_title="EasyAgent Research Console", page_icon="◈", layout="wide")
     _inject_theme(st)
@@ -1578,7 +2066,7 @@ def _run_app() -> None:
     if model_missing:
         agent = None
 
-    _render_trace_lab(st, Config, agraph, trace_to_graph)
+    _render_trace_lab(st)
     if agent_file is None and not model_missing:
         _render_code_export(st, name, instructions, llm, selected_tools, max_iterations)
     elif agent_file is None:
@@ -1660,8 +2148,13 @@ def _run_app() -> None:
             with st.chat_message("assistant"):
                 status = st.status("思考中…", expanded=True)
                 live_timeline = st.empty()
+                live_map = st.empty()
                 live_metrics = st.empty()
                 live_answer: Any | None = None
+                live_map.markdown(
+                    _execution_map_html([], user_input=user_input, running=True),
+                    unsafe_allow_html=True,
+                )
                 live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                 try:
                     for step in agent.run_stream(user_input):
@@ -1680,6 +2173,10 @@ def _run_app() -> None:
                             )
                             continue
                         steps.append(step)
+                        live_map.markdown(
+                            _execution_map_html(steps, user_input=user_input, running=True),
+                            unsafe_allow_html=True,
+                        )
                         trace = agent.last_trace
                         _apply_trace_usage_to_run_meta(run_meta, trace)
                         run_meta["event_count"] = len(steps)
@@ -1784,26 +2281,10 @@ def _run_app() -> None:
         else:
             st.markdown(_timeline_html(steps), unsafe_allow_html=True)
             st.markdown('<div class="ea-section-label">EXECUTION MAP</div>', unsafe_allow_html=True)
-            nodes, edges = trace_to_graph(steps, user_input=user_input)
-            config = Config(
-                width=300,
-                height=380,
-                directed=True,
-                physics=False,
-                hierarchical=True,
-                levelSeparation=95,
-                nodeSpacing=82,
-                sortMethod="directed",
+            st.markdown(
+                _execution_map_html(steps, user_input=user_input),
+                unsafe_allow_html=True,
             )
-            agraph(nodes=nodes, edges=edges, config=config)
-
-            legend = "".join(
-                "<span class='ea-legend-item'>"
-                f"<span style='color:{color}'>●</span>{html.escape(stype)}"
-                "</span>"
-                for stype, color in STEP_COLORS.items()
-            )
-            st.markdown(f"<div class='ea-legend'>{legend}</div>", unsafe_allow_html=True)
 
 
 def _app_main() -> None:

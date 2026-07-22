@@ -6,6 +6,7 @@ from agentmold.visual.app import (
     _CONNECTION_DEFAULTS,
     _agent_signature,
     _build_agent,
+    _execution_map_html,
     _initial_run_meta,
     _llm_config_from_ui,
     _llm_signature,
@@ -160,6 +161,32 @@ def test_timeline_renders_events_and_escapes_content():
 
 def test_timeline_empty_state_is_stable():
     assert "暂无执行事件" in _timeline_html([])
+
+
+def test_execution_map_tracks_real_events_and_escapes_input():
+    rendered = _execution_map_html(
+        [
+            {"type": "tool_call", "name": "calculate", "arguments": {"expression": "2+2"}},
+            {"type": "tool_result", "name": "calculate", "content": "4"},
+            {"type": "answer", "content": "done"},
+        ],
+        user_input="<hello>",
+        running=True,
+    )
+
+    assert "ea-execution-map" in rendered
+    assert "TOOL CALL" in rendered
+    assert "TOOL RESULT" in rendered
+    assert "ANSWER" in rendered
+    assert "ea-flow-active" in rendered
+    assert "&lt;hello&gt;" in rendered
+    assert "<hello>" not in rendered
+
+
+def test_execution_map_empty_state_is_explanatory():
+    rendered = _execution_map_html([])
+    assert "等待 Agent 启动" in rendered
+    assert "暂无执行节点" in rendered
 
 
 def test_custom_openai_config_from_visual_controls():

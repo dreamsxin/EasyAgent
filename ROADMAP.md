@@ -108,6 +108,8 @@ Target: make the implementation understandable without overstating what it can d
 - [x] Show token usage and cache hit rate in Streamlit run status and trace comparison.
 - [x] Implement native text streaming in the built-in providers.
 - [x] Add trace correlation for experimental parent/child Agent-as-Tool runs.
+- [x] Render a behavior-first execution map with animated live and replay states;
+  visualize observed events without inventing hidden planning steps.
 
 Release gate: the README and teaching recipes contain no unsafe execution shortcuts, every
 offline recipe runs in CI, and streaming claims match conformance tests.
