@@ -8,6 +8,7 @@ from agentmold.visual.app import (
     _build_agent,
     _execution_map_html,
     _initial_run_meta,
+    _inject_theme,
     _llm_config_from_ui,
     _llm_signature,
     _load_visual_tools,
@@ -187,6 +188,22 @@ def test_execution_map_empty_state_is_explanatory():
     rendered = _execution_map_html([])
     assert "等待 Agent 启动" in rendered
     assert "暂无执行节点" in rendered
+
+
+def test_theme_keeps_collapsed_sidebar_discoverable_on_small_screens():
+    class ThemeRecorder:
+        content = ""
+
+        def markdown(self, content: str, *, unsafe_allow_html: bool) -> None:
+            assert unsafe_allow_html is True
+            self.content = content
+
+    recorder = ThemeRecorder()
+    _inject_theme(recorder)
+
+    assert "@media (max-width: 900px)" in recorder.content
+    assert '[data-testid="stExpandSidebarButton"]' in recorder.content
+    assert 'content: "Agent 配置"' in recorder.content
 
 
 def test_custom_openai_config_from_visual_controls():

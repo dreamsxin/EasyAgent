@@ -1619,6 +1619,38 @@ def _inject_theme(st: Any) -> None:
             .ea-run-metric,
             .ea-run-id { border-right: 0; }
         }
+        @media (max-width: 900px) {
+            [data-testid="stExpandSidebarButton"] {
+                align-items: center !important;
+                background: var(--ea-surface-3) !important;
+                border: 1px solid var(--ea-line-strong) !important;
+                border-radius: 7px !important;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28) !important;
+                color: var(--ea-text-soft) !important;
+                display: inline-flex !important;
+                gap: 0.35rem !important;
+                height: 2rem !important;
+                min-width: 7.25rem !important;
+                padding: 0 0.65rem !important;
+            }
+            [data-testid="stExpandSidebarButton"]::after {
+                color: var(--ea-text-soft);
+                content: "Agent 配置";
+                font-size: 0.74rem;
+                font-weight: 700;
+                letter-spacing: 0;
+                line-height: 1;
+                white-space: nowrap;
+            }
+            [data-testid="stExpandSidebarButton"] span {
+                color: var(--ea-cyan) !important;
+            }
+            [data-testid="stExpandSidebarButton"]:hover {
+                background: var(--ea-surface-raised) !important;
+                border-color: var(--ea-cyan) !important;
+                color: #ffffff !important;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True,
