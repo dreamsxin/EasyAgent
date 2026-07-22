@@ -103,3 +103,26 @@ def test_publish_workflow_blocks_unvalidated_or_mismatched_tags():
     assert 'pip install -e ".[dev,memory]" build twine' in workflow
     assert "pytest -q" in workflow
     assert "python -m twine check dist/*" in workflow
+
+
+def test_ci_enforces_documented_credential_free_launches():
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "printf 'exit\\n' | easyagent run --chat" in workflow
+    assert "--provider deepseek --model MODEL_ID_FROM_PROVIDER" in workflow
+    assert 'launch_visual 8501 "$workspace/visual-editor.log"' in workflow
+    assert 'launch_visual 8502 "$workspace/visual-agent.log"' in workflow
+    assert '--file "$workspace/visual-agent/agent.py"' in workflow
+    assert 'timeout 300 bash "$smoke_script"' in workflow
+
+
+def test_capability_status_separates_stable_experimental_and_planned_work():
+    capabilities = (ROOT / "docs" / "capabilities.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "ROADMAP.md").read_text(encoding="utf-8")
+
+    for status in ("Shipped", "Experimental", "Planned", "Non-goal"):
+        assert status in capabilities
+    assert "agentmold.experimental.agent_as_tool" in capabilities
+    assert "General multi-Agent coordinator" in capabilities
+    assert "docs/capabilities.md" in readme
+    assert "Run supported providers through the same chat and tool-call contract suite" in roadmap

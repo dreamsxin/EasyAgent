@@ -116,18 +116,18 @@ offline recipe runs in CI, and streaming claims match conformance tests.
 
 ## v1.0 criteria
 
-- Fresh-install quickstart completes in under five minutes without an API key.
-- The built wheel, not only an editable checkout, passes the credential-free first run.
+- [x] Enforce a fresh-install quickstart under five minutes without an API key.
+- [x] The built wheel, not only an editable checkout, passes the credential-free first run.
 - [x] Keep the package version in one source file and ship a user-facing changelog.
 - [x] Require release tags to match the package version and pass tests, lint, type checks,
   and distribution metadata validation.
-- Every credential-free, repository-owned documented command is exercised in CI.
-- Supported providers pass the same chat and tool-call contract suite.
-- Core lint, type, test, and build checks are blocking.
-- Trace export and evaluation workflows are documented and reproducible.
-- No workflow DSL or mandatory infrastructure is required for the primary path.
-- Capability documentation distinguishes shipped, experimental, and planned behavior.
+- [x] Exercise every credential-free, repository-owned documented command in CI.
+- [ ] Run supported providers through the same chat and tool-call contract suite.
+- [x] Keep core lint, type, test, and build checks blocking.
+- [x] Document reproducible trace export and evaluation workflows.
+- [x] Require no workflow DSL or mandatory infrastructure for the primary path.
+- [x] Distinguish shipped, experimental, planned, and explicitly excluded capabilities.
 
 CI evidence: the test matrix covers Python 3.10-3.14; dedicated jobs block on Ruff,
 Black, strict mypy, package builds, generated-project quickstarts, teaching templates,
-offline examples/cookbook recipes, and the documented visual launch command.
+offline examples/cookbook recipes, and both documented visual launch modes.

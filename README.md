@@ -488,6 +488,7 @@ print(report.mean_score)
 ## 📚 文档
 
 - [快速开始](docs/quickstart.md)
+- [能力状态：已交付、实验性与非目标](docs/capabilities.md)
 - [核心概念](docs/concepts.md)
 - [执行模型与流式边界](docs/concepts.md#execution-events-are-not-tokens)
 - [API 参考](docs/api.md)

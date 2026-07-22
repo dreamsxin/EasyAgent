@@ -97,6 +97,9 @@ jobs:
           easyagent init "$workspace/my-agent"
           python -m pip install -e "$workspace/my-agent"
           (cd "$workspace/my-agent" && easyagent run "quickstart smoke")
+          (cd "$workspace/my-agent" && printf 'exit\n' | easyagent run --chat)
+          easyagent init "$workspace/hosted-agent" \
+            --provider deepseek --model MODEL_ID_FROM_PROVIDER
 
           while read -r project template; do
             easyagent init "$workspace/$project" --template "$template"
@@ -114,36 +117,52 @@ jobs:
             python "$recipe"
           done
 
-      - name: Launch the documented visual command
+      - name: Launch the documented visual commands
         shell: bash
         env:
           STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
           STREAMLIT_SERVER_HEADLESS: "true"
-          STREAMLIT_SERVER_PORT: "8501"
         run: |
           set -euo pipefail
           workspace="$(mktemp -d)"
           easyagent init "$workspace/visual-agent"
-          easyagent visual --file "$workspace/visual-agent/agent.py" > "$workspace/visual.log" 2>&1 &
-          visual_pid=$!
+
+          visual_pid=""
           cleanup() {
-            pkill -P "$visual_pid" 2>/dev/null || true
-            kill "$visual_pid" 2>/dev/null || true
+            if [ -n "$visual_pid" ]; then
+              pkill -P "$visual_pid" 2>/dev/null || true
+              kill "$visual_pid" 2>/dev/null || true
+              wait "$visual_pid" 2>/dev/null || true
+              visual_pid=""
+            fi
           }
           trap cleanup EXIT
 
-          ready=false
-          for _ in $(seq 1 40); do
-            if curl --fail --silent http://127.0.0.1:8501/_stcore/health >/dev/null; then
-              ready=true
-              break
+          launch_visual() {
+            local port="$1"
+            local log_file="$2"
+            shift 2
+            STREAMLIT_SERVER_PORT="$port" easyagent visual "$@" > "$log_file" 2>&1 &
+            visual_pid=$!
+
+            local ready=false
+            for _ in $(seq 1 40); do
+              if curl --fail --silent "http://127.0.0.1:$port/_stcore/health" >/dev/null; then
+                ready=true
+                break
+              fi
+              sleep 0.25
+            done
+            if [ "$ready" != "true" ]; then
+              cat "$log_file"
+              return 1
             fi
-            sleep 0.25
-          done
-          if [ "$ready" != "true" ]; then
-            cat "$workspace/visual.log"
-            exit 1
-          fi
+            cleanup
+          }
+
+          launch_visual 8501 "$workspace/visual-editor.log"
+          launch_visual 8502 "$workspace/visual-agent.log" \
+            --file "$workspace/visual-agent/agent.py"
 
   build:
     name: Build package
@@ -162,9 +181,12 @@ jobs:
       - name: Build wheel and source distribution
         run: python -m build
 
-      - name: Install wheel and verify the first run
+      - name: Install wheel and enforce the five-minute first run
         shell: bash
         run: |
+          set -euo pipefail
+          smoke_script="$RUNNER_TEMP/easyagent-wheel-first-run.sh"
+          cat > "$smoke_script" <<'EOF'
           set -euo pipefail
           smoke_env="$RUNNER_TEMP/easyagent-wheel-smoke"
           workspace="$(mktemp -d)"
@@ -172,7 +194,7 @@ jobs:
           "$smoke_env/bin/python" -m pip install dist/*.whl
           "$smoke_env/bin/easyagent" --version
           "$smoke_env/bin/easyagent" init "$workspace/wheel-agent"
-          (
-            cd "$workspace/wheel-agent"
-            "$smoke_env/bin/easyagent" run "wheel install smoke"
-          )
+          cd "$workspace/wheel-agent"
+          "$smoke_env/bin/easyagent" run "wheel install smoke"
+          EOF
+          timeout 300 bash "$smoke_script"
