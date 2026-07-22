@@ -24,7 +24,7 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
 - `Agent` is silent by default; console tracing remains available through `LogLevel`.
 - `easyagent run "question"` accepts a one-shot prompt and generated projects document the
   directly runnable path.
-- Python 3.9 and newer are supported and exercised through Python 3.14.
+- Python 3.10 and newer are supported and exercised through Python 3.14.
 
 ### Security
 

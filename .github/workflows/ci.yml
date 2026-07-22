@@ -1,7 +1,7 @@
 name: CI
 
 # 每次 push / PR 自动运行测试、静态检查、文档命令和构建。
-# 矩阵覆盖 Python 3.9 - 3.14。
+# 矩阵覆盖 Python 3.10 - 3.14。
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.10"
 
       - name: Install lint tools
         run: pip install ruff black
@@ -64,7 +64,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.10"
 
       - name: Install package with type tools
         run: pip install -e ".[dev]"
@@ -82,7 +82,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.10"
 
       - name: Install package with visual support
         run: pip install -e ".[visual]"
@@ -154,7 +154,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.10"
 
       - name: Install build tool
         run: pip install build

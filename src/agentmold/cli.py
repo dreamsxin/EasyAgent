@@ -323,7 +323,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "{package_name}"
 version = "0.1.0"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = ["agentmold>={agentmold_version}"]
 """
 

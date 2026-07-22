@@ -3,7 +3,7 @@
 > Build inspectable AI agents with ordinary Python functions and no workflow DSL.
 
 [![PyPI version](https://img.shields.io/pypi/v/agentmold.svg)](https://pypi.org/project/agentmold/)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/dreamsxin/EasyAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/dreamsxin/EasyAgent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
@@ -25,7 +25,7 @@
 
 ### 安装
 
-需要 Python 3.9 或更高版本。
+需要 Python 3.10 或更高版本。
 
 ```bash
 pip install agentmold

@@ -126,6 +126,6 @@ offline recipe runs in CI, and streaming claims match conformance tests.
 - No workflow DSL or mandatory infrastructure is required for the primary path.
 - Capability documentation distinguishes shipped, experimental, and planned behavior.
 
-CI evidence: the test matrix covers Python 3.9-3.14; dedicated jobs block on Ruff,
+CI evidence: the test matrix covers Python 3.10-3.14; dedicated jobs block on Ruff,
 Black, strict mypy, package builds, generated-project quickstarts, teaching templates,
 offline examples/cookbook recipes, and the documented visual launch command.

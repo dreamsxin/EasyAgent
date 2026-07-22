@@ -1,6 +1,6 @@
 # Quickstart
 
-Requires Python 3.9 or newer. The primary offline path does not require an API key.
+Requires Python 3.10 or newer. The primary offline path does not require an API key.
 
 ## Offline first run
 

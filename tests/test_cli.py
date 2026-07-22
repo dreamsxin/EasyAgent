@@ -31,7 +31,7 @@ def test_cli_init_defaults_to_offline_mock(tmp_path):
     assert 'llm="mock"' in content
     metadata = (project / "pyproject.toml").read_text(encoding="utf-8")
     assert 'name = "offline-agent"' in metadata
-    assert 'requires-python = ">=3.9"' in metadata
+    assert 'requires-python = ">=3.10"' in metadata
     assert f'dependencies = ["agentmold>={__version__}"]' in metadata
     readme = (project / "README.md").read_text(encoding="utf-8")
     assert 'easyagent run "your question"' in readme
