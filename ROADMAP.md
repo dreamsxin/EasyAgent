@@ -11,7 +11,8 @@ and calling an ordinary Python function.
   separate workflow DSL.
 - Reproducibility, evaluation, and transparent execution take priority over adding more
   orchestration abstractions.
-- Multi-agent experiments compose agents as tools before introducing any new concept.
+- Multi-agent experiments stay behind `agent_as_tool`; a general-purpose coordinator,
+  workflow DSL, and orchestration runtime are explicit non-goals for v1.0.
 
 ## Differentiation
 
@@ -105,8 +106,8 @@ Target: make the implementation understandable without overstating what it can d
 - [x] Stop pre-filling hosted and local model IDs in the visual lab.
 - [x] Add a provider-neutral `text_delta` contract and sync/async Agent pipeline.
 - [x] Show token usage and cache hit rate in Streamlit run status and trace comparison.
-- [ ] Implement native text streaming in the built-in providers.
-- [ ] Add trace correlation for experimental parent/child Agent runs before stabilizing composition.
+- [x] Implement native text streaming in the built-in providers.
+- [x] Add trace correlation for experimental parent/child Agent-as-Tool runs.
 
 Release gate: the README and teaching recipes contain no unsafe execution shortcuts, every
 offline recipe runs in CI, and streaming claims match conformance tests.
@@ -114,6 +115,10 @@ offline recipe runs in CI, and streaming claims match conformance tests.
 ## v1.0 criteria
 
 - Fresh-install quickstart completes in under five minutes without an API key.
+- The built wheel, not only an editable checkout, passes the credential-free first run.
+- [x] Keep the package version in one source file and ship a user-facing changelog.
+- [x] Require release tags to match the package version and pass tests, lint, type checks,
+  and distribution metadata validation.
 - Every credential-free, repository-owned documented command is exercised in CI.
 - Supported providers pass the same chat and tool-call contract suite.
 - Core lint, type, test, and build checks are blocking.

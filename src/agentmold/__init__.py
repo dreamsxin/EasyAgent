@@ -1,5 +1,6 @@
 """EasyAgent — The easiest way to build AI agents in Python."""
 
+from agentmold._version import __version__
 from agentmold.agent import Agent, AgentEvent, AgentTrace, LogLevel, TextDeltaEvent
 from agentmold.discovery import discover_providers, discover_tools
 from agentmold.exceptions import AgentLoadError, ExtensionLoadError, ToolLoadError
@@ -8,8 +9,6 @@ from agentmold.llm import LLM
 from agentmold.loading import load_agent, load_tools
 from agentmold.memory import Memory, MemoryRecord, VectorMemory
 from agentmold.tool import Tool, tool
-
-__version__ = "0.2.0"
 
 __all__ = [
     "Agent",

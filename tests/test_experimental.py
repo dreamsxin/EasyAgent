@@ -56,6 +56,8 @@ def test_agent_as_tool_delegates_sync_and_preserves_child_trace():
     assert result == "[mock-llm] inspect evidence"
     assert child.last_trace is not None
     assert child.last_trace.user_input == "inspect evidence"
+    assert child.last_trace.parent_run_id is None
+    assert child.last_trace.parent_tool_call_id is None
 
 
 def test_parent_agent_records_delegation_as_an_ordinary_tool_call():
@@ -74,6 +76,10 @@ def test_parent_agent_records_delegation_as_an_ordinary_tool_call():
     assert steps[0]["name"] == delegated.name
     assert "[mock-llm]" in steps[1]["content"]
     assert child.last_trace is not None
+    assert parent.last_trace is not None
+    assert child.last_trace.parent_run_id == parent.last_trace.run_id
+    assert child.last_trace.parent_tool_call_id == steps[0]["id"]
+    assert parent.last_trace.child_run_ids == [child.last_trace.run_id]
 
 
 @pytest.mark.asyncio
@@ -99,6 +105,25 @@ async def test_agent_as_tool_uses_the_child_async_path():
 
     assert result == "nested request"
     assert called
+
+
+@pytest.mark.asyncio
+async def test_async_parent_and_child_traces_are_correlated():
+    child = Agent(name="Async Child", llm="mock", log_level=LogLevel.SILENT)
+    parent = Agent(
+        name="Async Parent",
+        tools=[agent_as_tool(child)],
+        llm=_ToolResultLLM(model="test"),
+        log_level=LogLevel.SILENT,
+    )
+
+    assert await parent.arun("delegate") == "[mock-llm] nested request"
+
+    assert parent.last_trace is not None
+    assert child.last_trace is not None
+    assert child.last_trace.parent_run_id == parent.last_trace.run_id
+    assert child.last_trace.parent_tool_call_id == "delegate"
+    assert parent.last_trace.child_run_ids == [child.last_trace.run_id]
 
 
 def test_agent_as_tool_can_reset_short_term_history_between_calls():

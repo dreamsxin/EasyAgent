@@ -60,13 +60,14 @@ the Agent yields it for display but does not add it to `AgentTrace`; the final `
 the authoritative persisted text. A provider stream must end with exactly one final
 `LlmResponse`, and concatenated deltas must match that response's content.
 
-The core sync and async pipelines support this contract, but all built-in providers still
-use the base `LLM.stream()` / `LLM.astream()` fallback, which emits only a final response
-event. Their `supports_native_streaming` flag therefore remains `False`.
+The OpenAI, DeepSeek, Anthropic, DeepSeek Anthropic, and Ollama adapters implement this
+contract in both sync and async paths and advertise `supports_native_streaming = True`.
+The offline `mock` provider and extensions that do not implement streaming keep the base
+`LLM.stream()` / `LLM.astream()` complete-response fallback.
 
-Streamlit renders deltas in the answer area when an extension supplies them, while keeping
-the durable timeline and graph focused on tool and answer events. This must not be read as
-a claim that every built-in provider offers word-by-word output.
+Streamlit renders deltas in the answer area while keeping the durable timeline and graph
+focused on tool and answer events. A tool-call turn may emit no visible text, and provider
+chunk boundaries must not be read as word or tokenizer-token boundaries.
 
 ## Provider boundary
 
@@ -83,8 +84,10 @@ the two explicit dictionary fields. EasyAgent never infers a provider from a ven
 naming convention because those names change independently of this package.
 
 Retries in `LLM.complete()` repeat provider requests after normalized `LLMError` failures.
-They do not rewind already completed tools. Trace usage is best-effort because provider
-response objects expose different accounting fields.
+Native streams retry only before exposing their first event; once text is visible, an error
+is surfaced instead of replaying duplicate text. Retries do not rewind already completed
+tools. Trace usage is best-effort because provider response objects expose different
+accounting fields.
 
 When usage metadata is available, `AgentTrace` stores numeric counters without hiding the
 provider-specific field names. Nested counters are flattened with dot notation, so OpenAI

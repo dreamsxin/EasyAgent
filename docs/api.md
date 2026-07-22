@@ -10,17 +10,21 @@ Agent(
     llm="mock",
     memory=None,
     max_iterations=10,
-    log_level=LogLevel.INFO,
+    log_level=LogLevel.SILENT,
 )
 ```
 
 - `run(user_input) -> str` runs one request and returns the final answer.
 - `agent(user_input) -> str` is the function-style alias for `run`.
-- `run_stream(user_input)` yields completed execution events, not token deltas.
+- `run_stream(user_input)` yields execution events and optional provider text chunks.
 - `await arun(user_input) -> str` runs the same loop asynchronously.
-- `arun_stream(user_input)` asynchronously yields the same completed events.
+- `arun_stream(user_input)` asynchronously yields the same event contract.
 - `chat()` starts a terminal REPL.
 - `add_tool(tool)` registers a tool for future calls.
+
+`Agent` is silent by default, like an ordinary function. Select `LogLevel.INFO` or
+`LogLevel.DEBUG` explicitly for console tracing; structured `last_trace` recording remains
+enabled at every log level.
 
 ## `@tool`
 
@@ -43,9 +47,10 @@ async for event in agent.arun_stream("question"):
 
 The event types are `text_delta`, `tool_call`, `tool_result`, and `answer`. `text_delta` is
 optional and means a provider text chunk, not necessarily one token. Delta events are not
-stored in `AgentTrace`; the final `answer` is persisted. The built-in providers do not yet
-implement native streaming, so their base `LLM.stream()` / `LLM.astream()` path emits only
-the final response and advertises `supports_native_streaming = False`.
+stored in `AgentTrace`; the final `answer` is persisted. OpenAI, DeepSeek, Anthropic,
+DeepSeek Anthropic, and Ollama implement native sync and async text streaming. The offline
+`mock` provider and extensions without a streaming method use the complete-response
+fallback. Tool-call-only model turns may emit no `text_delta` events.
 
 One `Agent` owns one mutable conversation memory. Use a separate `Agent` or `Memory`
 instance per concurrent conversation instead of calling the same agent concurrently.
@@ -92,7 +97,9 @@ agent = Agent(llm={
 ```
 
 `retry_delay` uses exponential backoff. Configuration errors are never retried. Async
-tools accept `await tool.acall(arguments, timeout=5)`.
+tools accept `await tool.acall(arguments, timeout=5)`. Native provider streams retry only
+before the first event is exposed; after visible output begins, an interrupted stream raises
+`LLMError` without replaying already displayed text.
 
 After a run, `agent.last_trace` contains the structured event history. Export it as JSONL
 for later analysis:
@@ -113,6 +120,11 @@ Common token counters are normalized for display, including `prompt_tokens`,
 `completion_tokens`, `input_tokens`, `output_tokens`, and cache fields such as
 `prompt_cache_hit_tokens`, `prompt_cache_miss_tokens`, nested `cached_tokens`, and
 `cache_read_input_tokens`. Cache hit rate is shown only when enough usage data is present.
+
+Nested Agent runs are correlated without changing the execution-event union. A parent
+trace lists `child_run_ids`; each child trace stores `parent_run_id` and
+`parent_tool_call_id`. Direct runs leave these fields empty. This currently supports the
+explicitly experimental `agent_as_tool` path and does not imply stable orchestration.
 
 The visual lab automatically appends successful and failed runs to
 `.agentmold/visual_runs.jsonl`. The displayed Log ID is the trace `run_id`, so a user can
@@ -143,9 +155,9 @@ and complete examples.
 
 `from agentmold.experimental import agent_as_tool` converts one `Agent` into a normal
 single-argument `Tool`. It supports native sync and async delegation, optional short-term
-history reset, and a context-local recursion limit. The helper is deliberately not exported
-from the stable top-level package. See [Experimental Agent composition](agent-composition.md)
-for the execution and trace contract.
+history reset, parent/child run correlation, and a context-local recursion limit. The helper
+is deliberately not exported from the stable top-level package. See
+[Experimental Agent composition](agent-composition.md) for the execution and trace contract.
 
 Use standard asyncio controls for a whole run:
 

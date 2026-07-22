@@ -3,7 +3,7 @@
 Usage::
 
     easyagent init my-project        # scaffold a new agent project
-    easyagent run                    # run the agent defined in agent.py
+    easyagent run "your question"    # ask the agent defined in agent.py
     easyagent run --chat             # start an interactive chat session
 """
 
@@ -308,8 +308,8 @@ pip install -e .
 ## Run
 
 ```bash
-easyagent run            # run the agent once
-easyagent run --chat     # interactive chat
+easyagent run "your question"  # ask once
+easyagent run --chat            # interactive chat
 ```
 
 The generated project uses the offline `mock` model by default. To use a hosted model,
@@ -388,6 +388,13 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--force", action="store_true", help="Overwrite existing directory.")
 
     p_run = sub.add_parser("run", help="Run an agent defined in agent.py.")
+    p_run.add_argument(
+        "prompt",
+        nargs="?",
+        default=None,
+        type=_non_empty_argument,
+        help="Question to ask; uses a short capability prompt when omitted.",
+    )
     p_run.add_argument("--file", default="agent.py", help="Agent module file (default: agent.py).")
     p_run.add_argument("--chat", action="store_true", help="Start an interactive chat session.")
 
@@ -410,6 +417,8 @@ def main(argv: list[str] | None = None) -> int:
             p_init.error("--model cannot be used with the built-in 'mock' provider.")
         return _cmd_init(args)
     if args.command == "run":
+        if args.chat and args.prompt is not None:
+            p_run.error("prompt cannot be used together with --chat.")
         return _cmd_run(args)
     if args.command == "visual":
         return _cmd_visual(args)
@@ -448,7 +457,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print("\nNext steps:")
     print(f"  cd {args.name}")
     print("  pip install -e .")
-    print("  easyagent run")
+    print('  easyagent run "your question"')
     return 0
 
 
@@ -474,7 +483,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.chat:
         agent.chat()
     else:
-        answer = agent.run("Hello! What can you do?")
+        prompt = args.prompt or "Hello! What can you do?"
+        answer = agent.run(prompt)
         print(answer)
     return 0
 

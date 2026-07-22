@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentmold.exceptions import ConfigurationError
+from agentmold.exceptions import ConfigurationError, LLMError
 from agentmold.llm import LLM, LlmResponse, Message, create_llm, register_provider
 
 
@@ -56,8 +56,6 @@ def test_llm_complete_wraps_errors():
         def _complete(self, messages, tools=None):
             raise RuntimeError("network down")
 
-    from agentmold.exceptions import LLMError
-
     with pytest.raises(LLMError, match="network down"):
         BadLLM(model="bad").complete([Message(role="user", content="hi")])
 
@@ -100,3 +98,64 @@ def test_base_stream_is_explicitly_a_single_chunk_fallback():
     assert len(events) == 1
     assert events[0]["type"] == "response"
     assert events[0]["response"].content == "complete response"
+
+
+def test_native_stream_retries_only_before_exposing_an_event():
+    class TestLLM(LLM):
+        def _complete(self, messages, tools=None):
+            return LlmResponse(content="unused")
+
+    llm = TestLLM(model="test", max_retries=2, retry_delay=0)
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise RuntimeError("temporary")
+        yield {"type": "response", "response": LlmResponse(content="recovered")}
+
+    events = list(llm._stream_with_retries(operation))
+
+    assert calls == 3
+    assert events[-1]["response"].content == "recovered"
+
+
+def test_native_stream_does_not_retry_after_exposing_text():
+    class TestLLM(LLM):
+        def _complete(self, messages, tools=None):
+            return LlmResponse(content="unused")
+
+    llm = TestLLM(model="test", max_retries=2, retry_delay=0)
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        yield {"type": "text_delta", "content": "visible"}
+        raise RuntimeError("connection lost")
+
+    with pytest.raises(LLMError, match="connection lost"):
+        list(llm._stream_with_retries(operation))
+    assert calls == 1
+
+
+async def test_native_async_stream_retries_before_exposing_an_event():
+    class TestLLM(LLM):
+        def _complete(self, messages, tools=None):
+            return LlmResponse(content="unused")
+
+    llm = TestLLM(model="test", max_retries=1, retry_delay=0)
+    calls = 0
+
+    async def operation():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("temporary")
+        yield {"type": "response", "response": LlmResponse(content="recovered")}
+
+    events = [event async for event in llm._astream_with_retries(operation)]
+
+    assert calls == 2
+    assert events[-1]["response"].content == "recovered"

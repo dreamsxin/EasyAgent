@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentmold"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Build inspectable AI agents with ordinary Python functions and no workflow DSL."
 readme = "README.md"
 license = "MIT"
@@ -69,6 +69,9 @@ Changelog = "https://github.com/dreamsxin/EasyAgent/releases"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "agentmold._version.__version__"}
 
 [tool.black]
 line-length = 100

@@ -31,6 +31,9 @@ def test_agent_exposes_and_exports_last_trace(tmp_path):
     records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
     assert records[0]["record_type"] == "run"
     assert records[0]["run_id"] == trace.run_id
+    assert records[0]["parent_run_id"] is None
+    assert records[0]["parent_tool_call_id"] is None
+    assert records[0]["child_run_ids"] == []
     assert records[0]["input"] == "hello"
     assert records[0]["agent_name"] == "TraceBot"
     assert records[0]["max_iterations"] == 10

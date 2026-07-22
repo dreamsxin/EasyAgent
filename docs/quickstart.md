@@ -9,7 +9,7 @@ pip install agentmold
 easyagent init my-agent
 cd my-agent
 pip install -e .
-easyagent run
+easyagent run "What can this agent do?"
 ```
 
 The generated project uses `mock`, so the first run does not need an API key. Replace
@@ -93,5 +93,6 @@ print(agent("tool: count the words in this sentence"))
 
 `agent.run(text)` and `agent(text)` are equivalent. `run_stream(text)` yields execution
 events such as `text_delta`, `tool_call`, `tool_result`, and `answer`. `text_delta` is an
-optional provider chunk, not a guaranteed tokenizer token; built-in providers currently
-fall back to complete-response events.
+optional provider chunk, not a guaranteed tokenizer token. OpenAI, DeepSeek, Anthropic,
+DeepSeek Anthropic, and Ollama provide native sync and async text chunks; `mock` keeps the
+complete-response fallback.

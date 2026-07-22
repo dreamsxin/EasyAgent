@@ -45,6 +45,9 @@ evidence_tool = agent_as_tool(
   on the native async path.
 - The parent trace records an ordinary tool call and result. The child's detailed run is
   available separately as `evidence_agent.last_trace`.
+- The parent trace adds the child ID to `child_run_ids`. The child trace records both
+  `parent_run_id` and the triggering `parent_tool_call_id`, so separately exported JSONL
+  runs can be joined without a new orchestration event type.
 - The child keeps its normal conversation memory between calls by default.
 - Agent instances remain mutable and must not be used by concurrent conversations.
 
@@ -72,6 +75,7 @@ prefer one coordinator with focused child Agents.
 
 ## Experimental Status
 
-Importing from `agentmold.experimental` is an explicit opt-in. The helper's name, trace
-representation, and memory controls may change before a stable release. It is deliberately
-not re-exported from `agentmold`.
+Importing from `agentmold.experimental` is an explicit opt-in. The helper's name and memory
+controls may change before a stable release. The correlation fields are part of the general
+`AgentTrace` representation and also appear in the visual Trace Lab run config. The
+composition helper remains deliberately unexported from `agentmold`.

@@ -375,6 +375,9 @@ def _trace_support_payload(run: dict[str, Any]) -> dict[str, Any]:
         compact_events.append(compact)
     return {
         "log_id": summary["run_id"],
+        "parent_log_id": summary["parent_run_id"] or None,
+        "parent_tool_call_id": summary["parent_tool_call_id"] or None,
+        "child_log_ids": summary["child_run_ids"],
         "status": summary["status"],
         "error": summary["error"],
         "diagnosis": diagnose_trace_run(run),
@@ -562,6 +565,9 @@ def _render_trace_lab(
                 "max_iterations": summary.get("max_iterations") or "—",
                 "temperature": summary["model_config"].get("temperature", "—"),
                 "log_id": summary["run_id"],
+                "parent_log_id": summary["parent_run_id"] or "—",
+                "parent_tool_call_id": summary["parent_tool_call_id"] or "—",
+                "child_log_ids": summary["child_run_ids"] or "—",
             }
             st.json(config, expanded=False)
 
@@ -1685,6 +1691,10 @@ def _run_app() -> None:
                         )
                         live_timeline.markdown(_timeline_html(steps), unsafe_allow_html=True)
                         if step["type"] == "tool_call":
+                            answer_text = ""
+                            if live_answer is not None:
+                                live_answer.empty()
+                                live_answer = None
                             run_meta["phase"] = f"调用 {step['name']}"
                             status.update(label=f"🔧 调用 {step['name']}…")
                             st.write(f"🔧 **工具调用:** `{step['name']}({step['arguments']})`")

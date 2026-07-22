@@ -14,6 +14,7 @@ import logging
 import time
 import typing
 from collections.abc import AsyncIterator, Iterator
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -117,6 +118,9 @@ class AgentTrace:
 
     steps: list[TraceEvent] = field(default_factory=list)
     run_id: str = field(default_factory=lambda: uuid4().hex)
+    parent_run_id: str | None = None
+    parent_tool_call_id: str | None = None
+    child_run_ids: list[str] = field(default_factory=list)
     model: str = ""
     model_config: dict[str, Any] = field(default_factory=dict)
     usage: dict[str, int | float] = field(default_factory=dict)
@@ -157,6 +161,9 @@ class AgentTrace:
             events.append({"recorded_at": recorded_at, **step})
         return {
             "run_id": self.run_id,
+            "parent_run_id": self.parent_run_id,
+            "parent_tool_call_id": self.parent_tool_call_id,
+            "child_run_ids": list(self.child_run_ids),
             "input": self.user_input,
             "agent_name": self.agent_name,
             "instructions": self.instructions,
@@ -197,6 +204,12 @@ class AgentTrace:
 
     def __repr__(self) -> str:
         return f"<AgentTrace: {len(self.steps)} steps, {len(self.tool_calls)} tool calls>"
+
+
+_TRACE_PARENT: ContextVar[tuple[AgentTrace, str | None] | None] = ContextVar(
+    "agentmold_trace_parent",
+    default=None,
+)
 
 
 class _AgentLogger:
@@ -243,7 +256,7 @@ class Agent:
     max_iterations:
         Safety limit on the think-act loop.  Defaults to 10.
     log_level:
-        Controls the built-in console tracing.
+        Controls optional console tracing. Defaults to no print side effects.
     """
 
     def __init__(
@@ -254,7 +267,7 @@ class Agent:
         llm: Literal["mock"] | LLM | dict[str, Any] = "mock",
         memory: BaseMemory | None = None,
         max_iterations: int = 10,
-        log_level: LogLevel = LogLevel.INFO,
+        log_level: LogLevel = LogLevel.SILENT,
     ) -> None:
         self.name = name
         self.instructions = instructions
@@ -301,13 +314,12 @@ class Agent:
         return self.run(user_input)
 
     def run_stream(self, user_input: str) -> Iterator[AgentEvent]:
-        """Run the agent and yield each completed execution event.
+        """Run the agent and yield provider text plus completed execution events.
 
         This is the streaming variant of :meth:`run`: it produces the same
-        steps (``tool_call`` / ``tool_result`` / ``answer``) but one at a
-        time, so a UI can render the execution loop. It is event streaming,
-        not token streaming: the provider response completes before the next
-        event is emitted.
+        durable steps (``tool_call`` / ``tool_result`` / ``answer``), plus
+        transient ``text_delta`` events when the provider supports native
+        streaming. A delta is a provider chunk, not necessarily one token.
 
         Example::
 
@@ -363,10 +375,13 @@ class Agent:
                     }
                     trace.add(call_event)
                     yield call_event
+                    parent_token = _TRACE_PARENT.set((trace, call_id))
                     try:
                         result = self.registry.call(tool_name, arguments)
                     except ToolError as exc:
                         result = f"Error: {exc}"
+                    finally:
+                        _TRACE_PARENT.reset(parent_token)
                     self.log.observation(f"{tool_name} -> {result}")
                     result_event: ToolResultEvent = {
                         "type": "tool_result",
@@ -397,7 +412,7 @@ class Agent:
                 trace.finish(error="Run interrupted before a final answer.")
 
     async def arun_stream(self, user_input: str) -> AsyncIterator[AgentEvent]:
-        """Asynchronously yield the same completed events as :meth:`run_stream`."""
+        """Asynchronously yield the same event contract as :meth:`run_stream`."""
         trace = self._start_trace(user_input)
         try:
             self.log.answer(f"Running agent {self.name!r}...")
@@ -458,10 +473,13 @@ class Agent:
                     }
                     trace.add(call_event)
                     yield call_event
+                    parent_token = _TRACE_PARENT.set((trace, call_id))
                     try:
                         result = await self.registry.acall(tool_name, arguments)
                     except ToolError as exc:
                         result = f"Error: {exc}"
+                    finally:
+                        _TRACE_PARENT.reset(parent_token)
                     self.log.observation(f"{tool_name} -> {result}")
                     result_event: ToolResultEvent = {
                         "type": "tool_result",
@@ -554,6 +572,9 @@ class Agent:
 
     def _start_trace(self, user_input: str = "") -> AgentTrace:
         """Create and expose the trace for the next run."""
+        parent_context = _TRACE_PARENT.get()
+        parent_trace = parent_context[0] if parent_context is not None else None
+        parent_tool_call_id = parent_context[1] if parent_context is not None else None
         config: dict[str, Any] = {
             "provider": type(self.llm).__name__,
             "model": self.llm.model,
@@ -566,6 +587,8 @@ class Agent:
             config["base_url"] = base_url
         config.update(self.llm.kwargs)
         trace = AgentTrace(
+            parent_run_id=parent_trace.run_id if parent_trace is not None else None,
+            parent_tool_call_id=parent_tool_call_id,
             user_input=user_input,
             agent_name=self.name,
             instructions=self.instructions,
@@ -573,6 +596,8 @@ class Agent:
             model=self.llm.model,
             model_config=_redact_config(config),
         )
+        if parent_trace is not None and trace.run_id not in parent_trace.child_run_ids:
+            parent_trace.child_run_ids.append(trace.run_id)
         self.last_trace = trace
         return trace
 

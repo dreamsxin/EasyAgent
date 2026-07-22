@@ -24,6 +24,14 @@ def test_agent_is_callable():
     assert agent("Hello!") == "[mock-llm] Hello!"
 
 
+def test_agent_is_silent_by_default(capsys):
+    agent = Agent(name="Quiet", llm="mock")
+
+    assert agent("Hello!") == "[mock-llm] Hello!"
+    assert capsys.readouterr().out == ""
+    assert agent.last_trace is not None
+
+
 def test_agent_invokes_tool_when_mock_signals_it():
     @tool
     def echo(text: str) -> str:

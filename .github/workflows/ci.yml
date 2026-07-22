@@ -96,7 +96,7 @@ jobs:
           easyagent --version
           easyagent init "$workspace/my-agent"
           python -m pip install -e "$workspace/my-agent"
-          (cd "$workspace/my-agent" && easyagent run)
+          (cd "$workspace/my-agent" && easyagent run "quickstart smoke")
 
           while read -r project template; do
             easyagent init "$workspace/$project" --template "$template"
@@ -161,3 +161,18 @@ jobs:
 
       - name: Build wheel and source distribution
         run: python -m build
+
+      - name: Install wheel and verify the first run
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke_env="$RUNNER_TEMP/easyagent-wheel-smoke"
+          workspace="$(mktemp -d)"
+          python -m venv "$smoke_env"
+          "$smoke_env/bin/python" -m pip install dist/*.whl
+          "$smoke_env/bin/easyagent" --version
+          "$smoke_env/bin/easyagent" init "$workspace/wheel-agent"
+          (
+            cd "$workspace/wheel-agent"
+            "$smoke_env/bin/easyagent" run "wheel install smoke"
+          )

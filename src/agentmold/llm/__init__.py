@@ -14,7 +14,7 @@ import asyncio
 import time
 import typing
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
 
@@ -182,6 +182,62 @@ class LLM(ABC):
     ) -> AsyncIterator[LlmStreamEvent]:
         """Asynchronously yield the same stream contract as :meth:`stream`."""
         yield {"type": "response", "response": await self.acomplete(messages, tools)}
+
+    def _stream_with_retries(
+        self,
+        operation: Callable[[], Iterator[LlmStreamEvent]],
+    ) -> Iterator[LlmStreamEvent]:
+        """Run one native stream, retrying only before an event is exposed."""
+        last_error: LLMError | None = None
+        for attempt in range(self.max_retries + 1):
+            emitted = False
+            try:
+                for event in operation():
+                    emitted = True
+                    yield event
+                return
+            except ConfigurationError:
+                raise
+            except LLMError as exc:
+                last_error = exc
+            except Exception as exc:  # noqa: BLE001 - normalise provider errors
+                last_error = LLMError(f"{type(self).__name__} stream failed: {exc}")
+                last_error.__cause__ = exc
+            if emitted or attempt >= self.max_retries:
+                assert last_error is not None
+                raise last_error
+            if self.retry_delay:
+                time.sleep(self.retry_delay * (2**attempt))
+        assert last_error is not None
+        raise last_error
+
+    async def _astream_with_retries(
+        self,
+        operation: Callable[[], AsyncIterator[LlmStreamEvent]],
+    ) -> AsyncIterator[LlmStreamEvent]:
+        """Async equivalent of :meth:`_stream_with_retries`."""
+        last_error: LLMError | None = None
+        for attempt in range(self.max_retries + 1):
+            emitted = False
+            try:
+                async for event in operation():
+                    emitted = True
+                    yield event
+                return
+            except ConfigurationError:
+                raise
+            except LLMError as exc:
+                last_error = exc
+            except Exception as exc:  # noqa: BLE001 - normalise provider errors
+                last_error = LLMError(f"{type(self).__name__} stream failed: {exc}")
+                last_error.__cause__ = exc
+            if emitted or attempt >= self.max_retries:
+                assert last_error is not None
+                raise last_error
+            if self.retry_delay:
+                await asyncio.sleep(self.retry_delay * (2**attempt))
+        assert last_error is not None
+        raise last_error
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(model={self.model!r})"

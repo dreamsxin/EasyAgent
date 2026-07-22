@@ -183,9 +183,18 @@ def summarize_trace_run(run: dict[str, Any]) -> dict[str, Any]:
         if isinstance(raw_model_config, dict)
         else {}
     )
+    raw_child_run_ids = run.get("child_run_ids")
+    child_run_ids = (
+        [str(run_id) for run_id in raw_child_run_ids if isinstance(run_id, str) and run_id]
+        if isinstance(raw_child_run_ids, list)
+        else []
+    )
     status = "error" if run.get("error") else "complete" if run.get("ended_at") else "unknown"
     return {
         "run_id": str(run.get("run_id", "")),
+        "parent_run_id": str(run.get("parent_run_id") or ""),
+        "parent_tool_call_id": str(run.get("parent_tool_call_id") or ""),
+        "child_run_ids": child_run_ids,
         "input": str(run.get("input") or ""),
         "agent_name": str(run.get("agent_name") or ""),
         "instructions": str(run.get("instructions") or ""),

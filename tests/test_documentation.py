@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+from agentmold import __version__
 
 ROOT = Path(__file__).parents[1]
 
@@ -32,6 +35,8 @@ def test_streaming_claim_names_the_event_and_token_boundary():
     assert "不保证等于一个 token" in readme
     assert "Execution events are not tokens" in concepts
     assert "supports_native_streaming" in concepts
+    assert "OpenAI, DeepSeek, Anthropic" in concepts
+    assert "Native streams retry only before exposing their first event" in concepts
 
 
 def test_usage_docs_explain_cache_metrics_are_best_effort():
@@ -49,3 +54,51 @@ def test_visual_log_id_is_documented():
     assert ".agentmold/visual_runs.jsonl" in readme
     assert "Log ID" in readme
     assert ".agentmold/visual_runs.jsonl" in api
+
+
+def test_experimental_trace_correlation_is_documented():
+    composition = (ROOT / "docs" / "agent-composition.md").read_text(encoding="utf-8")
+    api = (ROOT / "docs" / "api.md").read_text(encoding="utf-8")
+    for field in ("parent_run_id", "parent_tool_call_id", "child_run_ids"):
+        assert field in composition
+        assert field in api
+
+
+def test_general_multi_agent_orchestration_is_not_a_pending_v1_goal():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "ROADMAP.md").read_text(encoding="utf-8")
+    assert "- [ ] 稳定多 Agent 编排" not in readme
+    assert "explicit non-goals for v1.0" in roadmap
+
+
+def test_function_like_default_is_documented_as_silent():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    api = (ROOT / "docs" / "api.md").read_text(encoding="utf-8")
+    assert "默认调用保持静默" in readme
+    assert "log_level=LogLevel.SILENT" in api
+    assert "is silent by default" in api
+
+
+def test_release_version_and_changelog_have_one_source_of_truth():
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    version_module = (ROOT / "src" / "agentmold" / "_version.py").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+
+    assert re.search(
+        r'^version\s*=\s*\{attr = "agentmold\._version\.__version__"\}$',
+        pyproject,
+        re.M,
+    )
+    assert not re.search(r'^version\s*=\s*"', pyproject, re.M)
+    assert f'__version__ = "{__version__}"' in version_module
+    assert f"## {__version__} - Unreleased" in changelog
+    assert "include CHANGELOG.md" in manifest
+
+
+def test_publish_workflow_blocks_unvalidated_or_mismatched_tags():
+    workflow = (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+    assert '"$GITHUB_REF_NAME" != "v$package_version"' in workflow
+    assert 'grep -q "^## $package_version" CHANGELOG.md' in workflow
+    assert "pytest -q" in workflow
+    assert "python -m twine check dist/*" in workflow

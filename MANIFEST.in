@@ -1,4 +1,5 @@
 include ROADMAP.md
+include CHANGELOG.md
 recursive-include docs *.md
 recursive-include examples *.py *.ipynb
 recursive-include cookbook *.md *.py

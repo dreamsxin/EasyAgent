@@ -43,6 +43,9 @@ def test_summary_normalizes_metrics_and_label():
         "started_at": "2026-07-21T12:30:00+00:00",
         "ended_at": "2026-07-21T12:30:01+00:00",
         "model": "research-model",
+        "parent_run_id": "parent123",
+        "parent_tool_call_id": "call123",
+        "child_run_ids": ["child123"],
         "input": "Compare these papers",
         "duration_ms": 123.4,
         "usage": {"prompt_tokens": 5, "completion_tokens": 7, "cost": 0.01},
@@ -59,6 +62,9 @@ def test_summary_normalizes_metrics_and_label():
     assert summary["tool_calls"] == 1
     assert summary["event_count"] == 3
     assert summary["answer"] == "done"
+    assert summary["parent_run_id"] == "parent123"
+    assert summary["parent_tool_call_id"] == "call123"
+    assert summary["child_run_ids"] == ["child123"]
     assert "research-model" in trace_label(run)
 
 

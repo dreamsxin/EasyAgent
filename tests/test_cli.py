@@ -20,6 +20,7 @@ def test_cli_init_creates_project(tmp_path, capsys):
     assert "llm={'provider': 'openai', 'model': 'model-id'}" in content
     assert "build_agent" in content
     compile(content, str(project / "agent.py"), "exec")
+    assert 'easyagent run "your question"' in capsys.readouterr().out
 
 
 def test_cli_init_defaults_to_offline_mock(tmp_path):
@@ -32,6 +33,8 @@ def test_cli_init_defaults_to_offline_mock(tmp_path):
     assert 'name = "offline-agent"' in metadata
     assert 'requires-python = ">=3.9"' in metadata
     assert f'dependencies = ["agentmold>={__version__}"]' in metadata
+    readme = (project / "README.md").read_text(encoding="utf-8")
+    assert 'easyagent run "your question"' in readme
 
 
 def test_cli_init_requires_model_for_non_mock_provider(tmp_path):
@@ -156,7 +159,20 @@ def test_cli_run_executes_agent(tmp_path, capsys):
         "    return Agent(name='CLI', llm='mock')\n",
         encoding="utf-8",
     )
-    rc = cli_main(["run", "--file", str(agent_file)])
+    rc = cli_main(["run", "custom question", "--file", str(agent_file)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "[mock-llm]" in out
+    assert "[mock-llm] custom question" in out
+    assert "[ANSWER]" not in out
+
+
+def test_cli_run_rejects_prompt_with_chat():
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["run", "custom question", "--chat"])
+    assert exc_info.value.code == 2
+
+
+def test_cli_run_rejects_empty_prompt():
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["run", "   "])
+    assert exc_info.value.code == 2

@@ -14,7 +14,7 @@ name: Publish to PyPI
 #   2. 仓库 Settings → Actions → General → Workflow permissions 设为
 #      "Read and write permissions"（打标签需要）
 #
-# 发布方式：git tag v0.1.0 && git push origin v0.1.0
+# 发布方式：版本与 CHANGELOG 就绪后，创建匹配的 v<package-version> 标签。
 
 on:
   push:
@@ -33,11 +33,32 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install build tool
-        run: pip install build
+      - name: Install validation and build tools
+        run: pip install -e ".[dev]" build twine
+
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(python -c 'from agentmold import __version__; print(__version__)')"
+          if [ "$GITHUB_REF_NAME" != "v$package_version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $package_version" >&2
+            exit 1
+          fi
+          grep -q "^## $package_version" CHANGELOG.md
+
+      - name: Run release checks
+        run: |
+          pytest -q
+          ruff check src tests cookbook examples
+          black --check src tests cookbook examples
+          mypy src
 
       - name: Build sdist and wheel
         run: python -m build
+
+      - name: Check distribution metadata
+        run: python -m twine check dist/*
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

@@ -6,10 +6,11 @@ Requires the ``anthropic`` package: ``pip install 'agentmold[anthropic]'``.
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 from agentmold.exceptions import ConfigurationError, LLMError
-from agentmold.llm import LLM, LlmResponse, Message, register_provider
+from agentmold.llm import LLM, LlmResponse, LlmStreamEvent, Message, register_provider
 
 try:  # pragma: no cover
     import anthropic
@@ -19,6 +20,8 @@ except ImportError:  # pragma: no cover
 
 class AnthropicLLM(LLM):
     """LLM backed by the Anthropic Messages API."""
+
+    supports_native_streaming = True
 
     def __init__(
         self,
@@ -46,6 +49,7 @@ class AnthropicLLM(LLM):
         if timeout is not None:
             client_kwargs["timeout"] = timeout
         self._client = anthropic.Anthropic(**client_kwargs)
+        self._async_client = anthropic.AsyncAnthropic(**client_kwargs)
         self.max_tokens = max_tokens
 
     def _complete(
@@ -53,6 +57,33 @@ class AnthropicLLM(LLM):
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
     ) -> LlmResponse:
+        resp = self._client.messages.create(**self._request_kwargs(messages, tools))
+        return _parse_anthropic_response(resp)
+
+    def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> Iterator[LlmStreamEvent]:
+        """Yield Anthropic text deltas and the SDK's assembled final message."""
+        kwargs = self._request_kwargs(messages, tools)
+        yield from self._stream_with_retries(lambda: self._stream_once(kwargs))
+
+    async def astream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncIterator[LlmStreamEvent]:
+        """Asynchronously yield Anthropic stream events."""
+        kwargs = self._request_kwargs(messages, tools)
+        async for event in self._astream_with_retries(lambda: self._astream_once(kwargs)):
+            yield event
+
+    def _request_kwargs(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
         # Anthropic separates the system prompt from the message list.
         system_text = ""
         convo: list[Message] = []
@@ -85,16 +116,31 @@ class AnthropicLLM(LLM):
                 }
                 for tool in tools
             ]
+        return kwargs
 
-        resp = self._client.messages.create(**kwargs)
-        content = ""
-        tool_calls = []
-        for block in resp.content:
-            if block.type == "text":
-                content += block.text
-            elif block.type == "tool_use":
-                tool_calls.append({"id": block.id, "name": block.name, "arguments": block.input})
-        return LlmResponse(content=content, tool_calls=tool_calls, raw=resp)
+    def _stream_once(self, kwargs: dict[str, Any]) -> Iterator[LlmStreamEvent]:
+        with self._client.messages.stream(**kwargs) as stream:
+            for event in stream:
+                content = _anthropic_text_delta(event)
+                if content:
+                    yield {"type": "text_delta", "content": content}
+            final_message = stream.get_final_message()
+        yield {
+            "type": "response",
+            "response": _parse_anthropic_response(final_message),
+        }
+
+    async def _astream_once(self, kwargs: dict[str, Any]) -> AsyncIterator[LlmStreamEvent]:
+        async with self._async_client.messages.stream(**kwargs) as stream:
+            async for event in stream:
+                content = _anthropic_text_delta(event)
+                if content:
+                    yield {"type": "text_delta", "content": content}
+            final_message = await stream.get_final_message()
+        yield {
+            "type": "response",
+            "response": _parse_anthropic_response(final_message),
+        }
 
 
 class DeepSeekAnthropicLLM(AnthropicLLM):
@@ -166,6 +212,32 @@ def _to_anthropic_messages(messages: list[Message]) -> list[dict[str, Any]]:
         else:
             result.append({"role": message.role, "content": message.content})
     return result
+
+
+def _parse_anthropic_response(response: Any) -> LlmResponse:
+    content = ""
+    tool_calls = []
+    for block in response.content:
+        if block.type == "text":
+            content += block.text
+        elif block.type == "tool_use":
+            tool_calls.append(
+                {
+                    "id": block.id,
+                    "name": block.name,
+                    "arguments": dict(block.input),
+                }
+            )
+    return LlmResponse(content=content, tool_calls=tool_calls, raw=response)
+
+
+def _anthropic_text_delta(event: Any) -> str:
+    if getattr(event, "type", None) != "content_block_delta":
+        return ""
+    delta = getattr(event, "delta", None)
+    if getattr(delta, "type", None) != "text_delta":
+        return ""
+    return str(getattr(delta, "text", ""))
 
 
 register_provider("anthropic", AnthropicLLM)
