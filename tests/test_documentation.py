@@ -124,5 +124,8 @@ def test_capability_status_separates_stable_experimental_and_planned_work():
         assert status in capabilities
     assert "agentmold.experimental.agent_as_tool" in capabilities
     assert "General multi-Agent coordinator" in capabilities
+    assert "| Shared provider conformance matrix | Shipped |" in capabilities
     assert "docs/capabilities.md" in readme
-    assert "Run supported providers through the same chat and tool-call contract suite" in roadmap
+    assert (
+        "[x] Run supported providers through the same chat and tool-call contract suite" in roadmap
+    )

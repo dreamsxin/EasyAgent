@@ -25,7 +25,7 @@ framework than the package provides.
 | Visual research lab | Shipped | Streamlit configures or loads one code-defined Agent and visualizes observed events without adding a workflow DSL. |
 | Python provider/tool extensions | Shipped | Standard entry points provide explicit discovery; extension loading errors are not hidden. |
 | Agent as a tool | Experimental | `agentmold.experimental.agent_as_tool` supports bounded parent/child experiments and correlated traces. |
-| Shared provider conformance matrix | Planned | v1.0 hardening will run every supported adapter through one common chat/tool-call contract suite. |
+| Shared provider conformance matrix | Shipped | Every built-in adapter runs through one offline final-chat and tool-round-trip contract suite. |
 | General multi-Agent coordinator | Non-goal | No coordinator runtime, role graph, or automatic delegation layer is planned for v1.0. |
 | Workflow DSL | Non-goal | The primary path remains Python functions and normal control flow. |
 | Hosted tool marketplace | Non-goal | Extensions use Python packaging and curated examples instead of a centralized runtime marketplace. |

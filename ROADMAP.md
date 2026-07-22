@@ -122,7 +122,7 @@ offline recipe runs in CI, and streaming claims match conformance tests.
 - [x] Require release tags to match the package version and pass tests, lint, type checks,
   and distribution metadata validation.
 - [x] Exercise every credential-free, repository-owned documented command in CI.
-- [ ] Run supported providers through the same chat and tool-call contract suite.
+- [x] Run supported providers through the same chat and tool-call contract suite.
 - [x] Keep core lint, type, test, and build checks blocking.
 - [x] Document reproducible trace export and evaluation workflows.
 - [x] Require no workflow DSL or mandatory infrastructure for the primary path.
@@ -131,3 +131,5 @@ offline recipe runs in CI, and streaming claims match conformance tests.
 CI evidence: the test matrix covers Python 3.10-3.14; dedicated jobs block on Ruff,
 Black, strict mypy, package builds, generated-project quickstarts, teaching templates,
 offline examples/cookbook recipes, and both documented visual launch modes.
+Provider contract cases run offline for mock, OpenAI, DeepSeek, Anthropic,
+DeepSeek Anthropic, and Ollama without calling external services.

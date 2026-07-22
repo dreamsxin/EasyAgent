@@ -25,6 +25,8 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
 - `easyagent run "question"` accepts a one-shot prompt and generated projects document the
   directly runnable path.
 - Python 3.10 and newer are supported and exercised through Python 3.14.
+- Every built-in provider runs through one offline final-chat and tool-round-trip contract
+  matrix.
 
 ### Security
 
