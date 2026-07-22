@@ -100,5 +100,6 @@ def test_publish_workflow_blocks_unvalidated_or_mismatched_tags():
     workflow = (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
     assert '"$GITHUB_REF_NAME" != "v$package_version"' in workflow
     assert 'grep -q "^## $package_version" CHANGELOG.md' in workflow
+    assert 'pip install -e ".[dev,memory]" build twine' in workflow
     assert "pytest -q" in workflow
     assert "python -m twine check dist/*" in workflow

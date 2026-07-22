@@ -34,7 +34,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install validation and build tools
-        run: pip install -e ".[dev]" build twine
+        run: pip install -e ".[dev,memory]" build twine
 
       - name: Verify tag matches package version
         shell: bash
