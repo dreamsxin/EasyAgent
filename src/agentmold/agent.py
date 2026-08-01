@@ -8,12 +8,14 @@ plain Python object you call with :meth:`Agent.run`.
 
 from __future__ import annotations
 
+import asyncio
 import enum
 import json
 import logging
 import time
 import typing
-from collections.abc import AsyncIterator, Iterator
+from collections import deque
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -23,6 +25,7 @@ from uuid import uuid4
 
 from agentmold.exceptions import (
     LLMError,
+    LoopDetectedError,
     MaxIterationsError,
     ToolError,
 )
@@ -63,6 +66,8 @@ __all__ = [
     "AgentTrace",
     "AgentEvent",
     "AnswerEvent",
+    "ApprovalRequestEvent",
+    "LoopDetectedEvent",
     "TextDeltaEvent",
     "ToolCallEvent",
     "ToolResultEvent",
@@ -81,11 +86,22 @@ class TextDeltaEvent(TypedDict):
     content: str
 
 
-class ToolCallEvent(TypedDict):
+class _ToolCallBase(TypedDict):
     type: Literal["tool_call"]
     id: str | None
     name: str
     arguments: dict[str, Any]
+
+
+class ToolCallEvent(_ToolCallBase, total=False):
+    """A request to run a tool.
+
+    ``parallel_group`` is present only on the async path when several
+    independent tool calls from the same turn execute concurrently; it groups
+    them by ``run_id:iteration`` so a trace reader can see they ran together.
+    """
+
+    parallel_group: str
 
 
 class ToolResultEvent(TypedDict):
@@ -95,8 +111,41 @@ class ToolResultEvent(TypedDict):
     content: str
 
 
-TraceEvent = typing.Union[AnswerEvent, ToolCallEvent, ToolResultEvent]  # noqa: UP007
-AgentEvent = typing.Union[TextDeltaEvent, TraceEvent]  # noqa: UP007
+class ApprovalRequestEvent(TypedDict):
+    """Emitted before a confirming tool runs, so the gate is observable.
+
+    This event is transient: it describes a pending decision, not a durable
+    side effect, so it is yielded to stream consumers but not written into the
+    durable trace. The durable outcome (a ``tool_call`` followed by either a
+    ``tool_result`` or a rejection) is still recorded in the trace.
+    """
+
+    type: Literal["approval_request"]
+    id: str | None
+    name: str
+    arguments: dict[str, Any]
+    reason: str
+
+
+class LoopDetectedEvent(TypedDict):
+    """Recorded when the agent repeats an identical tool call and stops.
+
+    This is a durable trace event: a stuck loop is a diagnostic fact worth
+    keeping, so it is written into the trace and the run then raises
+    :class:`~agentmold.exceptions.LoopDetectedError`.
+    """
+
+    type: Literal["loop_detected"]
+    name: str
+    arguments: dict[str, Any]
+    occurrences: int
+    message: str
+
+
+TraceEvent = typing.Union[  # noqa: UP007
+    AnswerEvent, ToolCallEvent, ToolResultEvent, LoopDetectedEvent
+]
+AgentEvent = typing.Union[TextDeltaEvent, ApprovalRequestEvent, TraceEvent]  # noqa: UP007
 
 
 class LogLevel(enum.IntEnum):
@@ -235,6 +284,87 @@ class _AgentLogger:
     def answer(self, msg: str) -> None:
         self._emit("ANSWER", msg, LogLevel.INFO)
 
+    def approval(self, msg: str) -> None:
+        self._emit("APPROVAL", msg, LogLevel.INFO)
+
+
+class _LoopGuard:
+    """Detect a tool call repeated with identical arguments.
+
+    The guard keeps the *signature* (tool name + a stable hash of the
+    arguments) of each call in order. When the most recent ``threshold``
+    signatures are all identical, the agent is almost certainly stuck — it is
+    asking for the same thing and getting the same result without making
+    progress. ``None`` disables the check.
+    """
+
+    def __init__(self, threshold: int | None) -> None:
+        self.threshold = threshold
+        self._signatures: deque[tuple[str, str]] = deque()
+
+    def record(self, name: str, arguments: dict[str, Any]) -> int:
+        """Record one call and return how many times it has repeated in a row."""
+        if self.threshold is None:
+            return 1
+        signature = (name, self._stable_signature(arguments))
+        if self._signatures and self._signatures[-1] == signature:
+            self._signatures.append(signature)
+        else:
+            self._signatures.clear()
+            self._signatures.append(signature)
+        # Keep only what we need to compare against the threshold.
+        while len(self._signatures) > self.threshold:
+            self._signatures.popleft()
+        return len(self._signatures)
+
+    def tripped(self, count: int) -> bool:
+        return self.threshold is not None and count >= self.threshold
+
+    @staticmethod
+    def _stable_signature(arguments: dict[str, Any]) -> str:
+        try:
+            return json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            return repr(sorted(arguments.items()))
+
+
+class _AuditLogger:
+    """Append-only record of every tool call for later replay and auditing.
+
+    Each line is one JSON object with the run id, a UTC timestamp, the tool
+    name and arguments, the outcome (``result`` or ``refused``), and how long
+    the call took. The file is opened per write so a crash mid-run still
+    leaves every completed line intact. ``None`` disables auditing entirely.
+    """
+
+    def __init__(self, path: str | Path | None) -> None:
+        self.path = Path(path) if path is not None else None
+
+    def record(
+        self,
+        *,
+        run_id: str,
+        tool: str,
+        arguments: dict[str, Any],
+        outcome: str,
+        refused: bool,
+        duration_ms: float,
+    ) -> None:
+        if self.path is None:
+            return
+        entry = {
+            "run_id": run_id,
+            "timestamp": _utc_now(),
+            "tool": tool,
+            "arguments": arguments,
+            "refused": refused,
+            "outcome": outcome,
+            "duration_ms": round(duration_ms, 3),
+        }
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
 
 class Agent:
     """The single core abstraction of EasyAgent.
@@ -257,6 +387,19 @@ class Agent:
         Safety limit on the think-act loop.  Defaults to 10.
     log_level:
         Controls optional console tracing. Defaults to no print side effects.
+    on_approval:
+        Optional callable ``(tool_name, arguments) -> bool`` invoked before a
+        tool decorated with ``@tool(confirm=True)`` runs. Return ``True`` to
+        allow the side effect, ``False`` to refuse it. When omitted, confirming
+        tools are refused and a clear diagnostic explains how to opt in.
+    loop_detection_threshold:
+        Stop with :class:`~agentmold.exceptions.LoopDetectedError` after this
+        many consecutive identical tool calls (same name and arguments).
+        Defaults to 3. Pass ``None`` to disable the check.
+    audit_log:
+        Optional path to an append-only JSONL file recording every tool call
+        (name, arguments, outcome, timing, ``run_id``) for replay and audit.
+        Defaults to ``None`` (no file side effects).
     """
 
     def __init__(
@@ -268,6 +411,9 @@ class Agent:
         memory: BaseMemory | None = None,
         max_iterations: int = 10,
         log_level: LogLevel = LogLevel.SILENT,
+        on_approval: Callable[[str, dict[str, Any]], bool] | None = None,
+        loop_detection_threshold: int | None = 3,
+        audit_log: str | Path | None = None,
     ) -> None:
         self.name = name
         self.instructions = instructions
@@ -286,6 +432,9 @@ class Agent:
         self.max_iterations = max_iterations
         self.log = _AgentLogger(log_level)
         self.last_trace: AgentTrace | None = None
+        self._on_approval = on_approval
+        self._loop_detection_threshold = loop_detection_threshold
+        self._audit = _AuditLogger(audit_log)
 
     # ------------------------------------------------------------------
     # Public API
@@ -328,6 +477,7 @@ class Agent:
                     print(f"Calling {step['name']}...")
         """
         trace = self._start_trace(user_input)
+        loop_guard = _LoopGuard(self._loop_detection_threshold)
         try:
             self.log.answer(f"Running agent {self.name!r}...")
             self.memory.add(Message(role="user", content=user_input))
@@ -367,6 +517,41 @@ class Agent:
                         f"Iteration {iteration}: calling tool {tool_name}({arguments})"
                     )
                     self.log.action(f"Calling tool: {tool_name}({arguments})")
+                    loop_event = self._record_loop(loop_guard, tool_name, arguments)
+                    if loop_event is not None:
+                        trace.add(loop_event)
+                        yield loop_event
+                        raise LoopDetectedError(loop_event["message"])
+                    approval = yield from self._request_approval(tool_name, arguments, call_id)
+                    if approval is not None:
+                        # The approval event was emitted and refused; surface a
+                        # refusal as the tool result instead of executing.
+                        self.log.observation(f"{tool_name} -> {approval}")
+                        self._audit.record(
+                            run_id=trace.run_id,
+                            tool=tool_name,
+                            arguments=arguments,
+                            outcome=approval,
+                            refused=True,
+                            duration_ms=0.0,
+                        )
+                        refusal_event: ToolResultEvent = {
+                            "type": "tool_result",
+                            "id": call_id,
+                            "name": tool_name,
+                            "content": approval,
+                        }
+                        trace.add(refusal_event)
+                        yield refusal_event
+                        self.memory.add(
+                            Message(
+                                role="tool",
+                                name=tool_name,
+                                tool_call_id=call_id,
+                                content=approval,
+                            )
+                        )
+                        continue
                     call_event: ToolCallEvent = {
                         "type": "tool_call",
                         "id": call_id,
@@ -376,12 +561,22 @@ class Agent:
                     trace.add(call_event)
                     yield call_event
                     parent_token = _TRACE_PARENT.set((trace, call_id))
+                    started = time.perf_counter()
                     try:
                         result = self.registry.call(tool_name, arguments)
                     except ToolError as exc:
                         result = f"Error: {exc}"
                     finally:
                         _TRACE_PARENT.reset(parent_token)
+                    duration_ms = (time.perf_counter() - started) * 1000
+                    self._audit.record(
+                        run_id=trace.run_id,
+                        tool=tool_name,
+                        arguments=arguments,
+                        outcome=result,
+                        refused=False,
+                        duration_ms=duration_ms,
+                    )
                     self.log.observation(f"{tool_name} -> {result}")
                     result_event: ToolResultEvent = {
                         "type": "tool_result",
@@ -414,6 +609,7 @@ class Agent:
     async def arun_stream(self, user_input: str) -> AsyncIterator[AgentEvent]:
         """Asynchronously yield the same event contract as :meth:`run_stream`."""
         trace = self._start_trace(user_input)
+        loop_guard = _LoopGuard(self._loop_detection_threshold)
         try:
             self.log.answer(f"Running agent {self.name!r}...")
             self.memory.add(Message(role="user", content=user_input))
@@ -457,29 +653,47 @@ class Agent:
                         tool_calls=response.tool_calls,
                     )
                 )
-                for call in response.tool_calls:
+                calls = list(response.tool_calls)
+                # Loop detection runs first, regardless of execution order.
+                for call in calls:
                     tool_name = call["name"]
                     arguments = call.get("arguments", {})
-                    call_id = call.get("id")
                     self.log.thought(
                         f"Iteration {iteration}: calling tool {tool_name}({arguments})"
                     )
                     self.log.action(f"Calling tool: {tool_name}({arguments})")
+                    loop_event = self._record_loop(loop_guard, tool_name, arguments)
+                    if loop_event is not None:
+                        trace.add(loop_event)
+                        yield loop_event
+                        raise LoopDetectedError(loop_event["message"])
+
+                parallel = self._can_run_parallel(calls)
+                if parallel:
+                    self.log.thought(
+                        f"Iteration {iteration}: running {len(calls)} independent "
+                        "tool calls in parallel."
+                    )
+                # Emit every tool_call up front so observers see the model's
+                # full intent before any result arrives. Execution below either
+                # runs the calls concurrently (independent, no confirmation
+                # required) or one at a time (a confirmation gate is present).
+                for call in calls:
                     call_event: ToolCallEvent = {
                         "type": "tool_call",
-                        "id": call_id,
-                        "name": tool_name,
-                        "arguments": arguments,
+                        "id": call.get("id"),
+                        "name": call["name"],
+                        "arguments": call.get("arguments", {}),
                     }
+                    if parallel:
+                        call_event["parallel_group"] = f"{trace.run_id}:{iteration}"
                     trace.add(call_event)
                     yield call_event
-                    parent_token = _TRACE_PARENT.set((trace, call_id))
-                    try:
-                        result = await self.registry.acall(tool_name, arguments)
-                    except ToolError as exc:
-                        result = f"Error: {exc}"
-                    finally:
-                        _TRACE_PARENT.reset(parent_token)
+
+                results = await self._execute_tool_calls(calls, parallel, trace)
+                for call, result in zip(calls, results):
+                    tool_name = call["name"]
+                    call_id = call.get("id")
                     self.log.observation(f"{tool_name} -> {result}")
                     result_event: ToolResultEvent = {
                         "type": "tool_result",
@@ -510,8 +724,15 @@ class Agent:
                 trace.finish(error="Run interrupted before a final answer.")
 
     def chat(self) -> None:
-        """Start an interactive REPL session with the agent."""
+        """Start an interactive REPL session with the agent.
+
+        When the agent was built without an ``on_approval`` callback, this
+        session installs an interactive approver so destructive
+        (``@tool(confirm=True)``) tools prompt for a yes/no before running.
+        """
         print(f"Agent {self.name} - type 'exit' to quit.\n")
+        if self._on_approval is None and any(t.confirm for t in self.registry):
+            self._on_approval = _interactive_approval
         while True:
             try:
                 user_input = input("you > ").strip()
@@ -537,6 +758,176 @@ class Agent:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+    def _request_approval(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        call_id: str | None,
+    ) -> typing.Generator[ApprovalRequestEvent, None, str | None]:
+        """Yield an ``approval_request`` event for a confirming tool and resolve it.
+
+        Returns ``None`` when the call may proceed (the tool does not require
+        confirmation, or the approver allowed it), otherwise a refusal message
+        to surface as the tool result. The event is transient — it lets stream
+        consumers and the visual lab observe the gate before any side effect.
+        """
+        tool = self.registry.get(tool_name)
+        if not tool.confirm:
+            return None
+        event: ApprovalRequestEvent = {
+            "type": "approval_request",
+            "id": call_id,
+            "name": tool_name,
+            "arguments": arguments,
+            "reason": "tool is marked confirm=True",
+        }
+        yield event
+        return self._resolve_approval(tool_name, arguments)
+
+    async def _arequest_approval(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        call_id: str | None,
+    ) -> str | None:
+        """Async counterpart of :meth:`_request_approval`.
+
+        The transient ``approval_request`` event is not yielded here because an
+        async generator cannot pause mid-loop to a synchronous caller; the
+        decision log line still records the gate. The refusal/allow outcome is
+        identical to the synchronous path.
+        """
+        tool = self.registry.get(tool_name)
+        if not tool.confirm:
+            return None
+        return self._resolve_approval(tool_name, arguments)
+
+    def _resolve_approval(self, tool_name: str, arguments: dict[str, Any]) -> str | None:
+        """Decide whether a confirming tool may run; return a refusal or ``None``."""
+        if self._on_approval is None:
+            refusal = (
+                f"Refused: tool {tool_name!r} is marked confirm=True and no "
+                "on_approval callback was provided. Pass on_approval= to Agent "
+                "to approve destructive tools, or run with an interactive session."
+            )
+            self.log.approval(refusal)
+            return refusal
+        try:
+            allowed = bool(self._on_approval(tool_name, arguments))
+        except Exception as exc:  # noqa: BLE001
+            refusal = f"Refused: on_approval for {tool_name!r} raised {exc!r}."
+            self.log.approval(refusal)
+            return refusal
+        if allowed:
+            self.log.approval(f"Approved: {tool_name}({arguments})")
+            return None
+        refusal = f"Refused by on_approval: {tool_name}({arguments})"
+        self.log.approval(refusal)
+        return refusal
+
+    def _record_loop(
+        self,
+        guard: _LoopGuard,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> LoopDetectedEvent | None:
+        """Record a tool call and return a ``loop_detected`` event when stuck.
+
+        Returns ``None`` while the run is making progress. When the same call
+        repeats ``loop_detection_threshold`` times in a row, returns an event
+        whose message doubles as the ``LoopDetectedError`` text, with a hint
+        for how to recover.
+        """
+        count = guard.record(tool_name, arguments)
+        if not guard.tripped(count):
+            return None
+        message = (
+            f"Detected a repeated tool call: {tool_name}({arguments}) was "
+            f"requested {count} times in a row with identical arguments and no "
+            "progress. The agent is likely stuck. Adjust the prompt, the tool's "
+            "result, or pass loop_detection_threshold=None to disable this check."
+        )
+        self.log.thought(message)
+        return {
+            "type": "loop_detected",
+            "name": tool_name,
+            "arguments": arguments,
+            "occurrences": count,
+            "message": message,
+        }
+
+    def _can_run_parallel(self, calls: list[dict[str, Any]]) -> bool:
+        """Whether this turn's tool calls may run concurrently on the async path.
+
+        Calls run in parallel only when there is more than one and *none* of
+        them requires confirmation. A single confirmation gate anywhere in the
+        turn keeps the whole turn sequential so the approval flow stays
+        predictable and the synchronous teaching path stays readable.
+        """
+        if len(calls) < 2:
+            return False
+        return all(not self.registry.get(call["name"]).confirm for call in calls)
+
+    async def _execute_tool_calls(
+        self,
+        calls: list[dict[str, Any]],
+        parallel: bool,
+        trace: AgentTrace,
+    ) -> list[str]:
+        """Execute a turn's tool calls and return their results in call order.
+
+        On the parallel path the calls run with ``asyncio.gather`` (results are
+        still returned in the original order, so the emitted events stay
+        deterministic). On the sequential path each call is awaited in turn and
+        still passes through the confirmation gate.
+        """
+        if parallel:
+            return await asyncio.gather(*(self._call_one_tool(call, trace) for call in calls))
+        results: list[str] = []
+        for call in calls:
+            results.append(await self._call_one_tool(call, trace, check_approval=True))
+        return results
+
+    async def _call_one_tool(
+        self,
+        call: dict[str, Any],
+        trace: AgentTrace,
+        check_approval: bool = False,
+    ) -> str:
+        """Run one tool call to a string result, mapping errors to text."""
+        tool_name = call["name"]
+        arguments = call.get("arguments", {})
+        call_id = call.get("id")
+        if check_approval and self.registry.get(tool_name).confirm:
+            refusal = self._resolve_approval(tool_name, arguments)
+            if refusal is not None:
+                self._audit.record(
+                    run_id=trace.run_id,
+                    tool=tool_name,
+                    arguments=arguments,
+                    outcome=refusal,
+                    refused=True,
+                    duration_ms=0.0,
+                )
+                return refusal
+        parent_token = _TRACE_PARENT.set((trace, call_id))
+        started = time.perf_counter()
+        try:
+            result = await self.registry.acall(tool_name, arguments)
+        except ToolError as exc:
+            result = f"Error: {exc}"
+        finally:
+            _TRACE_PARENT.reset(parent_token)
+        self._audit.record(
+            run_id=trace.run_id,
+            tool=tool_name,
+            arguments=arguments,
+            outcome=result,
+            refused=False,
+            duration_ms=(time.perf_counter() - started) * 1000,
+        )
+        return result
+
     def _stream_llm_response(
         self,
         messages: list[Message],
@@ -626,6 +1017,21 @@ def _validate_stream_response(
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _interactive_approval(tool_name: str, arguments: dict[str, Any]) -> bool:
+    """Prompt a human to approve a destructive tool call in an interactive session.
+
+    Returns ``True`` only for an explicit yes; empty or any other input refuses,
+    so a missed keystroke never triggers a side effect. ``EOFError`` /
+    ``KeyboardInterrupt`` (e.g. a piped session) also refuse.
+    """
+    try:
+        answer = input(f"Approve destructive tool {tool_name}({arguments})? [y/N] ")
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return answer.strip().lower() in ("y", "yes")
 
 
 def _extract_usage(raw_response: Any) -> dict[str, int | float]:

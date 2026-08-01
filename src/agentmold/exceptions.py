@@ -23,6 +23,10 @@ class MaxIterationsError(EasyAgentError):
     """Raised when the agent exceeds its maximum iteration count."""
 
 
+class LoopDetectedError(EasyAgentError):
+    """Raised when the agent repeats the same tool call and appears stuck."""
+
+
 class ConfigurationError(EasyAgentError):
     """Raised when there is a configuration problem (e.g. missing API key)."""
 

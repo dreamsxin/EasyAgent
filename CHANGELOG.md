@@ -7,6 +7,18 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
 
 ### Added
 
+- Human-in-the-loop confirmation gate: `@tool(confirm=True)` marks a destructive tool, the
+  agent emits an `approval_request` execution event before it runs, and an `on_approval`
+  callback (or the interactive REPL) decides whether to allow or refuse it. Refusals are
+  surfaced as the tool result instead of executing.
+- Repeated-call loop detection: `loop_detection_threshold` (default 3) stops a run with a
+  durable `loop_detected` trace event and `LoopDetectedError` when the same tool is called
+  with identical arguments in a row; `None` disables it.
+- Parallel tool calls on the async path: `arun_stream` runs independent same-turn calls
+  concurrently with `asyncio.gather` and tags them with a shared `parallel_group`. The
+  synchronous path stays sequential; any confirming tool keeps a turn sequential.
+- Append-only audit log: `Agent(audit_log=...)` records every tool call (name, arguments,
+  outcome, `refused` flag, `duration_ms`, `run_id`, timestamp) as JSONL for replay.
 - Native sync and async text streaming for OpenAI-compatible, Anthropic-compatible, and
   Ollama providers.
 - Token, cache-hit, cost, Log ID, replay, comparison, and failure diagnostics in the visual

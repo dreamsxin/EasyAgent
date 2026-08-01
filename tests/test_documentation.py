@@ -64,11 +64,11 @@ def test_experimental_trace_correlation_is_documented():
         assert field in api
 
 
-def test_general_multi_agent_orchestration_is_not_a_pending_v1_goal():
+def test_general_multi_agent_orchestration_is_not_a_pending_goal():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     roadmap = (ROOT / "ROADMAP.md").read_text(encoding="utf-8")
     assert "- [ ] 稳定多 Agent 编排" not in readme
-    assert "explicit non-goals for v1.0" in roadmap
+    assert "explicit non-goals beyond v1.0" in roadmap
 
 
 def test_function_like_default_is_documented_as_silent():

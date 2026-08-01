@@ -11,6 +11,9 @@ Agent(
     memory=None,
     max_iterations=10,
     log_level=LogLevel.SILENT,
+    on_approval=None,
+    loop_detection_threshold=3,
+    audit_log=None,
 )
 ```
 
@@ -19,7 +22,8 @@ Agent(
 - `run_stream(user_input)` yields execution events and optional provider text chunks.
 - `await arun(user_input) -> str` runs the same loop asynchronously.
 - `arun_stream(user_input)` asynchronously yields the same event contract.
-- `chat()` starts a terminal REPL.
+- `chat()` starts a terminal REPL. When the agent has confirming tools and no
+  `on_approval` callback, the REPL installs an interactive yes/no approver.
 - `add_tool(tool)` registers a tool for future calls.
 
 `Agent` is silent by default, like an ordinary function. Select `LogLevel.INFO` or
@@ -45,15 +49,58 @@ async for event in agent.arun_stream("question"):
         print(event["name"], event["arguments"])
 ```
 
-The event types are `text_delta`, `tool_call`, `tool_result`, and `answer`. `text_delta` is
-optional and means a provider text chunk, not necessarily one token. Delta events are not
-stored in `AgentTrace`; the final `answer` is persisted. OpenAI, DeepSeek, Anthropic,
-DeepSeek Anthropic, and Ollama implement native sync and async text streaming. The offline
-`mock` provider and extensions without a streaming method use the complete-response
-fallback. Tool-call-only model turns may emit no `text_delta` events.
+The event types are `text_delta`, `tool_call`, `tool_result`, `answer`,
+`approval_request`, and `loop_detected`. `text_delta` is optional and means a provider
+text chunk, not necessarily one token. Delta events are not stored in `AgentTrace`; the
+final `answer` is persisted. OpenAI, DeepSeek, Anthropic, DeepSeek Anthropic, and Ollama
+implement native sync and async text streaming. The offline `mock` provider and extensions
+without a streaming method use the complete-response fallback. Tool-call-only model turns
+may emit no `text_delta` events.
 
 One `Agent` owns one mutable conversation memory. Use a separate `Agent` or `Memory`
 instance per concurrent conversation instead of calling the same agent concurrently.
+
+## Safety gates: confirmation, loop detection, and audit
+
+EasyAgent keeps these as plain-Python options on `Agent` and `@tool` so a learner can
+see each gate fire as an ordinary execution event.
+
+**Human-in-the-loop confirmation.** Mark a destructive tool with `@tool(confirm=True)`.
+Before it runs, the agent emits a transient `approval_request` event and asks the
+`on_approval(name, arguments) -> bool` callback. Returning `True` runs the tool; returning
+`False` (or omitting the callback) records a refusal as the `tool_result` content instead
+of executing — so both the allowed and refused paths stay observable. Without a callback,
+a confirming tool is refused with a diagnostic telling you how to opt in.
+
+```python
+from agentmold import Agent, tool
+
+@tool(confirm=True)
+def write_file(path: str, content: str) -> str:
+    """Write content to a file."""
+    ...
+
+agent = Agent(tools=[write_file], on_approval=lambda name, args: False)
+```
+
+**Repeated-call loop detection.** If the model requests the same tool with identical
+arguments `loop_detection_threshold` times in a row (default 3), the run records a durable
+`loop_detected` trace event and raises `LoopDetectedError` with a recovery hint. Calls
+whose arguments change count as progress and never trip the guard. Pass
+`loop_detection_threshold=None` to disable it.
+
+**Parallel tool calls on the async path.** When one model turn returns several
+independent tool calls and none of them requires confirmation, `arun_stream` runs them
+concurrently with `asyncio.gather`. All `tool_call` events are emitted first (tagged with
+a shared `parallel_group` of `run_id:iteration`), then each `tool_result` is emitted in
+the original call order, so the event stream stays deterministic. A single confirming tool
+in the turn keeps the whole turn sequential, and the synchronous path always runs one call
+at a time to keep the teaching loop readable.
+
+**Append-only audit log.** Pass `audit_log="path/to/audit.jsonl"` to record every tool
+call as one JSON line with `run_id`, UTC `timestamp`, `tool`, `arguments`, the `outcome`,
+a `refused` flag, and `duration_ms`. The log is append-only and written per call, so a
+crash still leaves every completed entry for replay. The default is no file side effects.
 
 ## `load_agent`
 

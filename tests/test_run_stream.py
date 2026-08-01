@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from agentmold import Agent, LogLevel, tool
-from agentmold.exceptions import LLMError, MaxIterationsError
+from agentmold.exceptions import LLMError, LoopDetectedError, MaxIterationsError
 from agentmold.llm import LLM, LlmResponse
 
 
@@ -123,7 +123,11 @@ def test_invalid_native_stream_contract_is_rejected(stream_events):
 
 
 def test_run_stream_max_iterations_raises():
-    """An LLM that always calls tools must hit the iteration cap."""
+    """An LLM that always calls tools must hit the iteration cap.
+
+    Loop detection is disabled here so the iteration cap itself is what
+    stops the run; the loop guard has its own dedicated tests.
+    """
 
     class AlwaysTool(LLM):
         def _complete(self, messages, tools=None):
@@ -143,6 +147,68 @@ def test_run_stream_max_iterations_raises():
         llm=AlwaysTool(model="custom"),
         max_iterations=3,
         log_level=LogLevel.SILENT,
+        loop_detection_threshold=None,
     )
     with pytest.raises(MaxIterationsError):
         list(agent.run_stream("go"))
+
+
+def test_run_stream_detects_repeated_tool_call_before_iteration_cap():
+    """A stuck loop is caught by the guard before max_iterations is reached."""
+
+    class AlwaysTool(LLM):
+        def _complete(self, messages, tools=None):
+            return LlmResponse(
+                content="",
+                tool_calls=[{"id": "1", "name": "f", "arguments": {}}],
+            )
+
+    @tool
+    def f() -> str:
+        """A no-op tool."""
+        return "ok"
+
+    agent = Agent(
+        name="Loopy",
+        tools=[f],
+        llm=AlwaysTool(model="custom"),
+        max_iterations=10,
+        log_level=LogLevel.SILENT,
+    )
+    with pytest.raises(LoopDetectedError):
+        list(agent.run_stream("go"))
+    assert agent.last_trace is not None
+    assert any(step["type"] == "loop_detected" for step in agent.last_trace.steps)
+    assert "LoopDetectedError" in (agent.last_trace.error or "")
+
+
+def test_run_stream_distinct_arguments_do_not_trip_loop_guard():
+    """Calls with different arguments count as progress and never trip."""
+
+    class CountingLLM(LLM):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.calls = 0
+
+        def _complete(self, messages, tools=None):
+            self.calls += 1
+            if self.calls > 4:
+                return LlmResponse(content="done", tool_calls=[])
+            return LlmResponse(
+                content="",
+                tool_calls=[{"id": "1", "name": "f", "arguments": {"n": self.calls}}],
+            )
+
+    @tool
+    def f(n: int) -> str:
+        """Echo a number."""
+        return f"ok {n}"
+
+    agent = Agent(
+        name="Progress",
+        tools=[f],
+        llm=CountingLLM(model="custom"),
+        max_iterations=10,
+        log_level=LogLevel.SILENT,
+    )
+    assert agent.run("go") == "done"

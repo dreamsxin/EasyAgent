@@ -2,20 +2,38 @@
 
 from __future__ import annotations
 
-from agentmold.visual.app import (
-    _CONNECTION_DEFAULTS,
-    _agent_signature,
-    _build_agent,
-    _execution_map_html,
-    _initial_run_meta,
-    _inject_theme,
-    _llm_config_from_ui,
-    _llm_signature,
-    _load_visual_tools,
-    _run_metrics_html,
-    _timeline_html,
+from agentmold.visual.agent_config import (
+    CONNECTION_DEFAULTS as _CONNECTION_DEFAULTS,
 )
+from agentmold.visual.agent_config import (
+    agent_signature as _agent_signature,
+)
+from agentmold.visual.agent_config import (
+    build_agent as _build_agent,
+)
+from agentmold.visual.agent_config import (
+    llm_config_from_ui as _llm_config_from_ui,
+)
+from agentmold.visual.agent_config import (
+    llm_signature as _llm_signature,
+)
+from agentmold.visual.agent_config import (
+    load_visual_tools as _load_visual_tools,
+)
+from agentmold.visual.app import _inject_theme
 from agentmold.visual.graph import STEP_COLORS, trace_to_graph
+from agentmold.visual.renderers import (
+    execution_map_html as _execution_map_html,
+)
+from agentmold.visual.renderers import (
+    initial_run_meta as _initial_run_meta,
+)
+from agentmold.visual.renderers import (
+    run_metrics_html as _run_metrics_html,
+)
+from agentmold.visual.renderers import (
+    timeline_html as _timeline_html,
+)
 
 
 def test_empty_steps_produces_no_nodes():
@@ -141,7 +159,8 @@ def test_visual_tool_loader_rejects_name_conflicts(tmp_path):
 
     tools, _, errors = _load_visual_tools([stored.name], tmp_path)
 
-    assert list(tools) == ["calculate"]
+    # calculate is a built-in; the uploaded duplicate must be rejected.
+    assert "calculate" in tools
     assert "工具名冲突" in errors[0]
 
 

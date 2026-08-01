@@ -110,6 +110,25 @@ easyagent visual
 easyagent visual --file agent.py
 ```
 
+#### 直接从源码运行（无需 PyPI 安装）
+
+克隆仓库后，安装可视化依赖即可启动，不需要先 `pip install agentmold`：
+
+```bash
+git clone https://github.com/dreamsxin/EasyAgent.git
+cd EasyAgent
+pip install -e ".[visual]"
+easyagent visual
+```
+
+`-e` 会以可编辑模式安装本地源码，修改 `src/agentmold/` 后重启实验室即可看到变化。
+也可以跳过 `easyagent` 命令，直接用 Streamlit 启动：
+
+```bash
+pip install -e ".[visual]"
+streamlit run src/agentmold/visual/app.py
+```
+
 实验室采用深色研究控制台主题：对话、执行事件时间线和行为优先的执行地图会同时保留，方便快速定位
 工具调用、结果与最终回答之间的关系。执行地图只绘制已经发生的事件；实时运行时当前节点会脉冲高亮，
 回放时节点按事件顺序逐步出现，避免把不可见的“规划”误画成执行事实。
@@ -467,8 +486,18 @@ pip install "agentmold[all]"
 - [x] 内置 Provider 同步/异步原生文本流实现
 
 完整计划见 [ROADMAP.md](ROADMAP.md)。
-通用多 Agent 调度器、工作流 DSL 和编排运行时不是 v1.0 目标；研究性组合继续使用显式的
+通用多 Agent 调度器、工作流 DSL 和编排运行时不是目标；研究性组合继续使用显式的
 `agent_as_tool()`，避免扩大核心学习面。
+
+v1.0 之后的前瞻工作按优先级排成四个版本，全部保持在“普通 Python + 可追踪执行事件、
+无 DSL、无强制基础设施”的边界内：
+
+- **v1.1 更安全的工具**：人工确认门、重复调用检测、异步路径并行工具调用、工具调用审计日志
+- **v1.2 外部工具生态（MCP）**：把 MCP server 作为工具来源接入，复用现有网络安全策略并防御工具投毒
+- **v1.3 可复现检索**：透明的 RAG 管线（切分/混合检索/rerank）、多用户记忆隔离、实验性摘要压缩记忆
+- **v1.4 成本感知评测与多模型**：多次采样评测、主动 prompt caching、实验性模型路由、成本预算
+
+各版本的发布门槛和与产品边界的关系见 [ROADMAP.md](ROADMAP.md) 的 Forward roadmap 小节。
 
 批量实验与回归评测使用 Agent 工厂隔离每个 case 的记忆：
 

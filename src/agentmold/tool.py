@@ -29,7 +29,7 @@ import types
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import Enum
-from typing import Annotated, Any, Literal, Union, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Literal, Union, get_args, get_origin, get_type_hints, overload
 
 from agentmold.exceptions import ToolError
 
@@ -61,6 +61,7 @@ class Tool:
     name: str = ""
     description: str = ""
     parameters: dict[str, Any] = None  # type: ignore[assignment]
+    confirm: bool = False
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -211,7 +212,19 @@ class Tool:
         }
 
 
-def tool(func: Callable[..., Any]) -> Tool:
+@overload
+def tool(func: Callable[..., Any]) -> Tool: ...
+
+
+@overload
+def tool(func: None = None, *, confirm: bool = ...) -> Callable[[Callable[..., Any]], Tool]: ...
+
+
+def tool(
+    func: Callable[..., Any] | None = None,
+    *,
+    confirm: bool = False,
+) -> Tool | Callable[[Callable[..., Any]], Tool]:
     """Decorator that turns a plain function into a :class:`Tool`.
 
     The returned object is still callable (it delegates to ``func``), so
@@ -224,8 +237,24 @@ def tool(func: Callable[..., Any]) -> Tool:
 
         greet("world")           # works as a normal function
         agent = Agent(tools=[greet])  # works as a tool
+
+    Pass ``confirm=True`` to mark a tool as *destructive*. A confirming tool
+    is not executed until the run approves it, and the run emits an
+    ``approval_request`` execution event first so learners can observe the
+    gate before any side effect happens::
+
+        @tool(confirm=True)
+        def write_file(path: str, content: str) -> str:
+            '''Write content to a file.'''
+            ...
     """
-    return Tool(func=func)
+
+    def build(f: Callable[..., Any]) -> Tool:
+        return Tool(func=f, confirm=confirm)
+
+    if func is None:
+        return build
+    return build(func)
 
 
 class ToolRegistry:

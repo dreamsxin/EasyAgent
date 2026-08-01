@@ -8,8 +8,9 @@ framework than the package provides.
 
 - **Shipped**: part of the documented product surface and covered by repository tests.
 - **Experimental**: usable only through an explicit opt-in namespace; compatibility may change.
-- **Planned**: required release-hardening work, not a promise of a new abstraction.
-- **Non-goal**: intentionally excluded from the v1.0 product boundary.
+- **Planned**: scheduled forward work listed in the ROADMAP, not yet shipped.
+- **Non-goal**: intentionally excluded from the product boundary to protect the
+  single-agent, no-DSL learning contract.
 
 ## Matrix
 
@@ -26,9 +27,10 @@ framework than the package provides.
 | Python provider/tool extensions | Shipped | Standard entry points provide explicit discovery; extension loading errors are not hidden. |
 | Agent as a tool | Experimental | `agentmold.experimental.agent_as_tool` supports bounded parent/child experiments and correlated traces. |
 | Shared provider conformance matrix | Shipped | Every built-in adapter runs through one offline final-chat and tool-round-trip contract suite. |
-| General multi-Agent coordinator | Non-goal | No coordinator runtime, role graph, or automatic delegation layer is planned for v1.0. |
+| General multi-Agent coordinator | Non-goal | No coordinator runtime, role graph, or automatic delegation layer is planned. Multi-agent experiments stay behind `agent_as_tool`. |
 | Workflow DSL | Non-goal | The primary path remains Python functions and normal control flow. |
 | Hosted tool marketplace | Non-goal | Extensions use Python packaging and curated examples instead of a centralized runtime marketplace. |
+| OS-level sandbox / hosted platform | Non-goal | Tool safety is enforced through allowlists and confirmation gates, not a managed runtime. |
 
 The authoritative delivery sequence and release gates remain in [ROADMAP.md](../ROADMAP.md).
 When this matrix and executable behavior disagree, treat the documentation drift as a bug.

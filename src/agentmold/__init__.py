@@ -1,9 +1,22 @@
 """EasyAgent — The easiest way to build AI agents in Python."""
 
 from agentmold._version import __version__
-from agentmold.agent import Agent, AgentEvent, AgentTrace, LogLevel, TextDeltaEvent
+from agentmold.agent import (
+    Agent,
+    AgentEvent,
+    AgentTrace,
+    ApprovalRequestEvent,
+    LogLevel,
+    LoopDetectedEvent,
+    TextDeltaEvent,
+)
 from agentmold.discovery import discover_providers, discover_tools
-from agentmold.exceptions import AgentLoadError, ExtensionLoadError, ToolLoadError
+from agentmold.exceptions import (
+    AgentLoadError,
+    ExtensionLoadError,
+    LoopDetectedError,
+    ToolLoadError,
+)
 from agentmold.experiment import EvalCase, EvalReport, EvalResult, aevaluate, evaluate
 from agentmold.llm import LLM
 from agentmold.loading import load_agent, load_tools
@@ -15,6 +28,9 @@ __all__ = [
     "AgentLoadError",
     "AgentEvent",
     "AgentTrace",
+    "ApprovalRequestEvent",
+    "LoopDetectedError",
+    "LoopDetectedEvent",
     "TextDeltaEvent",
     "ExtensionLoadError",
     "EvalCase",

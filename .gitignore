@@ -36,6 +36,9 @@ htmlcov/
 .agentmold/
 artifacts/
 
+# Tooling
+.zcode/
+
 # OS
 .DS_Store
 Thumbs.db

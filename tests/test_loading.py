@@ -55,7 +55,12 @@ def test_load_agent_validates_path(tmp_path):
 
 
 def test_code_agent_signature_tracks_file_changes(tmp_path):
-    from agentmold.visual.app import _agent_file_from_argv, _code_agent_signature
+    from agentmold.visual.agent_config import (
+        agent_file_from_argv as _agent_file_from_argv,
+    )
+    from agentmold.visual.agent_config import (
+        code_agent_signature as _code_agent_signature,
+    )
 
     agent_file = Path(tmp_path) / "agent.py"
     agent_file.write_text("x", encoding="utf-8")

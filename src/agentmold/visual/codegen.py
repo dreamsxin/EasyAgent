@@ -45,6 +45,10 @@ def generate_agent_python(
     llm: Literal["mock"] | dict[str, Any],
     selected_tools: list[str],
     max_iterations: int,
+    loop_detection_threshold: int | None = 3,
+    require_approval: bool = False,
+    audit_log: bool = False,
+    log_level: str = "SILENT",
 ) -> str:
     """Generate an importable ``agent.py`` that can also run directly."""
     if not isinstance(name, str) or not isinstance(instructions, str):
@@ -55,6 +59,16 @@ def generate_agent_python(
         raise TypeError("max_iterations must be an integer")
     if max_iterations < 1:
         raise ValueError("max_iterations must be at least 1")
+    if loop_detection_threshold is not None and (
+        not isinstance(loop_detection_threshold, int) or isinstance(loop_detection_threshold, bool)
+    ):
+        raise TypeError("loop_detection_threshold must be an integer or None")
+    if not isinstance(require_approval, bool):
+        raise TypeError("require_approval must be a boolean")
+    if not isinstance(audit_log, bool):
+        raise TypeError("audit_log must be a boolean")
+    if log_level not in {"SILENT", "INFO", "DEBUG"}:
+        raise ValueError("log_level must be one of SILENT, INFO, DEBUG")
 
     tools = list(dict.fromkeys(selected_tools))
     unsupported = [tool for tool in tools if tool not in _TOOL_IMPORTS]
@@ -66,7 +80,11 @@ def generate_agent_python(
     if environment:
         lines.append("import os")
     lines.extend(["import sys", ""])
-    lines.append("from agentmold import Agent")
+    needs_loglevel = log_level != "SILENT"
+    if needs_loglevel:
+        lines.append("from agentmold import Agent, LogLevel")
+    else:
+        lines.append("from agentmold import Agent")
     for module in sorted({_TOOL_IMPORTS[tool] for tool in tools}):
         names = sorted(tool for tool in tools if _TOOL_IMPORTS[tool] == module)
         lines.append(f"from {module} import {', '.join(names)}")
@@ -78,16 +96,35 @@ def generate_agent_python(
         lines.extend(_render_llm_assignment(normalized_llm, environment))
         llm_expression = "llm"
 
+    if require_approval:
+        lines.extend(
+            [
+                "    def _approve(name: str, arguments: dict) -> bool:",
+                '        """Return True to allow a destructive tool, False to refuse it."""',
+                '        answer = input(f"Approve {name}({arguments})? [y/N] ")',
+                '        return answer.strip().lower() in ("y", "yes")',
+                "",
+            ]
+        )
+
     tool_expression = "[" + ", ".join(tools) + "]"
+    lines.append("    return Agent(")
+    lines.append(f"        name={name!r},")
+    lines.append(f"        instructions={instructions!r},")
+    lines.append(f"        tools={tool_expression},")
+    lines.append(f"        llm={llm_expression},")
+    lines.append(f"        max_iterations={max_iterations},")
+    if loop_detection_threshold != 3:
+        lines.append(f"        loop_detection_threshold={loop_detection_threshold!r},")
+    if require_approval:
+        lines.append("        on_approval=_approve,")
+    if audit_log:
+        lines.append('        audit_log=".agentmold/audit.jsonl",')
+    if needs_loglevel:
+        lines.append(f"        log_level=LogLevel.{log_level},")
+    lines.append("    )")
     lines.extend(
         [
-            "    return Agent(",
-            f"        name={name!r},",
-            f"        instructions={instructions!r},",
-            f"        tools={tool_expression},",
-            f"        llm={llm_expression},",
-            f"        max_iterations={max_iterations},",
-            "    )",
             "",
             "",
             "def main() -> None:",

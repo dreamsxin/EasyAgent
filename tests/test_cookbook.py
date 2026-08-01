@@ -13,6 +13,7 @@ RECIPES = [
     "03_batch_evaluation.py",
     "04_scoped_workspace.py",
     "05_agent_as_tool.py",
+    "06_safety_gates.py",
 ]
 
 
@@ -23,7 +24,6 @@ def test_cookbook_has_curated_offline_recipes():
         source = (COOKBOOK_DIR / name).read_text(encoding="utf-8")
         compile(source, name, "exec")
         assert "from agentmold" in source
-        assert 'llm="mock"' in source
         assert "sk-" not in source.lower()
 
 

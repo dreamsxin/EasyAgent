@@ -12,7 +12,10 @@ and calling an ordinary Python function.
 - Reproducibility, evaluation, and transparent execution take priority over adding more
   orchestration abstractions.
 - Multi-agent experiments stay behind `agent_as_tool`; a general-purpose coordinator,
-  workflow DSL, and orchestration runtime are explicit non-goals for v1.0.
+  workflow DSL, and orchestration runtime remain explicit non-goals beyond v1.0.
+- Forward work (v1.1+) extends tools, retrieval, and evaluation as plain Python and
+  traceable events. It does not introduce a second programming model, a hosted
+  platform, or an OS-level sandbox.
 
 ## Differentiation
 
@@ -133,3 +136,103 @@ Black, strict mypy, package builds, generated-project quickstarts, teaching temp
 offline examples/cookbook recipes, and both documented visual launch modes.
 Provider contract cases run offline for mock, OpenAI, DeepSeek, Anthropic,
 DeepSeek Anthropic, and Ollama without calling external services.
+
+## Forward roadmap
+
+The shipped history above is a record of what is done. The versions below are planned,
+ordered by priority and dependency. Each stays inside the product boundaries: plain
+Python, traceable execution events, no DSL, no mandatory infrastructure. Items are
+unchecked because they are not yet shipped.
+
+## v1.1 - Safer, more capable tools
+
+Target: tools fail safely, can ask for approval, and run in parallel where it is safe to
+do so, without expanding the core loop's complexity.
+
+- [x] Add a human-in-the-loop confirmation gate: a `confirm` flag on `Tool`, an
+  `approval_request` execution event, and approval callbacks in the CLI, visual lab, and
+  programmatic callers. Destructive tools no longer execute silently when present.
+- [x] Detect repeated tool calls: a sliding-window signature guard emits a
+  `loop_detected` event and stops recoverably before `max_iterations` is wasted on the
+  same call with the same arguments.
+- [x] Execute independent same-turn tool calls in parallel on the async path
+  (`asyncio.gather`); keep the synchronous path sequential so the teaching loop stays
+  readable. Record parallel groupings in the trace.
+- [x] Add an append-only tool-call audit sink that records tool name, arguments, result,
+  timestamp, and `run_id` for every invocation.
+
+Release gate: a destructive tool cannot run without approval; a stuck loop is caught
+before the iteration limit; an async run with independent tool calls completes in fewer
+round-trips; and the audit log replays every tool call in order.
+
+## v1.2 - External tool ecosystem via MCP
+
+Target: consume any Model Context Protocol server as a tool source, without a DSL or a
+centralized marketplace.
+
+- [ ] Add an MCP client: an `mcp_tools(server_url)` factory that exposes a server's
+  `list_tools` / `call_tool` surface as ordinary `Tool` objects over Streamable HTTP.
+- [ ] Reuse the `http_tools` SSRF and private-network guards on the MCP transport so
+  remote tool servers are subject to the same network policy as built-in HTTP tools.
+- [ ] Defend tool poisoning and rug-pull: a tool-source allowlist plus description-change
+  detection (a version fingerprint per tool) flags untrusted or silently changed tools
+  instead of executing them.
+
+Release gate: a code-defined Agent can call tools from an external MCP server; an
+untrusted source or a changed tool description is flagged, not silently executed; and the
+run is recorded in the trace like any local tool call.
+
+## v1.3 - Reproducible retrieval
+
+Target: a transparent RAG pipeline as plain Python, with the same trace and replay
+contract as the agent loop.
+
+- [ ] Add an `agentmold.rag` module: `chunk_text` (configurable size and overlap),
+  embed-and-store, and a `retrieve(query, top_k)` tool built on the existing embedder.
+- [ ] Support hybrid retrieval: merge BM25 and vector recall, with an optional
+  `reranker` hook for precision.
+- [ ] Add multi-user memory isolation: `user_id` metadata filtering on `VectorMemory`
+  so per-user recall never crosses tenants.
+- [ ] Add an experimental `CompactingMemory`: token-budget-aware truncation with
+  summarization that preserves the first user intent and the most recent tool results.
+
+Release gate: a RAG run's chunks, retrieved context, and rerank decisions all appear in
+the trace; retrieval quality is measurable through the evaluation API; and a compacted
+conversation preserves the original user intent across the boundary.
+
+## v1.4 - Cost-aware evaluation and multi-model
+
+Target: make prompt and cost decisions data-driven, and make evaluation statistically
+sound.
+
+- [ ] Extend evaluation: per-case sampling (N runs aggregated to a pass rate),
+  step-level accuracy, mean rounds and token cost, an eval-time temperature override,
+  and bad-case回流 into reusable evaluation sets.
+- [ ] Enable active prompt caching: send `cache_control` on the stable system-prompt and
+  tool-schema prefix (Anthropic) and keep that prefix stable (OpenAI), so the existing
+  cache-hit metric reflects savings EasyAgent actually requested.
+- [ ] Add an experimental `RoutingLLM`: a single-LLM facade that wraps multiple
+  providers and dispatches by task, cost, or privacy rule. This is explicit composition,
+  not a multi-agent coordinator.
+- [ ] Add an optional `cost_budget_usd`: the trace accumulates cost and raises
+  `BudgetExceededError` when a run crosses the threshold.
+
+Release gate: cache-hit rate rises when caching is enabled; a routed run reports
+per-model cost; and evaluation reports include sampling pass rate and step-level metrics
+rather than a single deterministic run.
+
+## Non-goals (beyond v1.0)
+
+These remain out of scope to protect the single-agent, no-DSL learning contract:
+
+- A general multi-agent coordinator, role graph, or automatic delegation. Multi-agent
+  experiments stay behind the explicit `agent_as_tool` composition.
+- A workflow DSL or orchestration runtime. Configuration and composition stay ordinary
+  Python.
+- A hosted platform, an OS-level sandbox, or a centralized tool marketplace. Tool safety
+  is enforced through allowlists and confirmation gates, not a managed runtime.
+- A guarantee of native per-token streaming beyond the existing provider-neutral
+  `text_delta` execution-event contract.
+
+The v1.1-v1.4 work deliberately stays inside these boundaries: each addition is plain
+Python, emits traceable execution events, and can be studied offline.
