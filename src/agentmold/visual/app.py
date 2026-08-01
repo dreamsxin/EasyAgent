@@ -775,6 +775,57 @@ def _run_app() -> None:
             if st.session_state.get("ea_mcp_error"):
                 st.error(f"MCP：{st.session_state.ea_mcp_error}")
 
+        # --- RAG document retrieval ---
+        with st.sidebar.expander(
+            "RAG 文档检索",
+            expanded=bool(st.session_state.get("ea_rag_text")),
+        ):
+            st.caption(
+                "粘贴文档文本，自动切分建库并生成 retrieve 工具。"
+                "Agent 可调用它检索相关片段。默认离线嵌入器，无需 API Key。"
+            )
+            rag_text = st.text_area(
+                "文档内容",
+                key="ea_rag_text",
+                height=120,
+                placeholder="在此粘贴要检索的文档文本...",
+            )
+            rag_col1, rag_col2 = st.columns(2)
+            with rag_col1:
+                rag_build = st.button("📚 建库", use_container_width=True, key="ea_rag_build")
+            with rag_col2:
+                if st.button(
+                    "清除",
+                    use_container_width=True,
+                    key="ea_rag_clear",
+                    disabled=not st.session_state.get("ea_rag_tool"),
+                ):
+                    st.session_state.pop("ea_rag_tool", None)
+                    st.session_state.pop("ea_rag_origin", None)
+                    st.session_state.pop("ea_rag_chunk_count", None)
+                    st.rerun()
+
+            if rag_build and rag_text and rag_text.strip():
+                from agentmold.rag import rag_tools
+
+                rag_tool_list = rag_tools(
+                    rag_text,
+                    chunk_size=300,
+                    chunk_overlap=40,
+                    source="rag-input",
+                )
+                if rag_tool_list:
+                    st.session_state.ea_rag_tool = rag_tool_list[0]
+                    st.session_state.ea_rag_origin = "RAG · 文档检索"
+                    from agentmold.rag import chunk_text
+
+                    chunks = chunk_text(rag_text, size=300, overlap=40, source="rag-input")
+                    st.session_state.ea_rag_chunk_count = len(chunks)
+                    st.toast(f"已建库：{len(chunks)} 个文本块", icon="📚")
+                    st.rerun()
+            if st.session_state.get("ea_rag_chunk_count"):
+                st.caption(f"已建库：{st.session_state.ea_rag_chunk_count} 个文本块")
+
         custom_tool_files = list(st.session_state.ea_custom_tool_files)
         tool_signature = uploaded_tools_signature(custom_tool_files)
         if st.session_state.get("ea_visual_tool_cache_signature") != tool_signature:
@@ -792,6 +843,11 @@ def _run_app() -> None:
                 if name not in available_tools:
                     available_tools[name] = mcp_tool
                     tool_origins[name] = st.session_state.ea_mcp_origins.get(name, "MCP")
+        # Merge RAG retrieve tool into the available pool.
+        rag_tool = st.session_state.get("ea_rag_tool")
+        if rag_tool and rag_tool.name not in available_tools:
+            available_tools[rag_tool.name] = rag_tool
+            tool_origins[rag_tool.name] = st.session_state.get("ea_rag_origin", "RAG")
         for tool_error in st.session_state.ea_visual_tool_errors:
             st.sidebar.error(tool_error)
 
@@ -873,6 +929,10 @@ def _run_app() -> None:
                         "ea_mcp_tools",
                         "ea_mcp_origins",
                         "ea_mcp_error",
+                        "ea_rag_text",
+                        "ea_rag_tool",
+                        "ea_rag_origin",
+                        "ea_rag_chunk_count",
                     }
                 ):
                     st.session_state.pop(key, None)
