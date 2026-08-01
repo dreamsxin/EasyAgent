@@ -135,6 +135,23 @@ def chunk_text(
 # Embedding (deterministic offline default)
 # ---------------------------------------------------------------------------
 
+# Match English words (ascii letters + digits + underscore) OR individual
+# CJK characters.  Without this, re.findall(r"\w+") treats an entire Chinese
+# sentence as one "word", which makes the hash embedder and BM25 useless for
+# Chinese text -- every sentence becomes a single token.
+_TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+|[\u4e00-\u9fff\u3400-\u4dbf]")
+
+
+def _tokenize(text: str) -> list[str]:
+    """Tokenize text into English words and individual CJK characters.
+
+    This is a simple, dependency-free tokenizer that handles mixed
+    Chinese/English text.  For English it splits on word boundaries; for
+    Chinese each character becomes one token (character-level matching).
+    Replace with a proper word segmenter (e.g. jieba) for better recall.
+    """
+    return _TOKEN_RE.findall(text.lower())
+
 
 def _hash_embed(text: str, dim: int = 128) -> list[float]:
     """Deterministic hash-based embedding for offline reproducibility.
@@ -143,9 +160,8 @@ def _hash_embed(text: str, dim: int = 128) -> list[float]:
     produces the same vector.  Replace with a real embedder for production.
     """
     vec = [0.0] * dim
-    words = re.findall(r"\w+", text.lower())
-    for word in words:
-        digest = hashlib.md5(word.encode("utf-8")).digest()
+    for token in _tokenize(text):
+        digest = hashlib.md5(token.encode("utf-8")).digest()
         for i in range(min(dim, len(digest) // 4)):
             val = int.from_bytes(digest[i * 4 : i * 4 + 4], "little")
             vec[i] += (val % 1000) / 1000.0
@@ -244,7 +260,7 @@ class BM25Index:
 
     def add(self, chunks: list[TextChunk]) -> None:
         for chunk in chunks:
-            tokens = re.findall(r"\w+", chunk.text.lower())
+            tokens = _tokenize(chunk.text)
             self._docs.append(tokens)
             self._chunks.append(chunk)
             for token in set(tokens):
@@ -260,7 +276,7 @@ class BM25Index:
     def search(self, query: str, top_k: int = 5) -> list[tuple[TextChunk, float]]:
         if not self._chunks:
             return []
-        query_tokens = re.findall(r"\w+", query.lower())
+        query_tokens = _tokenize(query)
         n = len(self._docs)
         scores: list[float] = [0.0] * n
         for token in query_tokens:
@@ -307,7 +323,9 @@ def hybrid_search(
     """Merge vector and BM25 results, optionally rerank, and return top-k.
 
     *alpha* controls the blend: 0 = pure BM25, 1 = pure vector.
-    Scores are normalised to [0, 1] before blending.
+    Scores are normalised to [0, 1] before blending.  When no *reranker* is
+    supplied, a default substring-boost reranker moves chunks that contain the
+    full query string (or the longest run of query characters) to the top.
     """
     vec_results = vector_store.search(query, top_k=top_k * 2)
     bm25_results = bm25_index.search(query, top_k=top_k * 2)
@@ -329,17 +347,57 @@ def hybrid_search(
         merged[chunk.index] = merged.get(chunk.index, 0.0) + (1 - alpha) * normalised
         chunks_by_id[chunk.index] = chunk
 
-    ranked = sorted(merged.items(), key=lambda pair: pair[1], reverse=True)[:top_k]
+    ranked = sorted(merged.items(), key=lambda pair: pair[1], reverse=True)[: top_k * 2]
     result = [(chunks_by_id[idx], score) for idx, score in ranked]
 
     if reranker is not None and result:
         chunks_only = [c for c, _ in result]
         reranked = reranker(query, chunks_only)
-        # Preserve reranked order but keep original scores for traceability.
         score_map = {c.index: s for c, s in result}
         result = [(c, score_map.get(c.index, 0.0)) for c in reranked]
+    elif result:
+        result = _default_rerank(query, result)
 
-    return result
+    return result[:top_k]
+
+
+def _default_rerank(
+    query: str,
+    results: list[tuple[TextChunk, float]],
+) -> list[tuple[TextChunk, float]]:
+    """Boost chunks that contain the query string or its character sequence.
+
+    The hash embedder has no semantic understanding, so a chunk that merely
+    contains many common characters can outscore the chunk that actually
+    contains the query phrase.  This reranker gives a large bonus to chunks
+    containing the full query substring, and a smaller bonus for the longest
+    contiguous run of query characters.
+    """
+    query_lower = query.lower().strip()
+    if not query_lower:
+        return results
+
+    boosted: list[tuple[TextChunk, float]] = []
+    for chunk, score in results:
+        text_lower = chunk.text.lower()
+        bonus = 0.0
+        if query_lower in text_lower:
+            bonus += 1.0  # Full substring match: strong boost.
+        else:
+            # Longest contiguous run of query chars found in the text.
+            longest = 0
+            current = 0
+            for ch in query_lower:
+                if ch in text_lower:
+                    current += 1
+                    longest = max(longest, current)
+                else:
+                    current = 0
+            if longest > 0:
+                bonus += longest / len(query_lower) * 0.5
+        boosted.append((chunk, score + bonus))
+    boosted.sort(key=lambda pair: pair[1], reverse=True)
+    return boosted
 
 
 # ---------------------------------------------------------------------------

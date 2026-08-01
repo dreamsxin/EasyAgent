@@ -139,6 +139,11 @@ def build_agent(
     level = {"SILENT": LogLevel.SILENT, "INFO": LogLevel.INFO, "DEBUG": LogLevel.DEBUG}.get(
         log_level, LogLevel.SILENT
     )
+    # The visual lab is its own observability layer: the timeline, execution
+    # map, and trace lab already show every step.  print()-based logging
+    # inside Streamlit's st.status() context can trigger [Errno 22] on
+    # Windows, so always force silent here regardless of the mode setting.
+    level = LogLevel.SILENT
     on_approval = visual_approval_gate if require_approval else None
 
     return Agent(
@@ -359,6 +364,8 @@ def llm_config_from_ui(
         "base_url": base_url.strip(),
         "temperature": temperature,
         "timeout": timeout,
+        "max_retries": 3,
+        "retry_delay": 2.0,
     }
     if provider in {"anthropic", "deepseek-anthropic"}:
         config["max_tokens"] = max_tokens

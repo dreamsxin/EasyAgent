@@ -29,7 +29,7 @@ class AnthropicLLM(LLM):
         temperature: float = 0.7,
         api_key: str | None = None,
         base_url: str | None = None,
-        timeout: float | None = None,
+        timeout: float | None = 120,
         max_tokens: int = 4096,
         **kwargs: Any,
     ) -> None:
@@ -119,24 +119,47 @@ class AnthropicLLM(LLM):
         return kwargs
 
     def _stream_once(self, kwargs: dict[str, Any]) -> Iterator[LlmStreamEvent]:
-        with self._client.messages.stream(**kwargs) as stream:
-            for event in stream:
+        # Manage the stream lifecycle manually instead of ``with`` so that
+        # teardown errors during generator close (e.g. httpx.Response.close()
+        # raising ``OSError: [Errno 22]`` on Windows when Streamlit aborts the
+        # script) never replace a propagating GeneratorExit and never leak as a
+        # bare OSError. ``GeneratorExit`` is a ``BaseException``, so it bypasses
+        # the ``except Exception`` normalisation in ``_stream_with_retries``;
+        # we must swallow close-time OSError ourselves.
+        manager = self._client.messages.stream(**kwargs)
+        message_stream = manager.__enter__()
+        final_message = None
+        try:
+            for event in message_stream:
                 content = _anthropic_text_delta(event)
                 if content:
                     yield {"type": "text_delta", "content": content}
-            final_message = stream.get_final_message()
+            final_message = message_stream.get_final_message()
+        finally:
+            try:
+                message_stream.close()
+            except OSError:
+                pass
         yield {
             "type": "response",
             "response": _parse_anthropic_response(final_message),
         }
 
     async def _astream_once(self, kwargs: dict[str, Any]) -> AsyncIterator[LlmStreamEvent]:
-        async with self._async_client.messages.stream(**kwargs) as stream:
-            async for event in stream:
+        manager = self._async_client.messages.stream(**kwargs)
+        message_stream = await manager.__aenter__()
+        final_message = None
+        try:
+            async for event in message_stream:
                 content = _anthropic_text_delta(event)
                 if content:
                     yield {"type": "text_delta", "content": content}
-            final_message = await stream.get_final_message()
+            final_message = await message_stream.get_final_message()
+        finally:
+            try:
+                await message_stream.close()
+            except OSError:
+                pass
         yield {
             "type": "response",
             "response": _parse_anthropic_response(final_message),

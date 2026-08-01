@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from types import SimpleNamespace
 
 from agentmold.llm import LLM, Message, create_llm
@@ -56,6 +57,9 @@ class _StreamManager:
     def get_final_message(self):
         return self.final_message
 
+    def close(self):
+        pass
+
 
 class _AsyncStreamManager:
     def __init__(self, events, final_message):
@@ -74,6 +78,9 @@ class _AsyncStreamManager:
 
     async def get_final_message(self):
         return self.final_message
+
+    async def close(self):
+        pass
 
 
 class _StreamRecorder:
@@ -470,3 +477,161 @@ def test_deepseek_config_uses_safe_defaults_and_timeout(monkeypatch):
     assert captured["api_key"] == "test-key"
     assert captured["base_url"] == "https://api.deepseek.com"
     assert captured["timeout"] == 12
+
+
+# ---------------------------------------------------------------------------
+# Stream teardown resilience
+#
+# On Windows, when Streamlit aborts a script mid-stream, the suspended
+# generator is closed (GeneratorExit). The Anthropic SDK's MessageStream.close()
+# -> httpx.Response.close() can raise OSError: [Errno 22] Invalid argument.
+# GeneratorExit is a BaseException, so it bypasses _stream_with_retries'
+# except Exception normalisation. _stream_once must swallow close-time OSError
+# so the bare OSError never leaks to the caller.
+# ---------------------------------------------------------------------------
+
+
+class _FlakyStream:
+    """A stream whose close() always raises OSError(22), simulating Windows."""
+
+    def __init__(self, events, final_message):
+        self._events = events
+        self._final_message = final_message
+
+    def __iter__(self):
+        return iter(self._events)
+
+    def get_final_message(self):
+        return self._final_message
+
+    def close(self):
+        raise OSError(22, "Invalid argument")
+
+
+class _FlakyStreamManager:
+    """Manager mirroring the SDK's MessageStreamManager.
+
+    ``__exit__`` calls ``stream.close()`` -- exactly what the real SDK does --
+    so that the old ``with``-based code path triggers the OSError during
+    GeneratorExit teardown.
+    """
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def __enter__(self):
+        return self._stream
+
+    def __exit__(self, exc_type, exc, traceback):
+        if self._stream is not None:
+            self._stream.close()
+
+
+class _FlakyAsyncStream:
+    def __init__(self, events, final_message):
+        self._events = events
+        self._final_message = final_message
+
+    async def __aiter__(self):
+        for event in self._events:
+            yield event
+
+    async def get_final_message(self):
+        return self._final_message
+
+    async def close(self):
+        raise OSError(22, "Invalid argument")
+
+
+class _FlakyAsyncStreamManager:
+    def __init__(self, stream):
+        self._stream = stream
+
+    async def __aenter__(self):
+        return self._stream
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        if self._stream is not None:
+            await self._stream.close()
+
+
+def test_anthropic_stream_close_does_not_leak_errno22():
+    """Closing a suspended stream whose close() raises OSError must not propagate."""
+    events = [
+        SimpleNamespace(
+            type="content_block_delta",
+            delta=SimpleNamespace(type="text_delta", text="partial"),
+        ),
+    ]
+    final_message = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text="partial")],
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+    )
+    flaky_stream = _FlakyStream(events, final_message)
+    manager = _FlakyStreamManager(flaky_stream)
+    recorder = _StreamRecorder(manager)
+
+    llm = AnthropicLLM.__new__(AnthropicLLM)
+    LLM.__init__(llm, model="test-model")
+    llm.max_tokens = 100
+    llm._client = SimpleNamespace(messages=recorder)
+
+    gen = llm.stream([Message(role="user", content="go")])
+    # Pull the first delta, then close the generator mid-stream (GeneratorExit).
+    first = next(gen)
+    assert first["content"] == "partial"
+    # This must not raise OSError despite stream.close() raising [Errno 22].
+    gen.close()
+
+
+def test_anthropic_stream_normal_completion_swallows_close_error():
+    """Even on normal completion, a close() error must not surface."""
+    events = [
+        SimpleNamespace(
+            type="content_block_delta",
+            delta=SimpleNamespace(type="text_delta", text="done"),
+        ),
+    ]
+    final_message = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text="done")],
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+    )
+    flaky_stream = _FlakyStream(events, final_message)
+    manager = _FlakyStreamManager(flaky_stream)
+    recorder = _StreamRecorder(manager)
+
+    llm = AnthropicLLM.__new__(AnthropicLLM)
+    LLM.__init__(llm, model="test-model")
+    llm.max_tokens = 100
+    llm._client = SimpleNamespace(messages=recorder)
+
+    streamed = list(llm.stream([Message(role="user", content="go")]))
+    assert streamed[-1]["response"].content == "done"
+
+
+async def test_anthropic_async_stream_close_does_not_leak_errno22():
+    """Async counterpart: closing a suspended async stream must not leak OSError."""
+    events = [
+        SimpleNamespace(
+            type="content_block_delta",
+            delta=SimpleNamespace(type="text_delta", text="partial"),
+        ),
+    ]
+    final_message = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text="partial")],
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+    )
+    flaky_stream = _FlakyAsyncStream(events, final_message)
+    manager = _FlakyAsyncStreamManager(flaky_stream)
+    recorder = _StreamRecorder(manager)
+
+    llm = AnthropicLLM.__new__(AnthropicLLM)
+    LLM.__init__(llm, model="test-model")
+    llm.max_tokens = 100
+    llm._async_client = SimpleNamespace(messages=recorder)
+
+    gen = llm.astream([Message(role="user", content="go")])
+    first = await gen.__anext__()
+    assert first["content"] == "partial"
+    # Closing must not raise despite async stream.close() raising [Errno 22].
+    await gen.aclose()

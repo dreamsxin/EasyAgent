@@ -351,17 +351,27 @@ class _MockLLM(LLM):
         last_user = next((m for m in reversed(messages) if m.role == "user"), None)
         text = last_user.content if last_user else ""
         if "tool:" in text.lower() and tools:
-            # Call the first available tool so the demo loop is realistic.
-            tool_name = tools[0]["name"]
+            # Strip the "tool:" prefix to get a cleaner argument value.
+            query_text = text.split(":", 1)[1].strip() if ":" in text else text
+            # If the user wrote "tool: retrieve 道的本质", match by tool name.
+            chosen = tools[0]
+            parts = query_text.split(None, 1)
+            if parts:
+                first_word = parts[0].lower()
+                for candidate in tools:
+                    if candidate["name"].lower() == first_word:
+                        chosen = candidate
+                        query_text = parts[1] if len(parts) > 1 else query_text
+                        break
             # Derive a minimal arguments dict from the tool's schema.
-            props = tools[0].get("parameters", {}).get("properties", {})
-            arguments = {pname: text for pname in props}  # pass the user text to every param
+            props = chosen.get("parameters", {}).get("properties", {})
+            arguments = {pname: query_text for pname in props}
             return LlmResponse(
                 content="",
                 tool_calls=[
                     {
                         "id": "call_mock",
-                        "name": tool_name,
+                        "name": chosen["name"],
                         "arguments": arguments,
                     }
                 ],

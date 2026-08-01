@@ -35,6 +35,7 @@ _AGENT_FIELDS = {
     "selected_tools",
     "custom_tool_files",
     "mcp_url",
+    "rag_text",
     "agent_mode",
     "loop_detection_threshold",
     "require_approval",
@@ -158,6 +159,8 @@ def load_visual_agent_config(path: str | Path = _DEFAULT_AGENT_PATH) -> dict[str
         loaded.pop("log_level", None)
     if "mcp_url" in loaded and not isinstance(loaded["mcp_url"], str):
         loaded.pop("mcp_url", None)
+    if "rag_text" in loaded and not isinstance(loaded["rag_text"], str):
+        loaded.pop("rag_text", None)
     return loaded
 
 

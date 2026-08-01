@@ -143,3 +143,45 @@ def test_trace_redacts_credentials_from_model_config():
     config = agent.last_trace.model_config
     assert config["api_key"] == "<redacted>"
     assert config["default_headers"]["Authorization"] == "<redacted>"
+
+
+def test_audit_log_write_failure_does_not_crash_run(tmp_path):
+    """A failing audit-log write must degrade, not abort, the agent run.
+
+    On Windows the audit file can be opened by another Streamlit subprocess
+    handle, so ``open("a")`` raises ``OSError: [Errno 22] Invalid argument``.
+    The audit log is an observability side effect, so the run should complete
+    and the trace should record no error.
+    """
+
+    @tool
+    def echo(text: str) -> str:
+        """Echo text.
+
+        Args:
+            text: The text to echo.
+        """
+        return f"echoed: {text}"
+
+    agent = Agent(
+        name="T",
+        tools=[echo],
+        llm="mock",
+        log_level=LogLevel.SILENT,
+        audit_log=tmp_path / "audit.jsonl",
+    )
+
+    # Point the audit logger at a path whose .open() always fails with the
+    # same [Errno 22] seen in the Streamlit-on-Windows failure logs.
+    class Errno22Path(type(tmp_path / "audit.jsonl")):
+        def open(self, *args, **kwargs):
+            raise OSError(22, "Invalid argument")
+
+    agent._audit.path = Errno22Path()
+
+    # The run must complete despite every audit write raising [Errno 22].
+    steps = list(agent.run_stream("tool: please echo something"))
+    types = [s["type"] for s in steps]
+    assert types == ["tool_call", "tool_result", "answer"]
+    assert agent.last_trace is not None
+    assert agent.last_trace.error is None

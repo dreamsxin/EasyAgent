@@ -421,6 +421,7 @@ def _run_app() -> None:
             st.session_state.ea_max_iterations = saved_agent_config.get("max_iterations", 10)
             st.session_state.ea_custom_tool_files = saved_agent_config.get("custom_tool_files", [])
             st.session_state.ea_mcp_url = saved_agent_config.get("mcp_url", "")
+            st.session_state.ea_rag_text = saved_agent_config.get("rag_text", "")
             st.session_state.ea_restored_tool_names = saved_agent_config.get(
                 "selected_tools", ["calculate"]
             )
@@ -810,8 +811,8 @@ def _run_app() -> None:
 
                 rag_tool_list = rag_tools(
                     rag_text,
-                    chunk_size=300,
-                    chunk_overlap=40,
+                    chunk_size=500,
+                    chunk_overlap=80,
                     source="rag-input",
                 )
                 if rag_tool_list:
@@ -819,12 +820,27 @@ def _run_app() -> None:
                     st.session_state.ea_rag_origin = "RAG · 文档检索"
                     from agentmold.rag import chunk_text
 
-                    chunks = chunk_text(rag_text, size=300, overlap=40, source="rag-input")
+                    chunks = chunk_text(rag_text, size=500, overlap=80, source="rag-input")
                     st.session_state.ea_rag_chunk_count = len(chunks)
                     st.toast(f"已建库：{len(chunks)} 个文本块", icon="📚")
                     st.rerun()
             if st.session_state.get("ea_rag_chunk_count"):
                 st.caption(f"已建库：{st.session_state.ea_rag_chunk_count} 个文本块")
+
+        # Auto-rebuild RAG tool from saved text on page refresh.
+        saved_rag_text = st.session_state.get("ea_rag_text", "")
+        if saved_rag_text and saved_rag_text.strip() and not st.session_state.get("ea_rag_tool"):
+            from agentmold.rag import chunk_text as _chunk_text
+            from agentmold.rag import rag_tools as _rag_tools
+
+            rag_tool_list = _rag_tools(
+                saved_rag_text, chunk_size=500, chunk_overlap=80, source="rag-input"
+            )
+            if rag_tool_list:
+                st.session_state.ea_rag_tool = rag_tool_list[0]
+                st.session_state.ea_rag_origin = "RAG · 文档检索"
+                chunks = _chunk_text(saved_rag_text, size=500, overlap=80, source="rag-input")
+                st.session_state.ea_rag_chunk_count = len(chunks)
 
         custom_tool_files = list(st.session_state.ea_custom_tool_files)
         tool_signature = uploaded_tools_signature(custom_tool_files)
@@ -879,6 +895,7 @@ def _run_app() -> None:
             "selected_tools": selected_tools,
             "custom_tool_files": custom_tool_files,
             "mcp_url": st.session_state.get("ea_mcp_url", ""),
+            "rag_text": st.session_state.get("ea_rag_text", ""),
             "agent_mode": agent_mode,
             "loop_detection_threshold": int(loop_detection_threshold),
             "require_approval": bool(require_approval),
@@ -1160,17 +1177,23 @@ def _run_app() -> None:
             run_meta.update({"state": "running", "phase": "思考中"})
             st.session_state.run_meta = run_meta
             with st.chat_message("assistant"):
-                status = st.status("思考中…", expanded=True)
+                # NOTE: st.status() captures sys.stdout, which can cause
+                # [Errno 22] on Windows when the LLM SDK or logger writes
+                # to stdout during the run.  Use plain containers instead.
                 live_timeline = st.empty()
                 live_map = st.empty()
                 live_metrics = st.empty()
                 live_answer: Any | None = None
-                live_map.markdown(
-                    _execution_map_html([], user_input=user_input, running=True),
-                    unsafe_allow_html=True,
-                )
-                live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                 try:
+                    live_map.markdown(
+                        _execution_map_html([], user_input=user_input, running=True),
+                        unsafe_allow_html=True,
+                    )
+                    live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
+                except OSError:
+                    pass  # Initial draw can hit a stdout/pipe race on Windows.
+                try:
+                    _delta_count = 0
                     for step in agent.run_stream(user_input):
                         if step["type"] == "text_delta":
                             answer_text += step["content"]
@@ -1178,19 +1201,30 @@ def _run_app() -> None:
                             run_meta["duration_ms"] = round(
                                 (time.perf_counter() - run_started) * 1000, 1
                             )
-                            status.update(label="生成回答…")
-                            if live_answer is None:
-                                live_answer = st.empty()
-                            live_answer.markdown(answer_text)
-                            live_metrics.markdown(
-                                _run_metrics_html(run_meta), unsafe_allow_html=True
-                            )
+                            _delta_count += 1
+                            # Throttle live updates: rendering every delta on
+                            # Windows can trigger [Errno 22] from Streamlit's
+                            # internal stdout/pipe handling.  Update every ~10
+                            # deltas instead of every single one.
+                            if _delta_count % 10 == 0 or len(step["content"]) > 10:
+                                if live_answer is None:
+                                    live_answer = st.empty()
+                                try:
+                                    live_answer.markdown(answer_text)
+                                    live_metrics.markdown(
+                                        _run_metrics_html(run_meta), unsafe_allow_html=True
+                                    )
+                                except OSError:
+                                    pass  # Streamlit rendering race; skip this update.
                             continue
                         steps.append(step)
-                        live_map.markdown(
-                            _execution_map_html(steps, user_input=user_input, running=True),
-                            unsafe_allow_html=True,
-                        )
+                        try:
+                            live_map.markdown(
+                                _execution_map_html(steps, user_input=user_input, running=True),
+                                unsafe_allow_html=True,
+                            )
+                        except OSError:
+                            pass
                         trace = agent.last_trace
                         _apply_trace_usage_to_run_meta(run_meta, trace)
                         run_meta["event_count"] = len(steps)
@@ -1200,51 +1234,89 @@ def _run_app() -> None:
                         run_meta["duration_ms"] = round(
                             (time.perf_counter() - run_started) * 1000, 1
                         )
-                        live_timeline.markdown(_timeline_html(steps), unsafe_allow_html=True)
+                        try:
+                            live_timeline.markdown(_timeline_html(steps), unsafe_allow_html=True)
+                        except OSError:
+                            pass
                         if step["type"] == "tool_call":
                             answer_text = ""
                             if live_answer is not None:
                                 live_answer.empty()
                                 live_answer = None
                             run_meta["phase"] = f"调用 {step['name']}"
-                            status.update(label=f"🔧 调用 {step['name']}…")
-                            st.write(f"🔧 **工具调用:** `{step['name']}({step['arguments']})`")
+                            # status removed to avoid stdout capture on Windows
+                            try:
+                                st.write(f"🔧 **工具调用:** `{step['name']}({step['arguments']})`")
+                            except OSError:
+                                pass  # Streamlit stdout/pipe race on Windows.
                         elif step["type"] == "tool_result":
                             run_meta["phase"] = "等待模型"
-                            st.write(f"✅ **结果:** `{step['content'][:200]}`")
+                            try:
+                                st.write(f"✅ **结果:** `{step['content'][:200]}`")
+                            except OSError:
+                                pass
                         elif step["type"] == "approval_request":
                             run_meta["phase"] = "确认门"
-                            status.update(label="⚠ 确认门触发…")
-                            st.warning(
-                                f"⚠ **确认门:** 破坏性工具 `{step['name']}({step['arguments']})` "
-                                "等待批准。安全模式下默认拒绝。"
-                            )
+                            # status removed to avoid stdout capture on Windows
+                            try:
+                                st.warning(
+                                    f"⚠ **确认门:** 破坏性工具 `{step['name']}({step['arguments']})` "
+                                    "等待批准。安全模式下默认拒绝。"
+                                )
+                            except OSError:
+                                pass
                         elif step["type"] == "loop_detected":
                             run_meta["phase"] = "死循环拦截"
-                            status.update(label="⏹ 死循环拦截…")
-                            st.error(f"⏹ **死循环拦截:** {step['message']}")
+                            # status removed to avoid stdout capture on Windows
+                            try:
+                                st.error(f"⏹ **死循环拦截:** {step['message']}")
+                            except OSError:
+                                pass
                         elif step["type"] == "answer":
                             answer_text = step["content"]
                             run_meta["phase"] = "生成回答"
                             if live_answer is not None:
-                                live_answer.markdown(answer_text)
-                            status.update(label="完成！", state="complete", expanded=False)
-                        live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
+                                try:
+                                    live_answer.markdown(answer_text)
+                                except OSError:
+                                    pass
+                        try:
+                            live_metrics.markdown(
+                                _run_metrics_html(run_meta), unsafe_allow_html=True
+                            )
+                        except OSError:
+                            pass
                 except Exception as exc:  # noqa: BLE001
+                    error_msg = str(exc)
+                    # On Windows, [Errno 22] can come from file I/O on the
+                    # audit log or trace log when paths contain issues, or
+                    # from stdout pipe races in the Streamlit subprocess.
+                    # Give a more actionable message.
+                    if "Errno 22" in error_msg or "Invalid argument" in error_msg:
+                        error_msg = (
+                            f"{error_msg}\n"
+                            "这通常是文件写入或日志输出冲突。尝试：\n"
+                            "1. 切换到标准模式（关闭 DEBUG 日志和审计日志）\n"
+                            "2. 清除 .agentmold/ 目录后重试\n"
+                            "3. 重启可视化实验室"
+                        )
                     run_meta.update(
                         {
                             "state": "error",
                             "phase": "执行失败",
                             "duration_ms": round((time.perf_counter() - run_started) * 1000, 1),
-                            "error": str(exc),
+                            "error": error_msg,
                             "event_count": len(steps),
                             "tool_calls": sum(item.get("type") == "tool_call" for item in steps),
                         }
                     )
                     _apply_trace_usage_to_run_meta(run_meta, agent.last_trace)
                     st.session_state.run_meta = run_meta
-                    live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
-                    status.update(label="出错", state="error")
+                    try:
+                        live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
+                    except OSError:
+                        pass  # Don't let a render error mask the original failure.
+                    # status removed to avoid stdout capture on Windows
                     st.error(f"Agent 出错: {exc}")
                     if agent.last_trace is not None:
                         _remember_trace(st, agent.last_trace)
@@ -1281,9 +1353,15 @@ def _run_app() -> None:
                     }
                 )
                 st.session_state.run_meta = run_meta
-                live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
+                try:
+                    live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
+                except OSError:
+                    pass
                 if answer_text and live_answer is None:
-                    st.markdown(answer_text)
+                    try:
+                        st.markdown(answer_text)
+                    except OSError:
+                        pass
                 if trace is not None:
                     _remember_trace(st, trace)
 

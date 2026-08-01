@@ -243,6 +243,8 @@ def test_custom_openai_config_from_visual_controls():
         "base_url": "https://llm.example/v1",
         "temperature": 0.2,
         "timeout": 45,
+        "max_retries": 3,
+        "retry_delay": 2.0,
     }
 
 

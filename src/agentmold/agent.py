@@ -270,7 +270,12 @@ class _AgentLogger:
 
     def _emit(self, tag: str, msg: str, min_level: LogLevel) -> None:
         if self.level >= min_level:
-            print(f"[{tag}] {msg}")
+            try:
+                print(f"[{tag}] {msg}")
+            except OSError:
+                # stdout may be redirected or closed (e.g. Streamlit subprocess);
+                # logging must never crash the agent run.
+                pass
 
     def thought(self, msg: str) -> None:
         self._emit("THOUGHT", msg, LogLevel.DEBUG)
@@ -361,9 +366,18 @@ class _AuditLogger:
             "outcome": outcome,
             "duration_ms": round(duration_ms, 3),
         }
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        # The audit log is an observability side effect: a write failure
+        # (e.g. [Errno 22] on Windows when the file is held by another
+        # Streamlit subprocess handle, or an unserializable payload) must
+        # never crash the agent run. Drop the line and keep going, mirroring
+        # the _AgentLogger resilience policy.
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            line = json.dumps(entry, ensure_ascii=False) + "\n"
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(line)
+        except OSError:
+            pass
 
 
 class Agent:
