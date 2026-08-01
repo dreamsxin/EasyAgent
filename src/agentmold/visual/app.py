@@ -870,25 +870,13 @@ def _run_app() -> None:
                     # Persist the RAG text immediately so a page refresh
                     # auto-rebuilds the store.  st.rerun() below would skip
                     # the normal config-save path later in the script.
+                    # Read the previously-saved config and patch in rag_text,
+                    # because selected_tools and other widget values are not
+                    # assigned yet at this point in the render order.
                     try:
-                        save_visual_agent_config(
-                            {
-                                "name": name,
-                                "instructions": instructions,
-                                "connection_type": connection_type,
-                                "custom_interface": custom_interface,
-                                "max_iterations": max_iterations,
-                                "selected_tools": selected_tools,
-                                "custom_tool_files": custom_tool_files,
-                                "mcp_url": st.session_state.get("ea_mcp_url", ""),
-                                "rag_text": rag_text,
-                                "agent_mode": agent_mode,
-                                "loop_detection_threshold": int(loop_detection_threshold),
-                                "require_approval": bool(require_approval),
-                                "audit_log": bool(audit_log),
-                                "log_level": log_level,
-                            }
-                        )
+                        prev_config = load_visual_agent_config()
+                        prev_config["rag_text"] = rag_text
+                        save_visual_agent_config(prev_config)
                     except OSError:
                         pass
                     st.toast(f"已建库：{len(chunks)} 个文本块", icon="📚")
