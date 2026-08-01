@@ -540,12 +540,23 @@ report = evaluate(
 print(report.mean_score)
 ```
 
+## 🧠 Agent 架构模式
+
+EasyAgent 的默认执行循环就是 ReAct（推理 → 行动 → 观察 → 重复）。其他主流架构
+——计划-执行、反思、多智能体协作、路由分发——都是用 `Agent` + `@tool` + 普通 Python
+组合出来的，不需要工作流 DSL 或编排运行时。
+
+在可视化实验室（`easyagent visual`）的 **🧠 AGENT 架构演示** 面板可以交互查看
+每种架构的动态流程图和对应代码。详见 [Agent 架构模式文档](docs/architectures.md)
+和 [Cookbook 示例](cookbook/09_agent_architectures.py)。
+
 ## 📚 文档
 
 - [快速开始](docs/quickstart.md)
 - [能力状态：已交付、实验性与非目标](docs/capabilities.md)
 - [核心概念](docs/concepts.md)
 - [执行模型与流式边界](docs/concepts.md#execution-events-are-not-tokens)
+- [Agent 架构模式](docs/architectures.md)
 - [API 参考](docs/api.md)
 - [批量实验与评测](docs/evaluation.md)
 - [长期记忆 Collection](docs/memory.md)

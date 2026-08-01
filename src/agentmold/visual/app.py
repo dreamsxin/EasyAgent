@@ -24,6 +24,18 @@ from agentmold.visual.agent_config import (
 from agentmold.visual.agent_config import (
     AUDIT_LOG_PATH as _AUDIT_LOG_PATH,
 )
+from agentmold.visual.architecture import (
+    ARCHITECTURE_PRESETS as _ARCHITECTURE_PRESETS,
+)
+from agentmold.visual.architecture import (
+    architecture_code as _architecture_code,
+)
+from agentmold.visual.architecture import (
+    architecture_description as _architecture_description,
+)
+from agentmold.visual.architecture import (
+    architecture_diagram_html as _architecture_diagram_html,
+)
 from agentmold.visual.agent_config import (
     CONNECTION_DEFAULTS as _CONNECTION_DEFAULTS,
 )
@@ -270,6 +282,39 @@ def _render_trace_lab(
             )
         else:
             st.caption("选择两个运行后，会并排显示提示词、模型、延迟、token、成本和工具调用。")
+
+
+def _render_architecture_demo(st: Any) -> None:
+    """Render an interactive architecture-pattern showcase with a flowchart.
+
+    The user picks one of the mainstream agent architectures (ReAct,
+    Plan-and-Execute, Reflection, Multi-Agent, Routing).  The right-hand area
+    shows an animated node flowchart and the corresponding EasyAgent code
+    snippet, so learners can see how each pattern maps onto ordinary Python.
+    """
+    with st.expander("🧠 AGENT 架构演示", expanded=False):
+        arch_options = list(_ARCHITECTURE_PRESETS.keys())
+        selected = st.selectbox(
+            "选择架构模式",
+            options=arch_options,
+            index=0,
+            key="ea_architecture",
+            help="查看主流 AI Agent 架构的设计思路与 EasyAgent 实现方式。",
+        )
+        description = _architecture_description(selected)
+        if description:
+            st.caption(description)
+
+        diagram_col, code_col = st.columns([1, 1])
+        with diagram_col:
+            st.markdown("**架构流程图**")
+            st.markdown(
+                _architecture_diagram_html(selected),
+                unsafe_allow_html=True,
+            )
+        with code_col:
+            st.markdown("**EasyAgent 实现**")
+            st.code(_architecture_code(selected), language="python")
 
 
 def _render_code_export(
@@ -1054,6 +1099,7 @@ def _run_app() -> None:
         agent = None
 
     _render_trace_lab(st)
+    _render_architecture_demo(st)
     if agent_file is None and not model_missing:
         _render_code_export(
             st,

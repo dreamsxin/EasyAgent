@@ -18,6 +18,11 @@ ordinary Python.
 
 ## One execution loop
 
+The default loop **is** the [ReAct](architectures.md#react) pattern: the model
+reasons (Thought), calls a tool (Action), reads the result (Observation), and
+repeats until it can answer.  See `docs/architectures.md` for how this and four
+other mainstream patterns map onto EasyAgent's primitives.
+
 For `agent("question")`, the synchronous loop is:
 
 1. Add a user `Message` to the Agent's mutable memory.

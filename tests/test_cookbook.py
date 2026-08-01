@@ -16,6 +16,7 @@ RECIPES = [
     "06_safety_gates.py",
     "07_mcp_tools.py",
     "08_reproducible_rag.py",
+    "09_agent_architectures.py",
 ]
 
 

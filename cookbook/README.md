@@ -15,6 +15,7 @@ workflow DSL or external service.
 | `06_safety_gates.py` | Confirmation, loop detection, and audit log | `python cookbook/06_safety_gates.py` |
 | `07_mcp_tools.py` | MCP tool discovery, allowlist, confirm gate, rug-pull detection | `python cookbook/07_mcp_tools.py` |
 | `08_reproducible_rag.py` | Chunking, vector/BM25/hybrid retrieval, and agent integration | `python cookbook/08_reproducible_rag.py` |
+| `09_agent_architectures.py` | ReAct, Plan-and-Execute, Reflection, and Multi-Agent patterns | `python cookbook/09_agent_architectures.py` |
 
 Run recipes from the repository root. Generated files go into the ignored
 `artifacts/cookbook/` directory. To use a hosted model, change only the `llm` argument and
