@@ -465,10 +465,12 @@ def retrieve_tool(
         name="retrieve",
         description=(
             "Search the document store for passages relevant to a topic. "
-            "Pass a concise natural-language query (not the full user "
-            "question) -- e.g. 'Dao and technique' rather than 'retrieve "
-            "the essence of Dao'. Always base your answer on the retrieved "
-            "chunks and cite their source index."
+            "Pass ONE short search phrase (2-6 words), not multiple "
+            "keywords joined together. Extract the core concept from the "
+            "user's question -- e.g. for 'what is the essence of Dao?' "
+            "pass '道的本质', not '道的本质 道是什么 道家哲学'. "
+            "Base your answer on the retrieved chunks and cite their "
+            "source index."
         ),
         parameters={
             "type": "object",
@@ -476,8 +478,11 @@ def retrieve_tool(
                 "query": {
                     "type": "string",
                     "description": (
-                        "A concise search phrase describing the topic to "
-                        "look up, e.g. 'Dao essence' or 'memory types'."
+                        "A single short search phrase (2-6 words) "
+                        "capturing the core concept to look up. Do NOT "
+                        "join multiple keywords with spaces -- pick the "
+                        "most important phrase. e.g. '道的本质', "
+                        "'memory types', 'RAG pipeline'."
                     ),
                 }
             },
