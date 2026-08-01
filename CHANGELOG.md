@@ -7,6 +7,15 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
 
 ### Added
 
+- Reproducible RAG pipeline: `agentmold.rag` module with `chunk_text` (configurable
+  size/overlap, paragraph-aware splitting), `InMemoryVectorStore` (cosine similarity,
+  deterministic hash embedder for offline use), `BM25Index` (keyword retrieval),
+  `hybrid_search` (vector+BM25 merge with `alpha` blend and optional `reranker` hook),
+  `retrieve_tool` / `rag_tools` (one-step agent-ready tool factory).
+- `CompactingMemory`: token-budget-aware memory that summarises old messages while
+  preserving the first user intent and recent tool results; custom `summarizer` callback.
+- Multi-user `VectorMemory` isolation: `user_id` metadata filtering so per-user recall
+  never crosses tenants.
 - MCP client: `mcp_tools(server_url)` discovers tools from any MCP server as ordinary
   `Tool` objects over Streamable HTTP. Includes `tool_allowlist` filtering, `confirm_all`
   HITL gating, `known_fingerprints` rug-pull detection, and the same SSRF/private-network

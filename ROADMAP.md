@@ -187,13 +187,13 @@ run is recorded in the trace like any local tool call.
 Target: a transparent RAG pipeline as plain Python, with the same trace and replay
 contract as the agent loop.
 
-- [ ] Add an `agentmold.rag` module: `chunk_text` (configurable size and overlap),
+- [x] Add an `agentmold.rag` module: `chunk_text` (configurable size and overlap),
   embed-and-store, and a `retrieve(query, top_k)` tool built on the existing embedder.
-- [ ] Support hybrid retrieval: merge BM25 and vector recall, with an optional
+- [x] Support hybrid retrieval: merge BM25 and vector recall, with an optional
   `reranker` hook for precision.
-- [ ] Add multi-user memory isolation: `user_id` metadata filtering on `VectorMemory`
+- [x] Add multi-user memory isolation: `user_id` metadata filtering on `VectorMemory`
   so per-user recall never crosses tenants.
-- [ ] Add an experimental `CompactingMemory`: token-budget-aware truncation with
+- [x] Add an experimental `CompactingMemory`: token-budget-aware truncation with
   summarization that preserves the first user intent and the most recent tool results.
 
 Release gate: a RAG run's chunks, retrieved context, and rerank decisions all appear in

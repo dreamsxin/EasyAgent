@@ -22,7 +22,16 @@ from agentmold.experiment import EvalCase, EvalReport, EvalResult, aevaluate, ev
 from agentmold.llm import LLM
 from agentmold.loading import load_agent, load_tools
 from agentmold.mcp import MCPToolSet, mcp_tools
-from agentmold.memory import Memory, MemoryRecord, VectorMemory
+from agentmold.memory import CompactingMemory, Memory, MemoryRecord, VectorMemory
+from agentmold.rag import (
+    BM25Index,
+    InMemoryVectorStore,
+    TextChunk,
+    chunk_text,
+    hybrid_search,
+    rag_tools,
+    retrieve_tool,
+)
 from agentmold.tool import Tool, tool
 
 __all__ = [
@@ -43,17 +52,25 @@ __all__ = [
     "LogLevel",
     "LLM",
     "Memory",
+    "CompactingMemory",
     "MemoryRecord",
     "Tool",
     "ToolLoadError",
     "VectorMemory",
     "aevaluate",
+    "BM25Index",
+    "InMemoryVectorStore",
+    "TextChunk",
+    "chunk_text",
     "discover_providers",
     "discover_tools",
     "evaluate",
+    "hybrid_search",
     "load_agent",
     "load_tools",
     "mcp_tools",
+    "rag_tools",
+    "retrieve_tool",
     "tool",
     "__version__",
 ]

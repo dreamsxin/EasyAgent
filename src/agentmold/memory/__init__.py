@@ -87,6 +87,118 @@ class Memory(BaseMemory):
         self._messages.clear()
 
 
+class CompactingMemory(BaseMemory):
+    """Token-budget-aware memory that summarises old messages instead of dropping them.
+
+    When the total estimated token count exceeds ``max_tokens``, the oldest
+    messages (excluding the system prompt, the first user intent, and the most
+    recent tool results) are passed to the ``summarizer`` callback and replaced
+    with a single summary message.  This preserves context across long
+    conversations without unbounded growth.
+
+    Token count is estimated as ``len(content) // chars_per_token`` (default
+    4 chars/token), which is accurate enough for budget enforcement without
+    requiring a tokeniser dependency.
+
+    Parameters
+    ----------
+    max_tokens:
+        Soft token budget.  When exceeded, compaction is triggered.
+    system:
+        System prompt stored separately (never compacted).
+    chars_per_token:
+        Characters per estimated token (default 4).
+    keep_recent:
+        Number of most-recent messages always preserved verbatim (default 6).
+    summarizer:
+        Callable ``list[Message] -> str`` that produces a summary of old
+        messages.  Defaults to a simple concatenation with truncation.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_tokens: int = 2000,
+        system: str | None = None,
+        chars_per_token: int = 4,
+        keep_recent: int = 6,
+        summarizer: Callable[[list[Message]], str] | None = None,
+    ) -> None:
+        if max_tokens < 100:
+            raise ValueError("max_tokens must be at least 100")
+        if keep_recent < 1:
+            raise ValueError("keep_recent must be at least 1")
+        self.max_tokens = max_tokens
+        self._system: str | None = system
+        self._chars_per_token = chars_per_token
+        self._keep_recent = keep_recent
+        self._summarizer = summarizer or self._default_summarizer
+        self._messages: list[Message] = []
+        self._summary: str | None = None
+
+    @staticmethod
+    def _default_summarizer(messages: list[Message]) -> str:
+        """Concatenate message contents, truncated to a reasonable length."""
+        parts = [f"[{m.role}] {m.content}" for m in messages]
+        text = " ".join(parts)
+        return text[:500] + "…" if len(text) > 500 else text
+
+    def add(self, message: Message) -> None:
+        if message.role == "system" and self._system is None:
+            self._system = message.content
+            return
+        self._messages.append(message)
+        self._maybe_compact()
+
+    def messages(self) -> list[Message]:
+        result: list[Message] = []
+        if self._system:
+            result.append(Message(role="system", content=self._system))
+        if self._summary:
+            result.append(
+                Message(role="system", content=f"Summary of earlier conversation: {self._summary}")
+            )
+        result.extend(self._messages)
+        return result
+
+    def clear(self) -> None:
+        self._messages.clear()
+        self._summary = None
+
+    def _estimate_tokens(self) -> int:
+        total_chars = sum(len(m.content) for m in self._messages)
+        if self._summary:
+            total_chars += len(self._summary)
+        return total_chars // self._chars_per_token
+
+    def _maybe_compact(self) -> None:
+        if self._estimate_tokens() <= self.max_tokens:
+            return
+        if len(self._messages) <= self._keep_recent + 1:
+            return  # Not enough to compact.
+
+        # Preserve the first user message (intent) and the most recent messages.
+        first = self._messages[0]
+        recent = self._messages[-self._keep_recent :]
+        to_summarise = self._messages[1 : -self._keep_recent]
+
+        if not to_summarise:
+            return
+
+        # Merge existing summary with new messages to summarise.
+        if self._summary:
+            old = [Message(role="system", content=self._summary)]
+            to_summarise = old + to_summarise
+
+        self._summary = self._summarizer(to_summarise)
+        self._messages = [first] + recent
+
+    @property
+    def last_summary(self) -> str | None:
+        """Return the most recent compaction summary, or ``None``."""
+        return self._summary
+
+
 class VectorMemory(BaseMemory):
     """Long-term memory backed by a local vector store.
 
@@ -115,6 +227,7 @@ class VectorMemory(BaseMemory):
         api_key: str | None = None,
         system: str | None = None,
         embedder: Callable[[str], list[float]] | None = None,
+        user_id: str | None = None,
     ) -> None:
         if len(collection) < 3:
             raise ValueError("collection must contain at least 3 characters")
@@ -155,6 +268,7 @@ class VectorMemory(BaseMemory):
                 f"Collection {collection!r} uses embed_model={stored_model!r}, not {embed_model!r}."
             )
         self._api_key = api_key or _env("OPENAI_API_KEY")
+        self._user_id = user_id
         # Load existing IDs so clear() also works after a process restart.
         existing = self._collection.get(include=["metadatas"])
         self._stored_ids: list[str] = list(existing.get("ids", []))
@@ -178,6 +292,7 @@ class VectorMemory(BaseMemory):
                     {
                         "role": message.role,
                         "created_at": datetime.now(timezone.utc).isoformat(),
+                        **({"user_id": self._user_id} if self._user_id else {}),
                     }
                 ],
             )
@@ -234,10 +349,14 @@ class VectorMemory(BaseMemory):
         if count == 0:
             return []
         excluded = exclude_ids or set()
+        where_filter: dict[str, str] | None = None
+        if self._user_id:
+            where_filter = {"user_id": self._user_id}
         results = self._collection.query(
             query_embeddings=[self._embed(query)],
             n_results=min(limit + len(excluded), count),
             include=["documents", "metadatas", "distances"],
+            **({"where": where_filter} if where_filter else {}),
         )
         ids = results.get("ids", [[]])[0]
         documents = (results.get("documents") or [[]])[0]
