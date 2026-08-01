@@ -136,6 +136,21 @@ def build_agent(
         raise ValueError(f"工具不可用: {', '.join(missing)}")
     tools = [tool_map[tool_name] for tool_name in selected_tools]
 
+    # When the RAG retrieve tool is active, nudge the model to actually use it
+    # and to ground its answer in the retrieved chunks rather than guessing.
+    effective_instructions = instructions
+    if any(t.name == "retrieve" for t in tools):
+        rag_hint = (
+            "\n\nYou have a `retrieve` tool that searches the document store. "
+            "When the user asks about a topic that may be covered in the "
+            "documents, call `retrieve` with a concise search phrase first, "
+            "then base your answer on the returned chunks. If the chunks are "
+            "relevant, summarise and cite them. Do not claim the documents "
+            "lack relevant information without first trying a search."
+        )
+        if rag_hint not in effective_instructions:
+            effective_instructions = effective_instructions + rag_hint
+
     level = {"SILENT": LogLevel.SILENT, "INFO": LogLevel.INFO, "DEBUG": LogLevel.DEBUG}.get(
         log_level, LogLevel.SILENT
     )
@@ -148,7 +163,7 @@ def build_agent(
 
     return Agent(
         name=name,
-        instructions=instructions,
+        instructions=effective_instructions,
         tools=tools,
         llm=llm,
         max_iterations=max_iterations,

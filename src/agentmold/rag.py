@@ -464,15 +464,21 @@ def retrieve_tool(
         func=retrieve,
         name="retrieve",
         description=(
-            "Retrieve relevant text chunks from the document store. "
-            "Use when you need to look up information."
+            "Search the document store for passages relevant to a topic. "
+            "Pass a concise natural-language query (not the full user "
+            "question) -- e.g. 'Dao and technique' rather than 'retrieve "
+            "the essence of Dao'. Always base your answer on the retrieved "
+            "chunks and cite their source index."
         ),
         parameters={
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "The search query.",
+                    "description": (
+                        "A concise search phrase describing the topic to "
+                        "look up, e.g. 'Dao essence' or 'memory types'."
+                    ),
                 }
             },
             "required": ["query"],

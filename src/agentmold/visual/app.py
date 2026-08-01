@@ -867,6 +867,30 @@ def _run_app() -> None:
 
                     chunks = chunk_text(rag_text, size=500, overlap=80, source="rag-input")
                     st.session_state.ea_rag_chunk_count = len(chunks)
+                    # Persist the RAG text immediately so a page refresh
+                    # auto-rebuilds the store.  st.rerun() below would skip
+                    # the normal config-save path later in the script.
+                    try:
+                        save_visual_agent_config(
+                            {
+                                "name": name,
+                                "instructions": instructions,
+                                "connection_type": connection_type,
+                                "custom_interface": custom_interface,
+                                "max_iterations": max_iterations,
+                                "selected_tools": selected_tools,
+                                "custom_tool_files": custom_tool_files,
+                                "mcp_url": st.session_state.get("ea_mcp_url", ""),
+                                "rag_text": rag_text,
+                                "agent_mode": agent_mode,
+                                "loop_detection_threshold": int(loop_detection_threshold),
+                                "require_approval": bool(require_approval),
+                                "audit_log": bool(audit_log),
+                                "log_level": log_level,
+                            }
+                        )
+                    except OSError:
+                        pass
                     st.toast(f"已建库：{len(chunks)} 个文本块", icon="📚")
                     st.rerun()
             if st.session_state.get("ea_rag_chunk_count"):
