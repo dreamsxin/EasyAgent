@@ -43,6 +43,9 @@ from agentmold.visual.agent_config import (
     llm_config_from_ui as _llm_config_from_ui,
 )
 from agentmold.visual.agent_config import (
+    load_mcp_visual_tools as _load_mcp_visual_tools,
+)
+from agentmold.visual.agent_config import (
     load_visual_tools as _load_visual_tools,
 )
 from agentmold.visual.agent_config import (
@@ -417,6 +420,7 @@ def _run_app() -> None:
             )
             st.session_state.ea_max_iterations = saved_agent_config.get("max_iterations", 10)
             st.session_state.ea_custom_tool_files = saved_agent_config.get("custom_tool_files", [])
+            st.session_state.ea_mcp_url = saved_agent_config.get("mcp_url", "")
             st.session_state.ea_restored_tool_names = saved_agent_config.get(
                 "selected_tools", ["calculate"]
             )
@@ -708,6 +712,69 @@ def _run_app() -> None:
                 st.session_state.ea_agent_notice = "已清除上传工具"
                 st.rerun()
 
+        # --- MCP server connection ---
+        with st.sidebar.expander(
+            "MCP 工具服务",
+            expanded=bool(st.session_state.get("ea_mcp_url")),
+        ):
+            st.caption(
+                "连接 MCP server，自动发现其工具。需要 "
+                "`pip install 'agentmold[mcp]'`。MCP 工具是异步的，"
+                "运行时使用 arun 路径。"
+            )
+            mcp_url = st.text_input(
+                "MCP Server URL",
+                key="ea_mcp_url",
+                placeholder="http://localhost:8000/mcp",
+                help="Streamable HTTP 端点。本地服务器请用 http://localhost:PORT/path。",
+            )
+            mcp_col1, mcp_col2 = st.columns(2)
+            with mcp_col1:
+                mcp_connect = st.button("🔗 连接", use_container_width=True, key="ea_mcp_connect")
+            with mcp_col2:
+                if st.button(
+                    "断开",
+                    use_container_width=True,
+                    key="ea_mcp_disconnect",
+                    disabled=not st.session_state.get("ea_mcp_tools"),
+                ):
+                    st.session_state.pop("ea_mcp_tools", None)
+                    st.session_state.pop("ea_mcp_origins", None)
+                    st.session_state.pop("ea_mcp_error", None)
+                    st.toast("已断开 MCP server", icon="🔌")
+                    st.rerun()
+
+            if mcp_connect and mcp_url:
+                import asyncio as _asyncio
+
+                confirm_all = require_approval
+                try:
+                    mcp_tools_map, mcp_origins_map, mcp_err = _asyncio.run(
+                        _load_mcp_visual_tools(
+                            mcp_url,
+                            allow_private=True,
+                            confirm_all=confirm_all,
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    mcp_tools_map, mcp_origins_map, mcp_err = {}, {}, str(exc)
+                if mcp_err:
+                    st.session_state.ea_mcp_error = mcp_err
+                    st.session_state.pop("ea_mcp_tools", None)
+                    st.session_state.pop("ea_mcp_origins", None)
+                    st.error(f"MCP 连接失败：{mcp_err}")
+                else:
+                    st.session_state.ea_mcp_tools = mcp_tools_map
+                    st.session_state.ea_mcp_origins = mcp_origins_map
+                    st.session_state.pop("ea_mcp_error", None)
+                    st.toast(
+                        f"已连接 MCP server，发现 {len(mcp_tools_map)} 个工具",
+                        icon="🔗",
+                    )
+                    st.rerun()
+            if st.session_state.get("ea_mcp_error"):
+                st.error(f"MCP：{st.session_state.ea_mcp_error}")
+
         custom_tool_files = list(st.session_state.ea_custom_tool_files)
         tool_signature = uploaded_tools_signature(custom_tool_files)
         if st.session_state.get("ea_visual_tool_cache_signature") != tool_signature:
@@ -716,8 +783,15 @@ def _run_app() -> None:
             st.session_state.ea_visual_tool_map = tool_map
             st.session_state.ea_visual_tool_origins = tool_origins
             st.session_state.ea_visual_tool_errors = tool_errors
-        available_tools = st.session_state.ea_visual_tool_map
-        tool_origins = st.session_state.ea_visual_tool_origins
+        available_tools = dict(st.session_state.ea_visual_tool_map)
+        tool_origins = dict(st.session_state.ea_visual_tool_origins)
+        # Merge MCP tools into the available pool.
+        mcp_tools_session = st.session_state.get("ea_mcp_tools")
+        if mcp_tools_session:
+            for name, mcp_tool in mcp_tools_session.items():
+                if name not in available_tools:
+                    available_tools[name] = mcp_tool
+                    tool_origins[name] = st.session_state.ea_mcp_origins.get(name, "MCP")
         for tool_error in st.session_state.ea_visual_tool_errors:
             st.sidebar.error(tool_error)
 
@@ -748,6 +822,7 @@ def _run_app() -> None:
             "max_iterations": max_iterations,
             "selected_tools": selected_tools,
             "custom_tool_files": custom_tool_files,
+            "mcp_url": st.session_state.get("ea_mcp_url", ""),
             "agent_mode": agent_mode,
             "loop_detection_threshold": int(loop_detection_threshold),
             "require_approval": bool(require_approval),
@@ -794,6 +869,10 @@ def _run_app() -> None:
                         "ea_require_approval",
                         "ea_audit_log",
                         "ea_log_level",
+                        "ea_mcp_url",
+                        "ea_mcp_tools",
+                        "ea_mcp_origins",
+                        "ea_mcp_error",
                     }
                 ):
                     st.session_state.pop(key, None)

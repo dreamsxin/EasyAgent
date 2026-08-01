@@ -272,6 +272,39 @@ def load_visual_tools(
     return tools, origins, errors
 
 
+async def load_mcp_visual_tools(
+    server_url: str,
+    *,
+    allow_private: bool = True,
+    confirm_all: bool = False,
+) -> tuple[dict[str, Tool], dict[str, str], str | None]:
+    """Connect to an MCP server and return tool/origin maps for the visual lab.
+
+    Returns ``(tools, origins, error)`` where *error* is ``None`` on success.
+    The origin label is ``"MCP · {url}"`` so learners can distinguish remote
+    tools from built-in and uploaded ones.
+    """
+    from agentmold.exceptions import MCPError
+    from agentmold.mcp import mcp_tools
+
+    try:
+        toolset = await mcp_tools(
+            server_url,
+            allow_private=allow_private,
+            confirm_all=confirm_all,
+        )
+    except (MCPError, ValueError) as exc:
+        return {}, {}, str(exc)
+
+    tools: dict[str, Tool] = {}
+    origins: dict[str, str] = {}
+    label = f"MCP · {server_url}"
+    for mcp_tool in toolset:
+        tools[mcp_tool.name] = mcp_tool
+        origins[mcp_tool.name] = label
+    return tools, origins, None
+
+
 def tool_widget_key(tool_name: str) -> str:
     digest = hashlib.sha256(tool_name.encode("utf-8")).hexdigest()[:12]
     return f"ea_tool_{digest}"
