@@ -13,6 +13,7 @@ workflow DSL or external service.
 | `04_scoped_workspace.py` | Explicit filesystem boundaries | `python cookbook/04_scoped_workspace.py` |
 | `05_agent_as_tool.py` | Experimental Agent composition | `python cookbook/05_agent_as_tool.py` |
 | `06_safety_gates.py` | Confirmation, loop detection, and audit log | `python cookbook/06_safety_gates.py` |
+| `07_mcp_tools.py` | MCP tool discovery, allowlist, confirm gate, rug-pull detection | `python cookbook/07_mcp_tools.py` |
 
 Run recipes from the repository root. Generated files go into the ignored
 `artifacts/cookbook/` directory. To use a hosted model, change only the `llm` argument and

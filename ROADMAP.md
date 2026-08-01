@@ -170,11 +170,11 @@ round-trips; and the audit log replays every tool call in order.
 Target: consume any Model Context Protocol server as a tool source, without a DSL or a
 centralized marketplace.
 
-- [ ] Add an MCP client: an `mcp_tools(server_url)` factory that exposes a server's
+- [x] Add an MCP client: an `mcp_tools(server_url)` factory that exposes a server's
   `list_tools` / `call_tool` surface as ordinary `Tool` objects over Streamable HTTP.
-- [ ] Reuse the `http_tools` SSRF and private-network guards on the MCP transport so
+- [x] Reuse the `http_tools` SSRF and private-network guards on the MCP transport so
   remote tool servers are subject to the same network policy as built-in HTTP tools.
-- [ ] Defend tool poisoning and rug-pull: a tool-source allowlist plus description-change
+- [x] Defend tool poisoning and rug-pull: a tool-source allowlist plus description-change
   detection (a version fingerprint per tool) flags untrusted or silently changed tools
   instead of executing them.
 

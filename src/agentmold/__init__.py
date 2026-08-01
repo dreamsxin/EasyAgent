@@ -15,11 +15,13 @@ from agentmold.exceptions import (
     AgentLoadError,
     ExtensionLoadError,
     LoopDetectedError,
+    MCPError,
     ToolLoadError,
 )
 from agentmold.experiment import EvalCase, EvalReport, EvalResult, aevaluate, evaluate
 from agentmold.llm import LLM
 from agentmold.loading import load_agent, load_tools
+from agentmold.mcp import MCPToolSet, mcp_tools
 from agentmold.memory import Memory, MemoryRecord, VectorMemory
 from agentmold.tool import Tool, tool
 
@@ -31,6 +33,8 @@ __all__ = [
     "ApprovalRequestEvent",
     "LoopDetectedError",
     "LoopDetectedEvent",
+    "MCPError",
+    "MCPToolSet",
     "TextDeltaEvent",
     "ExtensionLoadError",
     "EvalCase",
@@ -49,6 +53,7 @@ __all__ = [
     "evaluate",
     "load_agent",
     "load_tools",
+    "mcp_tools",
     "tool",
     "__version__",
 ]

@@ -41,3 +41,7 @@ class ToolLoadError(ConfigurationError):
 
 class ExtensionLoadError(ConfigurationError):
     """Raised when an installed provider or tool extension is invalid."""
+
+
+class MCPError(ConfigurationError):
+    """Raised when an MCP server connection or tool initialisation fails."""

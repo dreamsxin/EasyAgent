@@ -51,3 +51,10 @@ agent = Agent(
 ```
 
 这些策略是工具层的边界，不是操作系统级沙箱。运行不可信代码时仍应使用容器、虚拟机或其他隔离环境。
+
+## MCP 工具
+
+`mcp_tools(server_url)` 连接外部 MCP server，复用与 `http_tools` 相同的 SSRF 防护
+（主机白名单 + 私网拒绝）。额外提供工具白名单（`tool_allowlist`）、确认门
+（`confirm_all`）和工具投毒检测（`known_fingerprints`）。详见
+[MCP 工具](mcp.md)。

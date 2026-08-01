@@ -93,7 +93,7 @@ def test_http_tools_block_private_destinations(monkeypatch):
 def test_http_tools_validate_dns_before_request(monkeypatch):
     http_get = http_tools({"internal.example"})[0]
     monkeypatch.setattr(
-        "agentmold.tools.socket.getaddrinfo",
+        "agentmold._netpolicy.socket.getaddrinfo",
         lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.20", 80))],
     )
     monkeypatch.setattr(
@@ -106,7 +106,7 @@ def test_http_tools_validate_dns_before_request(monkeypatch):
 
 def test_http_tools_request_public_host_without_redirects(monkeypatch):
     http_get = http_tools({"example.com"}, max_chars=4)[0]
-    monkeypatch.setattr("agentmold.tools.socket.getaddrinfo", _public_dns)
+    monkeypatch.setattr("agentmold._netpolicy.socket.getaddrinfo", _public_dns)
     calls = {}
 
     def fake_get(url, **kwargs):
@@ -122,7 +122,7 @@ def test_http_tools_request_public_host_without_redirects(monkeypatch):
 
 def test_http_tools_reject_redirects(monkeypatch):
     http_get = http_tools({"example.com"})[0]
-    monkeypatch.setattr("agentmold.tools.socket.getaddrinfo", _public_dns)
+    monkeypatch.setattr("agentmold._netpolicy.socket.getaddrinfo", _public_dns)
     monkeypatch.setattr(
         "agentmold.tools.httpx.get",
         lambda *args, **kwargs: _FakeResponse(status_code=302),

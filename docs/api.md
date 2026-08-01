@@ -127,6 +127,34 @@ The export must be a non-empty list or tuple of unique `Tool` objects. Plain fun
 are rejected; decorate them explicitly with `@tool`. Importing a module executes ordinary
 Python with the current process permissions. See [Custom tool modules](custom-tools.md).
 
+## MCP tools
+
+`mcp_tools(server_url)` connects to an MCP server and returns its tools as ordinary
+`Tool` objects. MCP tools are asynchronous; use `await agent.arun()` or
+`agent.arun_stream()`. See [MCP tools](mcp.md) for the full guide.
+
+```python
+import asyncio
+from agentmold import Agent
+from agentmold.mcp import mcp_tools
+
+async def main() -> None:
+    toolset = await mcp_tools(
+        "https://mcp.example.com/mcp",
+        allowed_hosts={"mcp.example.com"},
+        tool_allowlist={"search"},  # optional: only expose these tools
+        confirm_all=True,           # optional: gate every call behind approval
+    )
+    agent = Agent(tools=[*toolset], llm={"provider": "openai", "model": "gpt-4o"})
+    print(await agent.arun("Search for AI agents"))
+
+asyncio.run(main())
+```
+
+`MCPToolSet` is iterable (`[*toolset]`), exposes `.fingerprints` for rug-pull
+detection, and `.server_url`. Pass `known_fingerprints=` on reconnect to log a
+warning when a tool's description has changed.
+
 ## Retries, timeouts, and cancellation
 
 LLM configuration accepts framework-level retries and provider-native request timeouts:

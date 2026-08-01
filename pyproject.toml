@@ -38,6 +38,7 @@ deepseek-anthropic = ["anthropic>=0.18"]
 anthropic = ["anthropic>=0.18"]
 ollama = ["ollama>=0.1"]
 memory = ["chromadb>=0.4", "numpy>=1.24"]
+mcp = ["mcp>=2.0"]
 visual = ["streamlit>=1.30", "streamlit-agraph>=0.0.45"]
 all = [
     "openai>=1.0",
@@ -45,6 +46,7 @@ all = [
     "ollama>=0.1",
     "chromadb>=0.4",
     "numpy>=1.24",
+    "mcp>=2.0",
     "streamlit>=1.30",
     "streamlit-agraph>=0.0.45",
 ]
@@ -94,6 +96,7 @@ module = [
     "anthropic",
     "click",
     "chromadb",
+    "mcp",
     "ollama",
     "openai",
     "streamlit",

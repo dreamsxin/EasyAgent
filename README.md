@@ -357,6 +357,32 @@ agent = Agent(
 
 完整策略说明见 [内置工具权限](docs/tool-policies.md)。
 
+### MCP 工具（外部工具服务）
+
+通过 MCP 协议连接外部工具服务器，把它的工具变成普通 `Tool` 对象。需要安装
+`pip install "agentmold[mcp]"`，且 MCP 工具是异步的（用 `await agent.arun()`）：
+
+```python
+import asyncio
+from agentmold import Agent
+from agentmold.mcp import mcp_tools
+
+async def main() -> None:
+    toolset = await mcp_tools(
+        "https://mcp.example.com/mcp",
+        allowed_hosts={"mcp.example.com"},
+        tool_allowlist={"search"},  # 只暴露指定工具
+        confirm_all=True,           # 每次调用前确认
+    )
+    agent = Agent(tools=[*toolset], llm={"provider": "openai", "model": "gpt-4o"})
+    print(await agent.arun("搜索 AI agent"))
+
+asyncio.run(main())
+```
+
+MCP 复用 `http_tools` 的 SSRF 防护，并提供工具白名单、确认门和工具投毒检测。
+详见 [MCP 工具文档](docs/mcp.md)。
+
 ### 实验性 Agent 组合
 
 需要研究多 Agent 行为时，可以显式地把一个 Agent 转成普通工具，而不引入编排框架：

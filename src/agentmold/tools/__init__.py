@@ -20,10 +20,8 @@ Example::
 from __future__ import annotations
 
 import ast
-import ipaddress
 import math
 import operator as op
-import socket
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -31,6 +29,15 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from agentmold._netpolicy import (
+    normalise_allowed_hosts as _normalise_allowed_hosts,
+)
+from agentmold._netpolicy import (
+    normalise_host as _normalise_host,
+)
+from agentmold._netpolicy import (
+    resolved_addresses as _resolved_addresses,
+)
 from agentmold.tool import Tool, tool
 
 __all__ = ["calculate", "workspace_tools", "http_tools"]
@@ -158,54 +165,6 @@ def workspace_tools(
 # ---------------------------------------------------------------------------
 # HTTP tool
 # ---------------------------------------------------------------------------
-
-
-def _normalise_host(host: str) -> str:
-    """Return a comparable lowercase hostname or IP literal."""
-    value = host.strip().strip("[]").rstrip(".").lower()
-    if not value:
-        raise ValueError("allowed_hosts must contain non-empty hostnames")
-    try:
-        return ipaddress.ip_address(value).compressed
-    except ValueError:
-        try:
-            return value.encode("idna").decode("ascii")
-        except UnicodeError as exc:
-            raise ValueError(f"invalid host: {host!r}") from exc
-
-
-def _normalise_allowed_hosts(allowed_hosts: Iterable[str]) -> frozenset[str]:
-    hosts = []
-    for host in allowed_hosts:
-        raw = str(host).strip()
-        if not raw or "://" in raw or any(char in raw for char in "/@?#"):
-            raise ValueError("allowed_hosts must contain hostnames only, without URLs or paths")
-        try:
-            parsed = urlsplit(f"//{raw}")
-            if parsed.port is not None:
-                raise ValueError("allowed_hosts must not include ports")
-        except ValueError as exc:
-            raise ValueError(f"invalid allowed host {host!r}: {exc}") from exc
-        hosts.append(_normalise_host(raw))
-    if not hosts:
-        raise ValueError("allowed_hosts must not be empty")
-    return frozenset(hosts)
-
-
-def _resolved_addresses(host: str, port: int) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
-    try:
-        literal = ipaddress.ip_address(host)
-    except ValueError:
-        try:
-            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-        except OSError as exc:
-            raise ValueError(f"could not resolve host {host!r}: {exc}") from exc
-        addresses = {ipaddress.ip_address(info[4][0]) for info in infos}
-    else:
-        addresses = {literal}
-    if not addresses:
-        raise ValueError(f"host {host!r} resolved to no addresses")
-    return addresses
 
 
 def http_tools(

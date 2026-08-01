@@ -7,6 +7,10 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
 
 ### Added
 
+- MCP client: `mcp_tools(server_url)` discovers tools from any MCP server as ordinary
+  `Tool` objects over Streamable HTTP. Includes `tool_allowlist` filtering, `confirm_all`
+  HITL gating, `known_fingerprints` rug-pull detection, and the same SSRF/private-network
+  guards as `http_tools`. Requires `pip install "agentmold[mcp]"`; tools are async-only.
 - Human-in-the-loop confirmation gate: `@tool(confirm=True)` marks a destructive tool, the
   agent emits an `approval_request` execution event before it runs, and an `on_approval`
   callback (or the interactive REPL) decides whether to allow or refuse it. Refusals are
