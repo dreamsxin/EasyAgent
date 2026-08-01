@@ -1212,6 +1212,32 @@ def _run_app() -> None:
                 )
                 st.caption(message)
 
+            # --- Tool schemas (function calling) ---
+            if agent.tools:
+                provider_name = type(agent.llm).__name__
+                if "Anthropic" in provider_name:
+                    calling_format = "Anthropic tools (input_schema)"
+                elif "OpenAI" in provider_name:
+                    calling_format = "OpenAI function calling"
+                elif "Ollama" in provider_name:
+                    calling_format = "Ollama tools"
+                else:
+                    calling_format = "mock (无 API 调用)"
+                with st.expander(
+                    f"🔧 工具 Schema · {calling_format}",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "工具通过 API 原生 function calling 传递给模型，"
+                        "而非提示词注入。模型返回结构化 tool_calls，"
+                        "Agent 执行对应 Python 函数后将结果写回记忆。"
+                    )
+                    for t in agent.tools:
+                        st.markdown(f"**`{t.name}`**")
+                        if t.description:
+                            st.caption(t.description)
+                        st.json(t.parameters, expanded=False)
+
             # --- Actions group ---
             st.markdown('<div class="ea-section-label">操作</div>', unsafe_allow_html=True)
             act_col1, act_col2 = st.columns(2)
