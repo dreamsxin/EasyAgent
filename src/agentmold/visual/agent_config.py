@@ -52,19 +52,16 @@ AGENT_MODE_PRESETS: dict[str, dict[str, Any] | None] = {
         "loop_detection_threshold": 3,
         "require_approval": False,
         "audit_log": False,
-        "log_level": "SILENT",
     },
     "安全模式": {
         "loop_detection_threshold": 3,
         "require_approval": True,
         "audit_log": True,
-        "log_level": "INFO",
     },
     "调试模式": {
         "loop_detection_threshold": 3,
         "require_approval": False,
         "audit_log": True,
-        "log_level": "DEBUG",
     },
     "自定义": None,
 }
@@ -98,7 +95,6 @@ def resolve_mode(
     loop_detection_threshold: int | None,
     require_approval: bool,
     audit_log: bool,
-    log_level: str,
 ) -> dict[str, Any]:
     """Return the effective safety knobs, applying a preset when not custom."""
     preset = AGENT_MODE_PRESETS.get(mode)
@@ -108,7 +104,6 @@ def resolve_mode(
         "loop_detection_threshold": loop_detection_threshold,
         "require_approval": require_approval,
         "audit_log": audit_log,
-        "log_level": log_level,
     }
 
 
@@ -123,7 +118,6 @@ def build_agent(
     loop_detection_threshold: int | None = 3,
     require_approval: bool = False,
     audit_log: bool = False,
-    log_level: str = "SILENT",
     audit_log_path: str | None = None,
 ) -> Agent:
     """Construct an Agent from the UI configuration."""
@@ -151,13 +145,10 @@ def build_agent(
         if rag_hint not in effective_instructions:
             effective_instructions = effective_instructions + rag_hint
 
-    level = {"SILENT": LogLevel.SILENT, "INFO": LogLevel.INFO, "DEBUG": LogLevel.DEBUG}.get(
-        log_level, LogLevel.SILENT
-    )
     # The visual lab is its own observability layer: the timeline, execution
     # map, and trace lab already show every step.  print()-based logging
-    # inside Streamlit's st.status() context can trigger [Errno 22] on
-    # Windows, so always force silent here regardless of the mode setting.
+    # inside Streamlit can trigger [Errno 22] on Windows, so always force
+    # silent here regardless of the mode setting.
     level = LogLevel.SILENT
     on_approval = visual_approval_gate if require_approval else None
 
@@ -177,16 +168,19 @@ def build_agent(
 def visual_approval_gate(tool_name: str, arguments: dict[str, Any]) -> bool:
     """Approval callback used by the visual lab in safe mode.
 
-    Surfaces the pending destructive call through Streamlit so a learner sees
-    the gate, then refuses by default - the run is recorded with the refusal so
-    the safety behavior is observable without an unattended side effect.
+    Reads a decision from ``st.session_state['ea_approval_decision']`` which is
+    set by the interactive Approve/Refuse buttons rendered when the
+    ``approval_request`` event is displayed.  Defaults to refusing (safety).
     """
     import streamlit as st
 
-    st.warning(
-        f"确认门触发：工具 {tool_name}({arguments}) 标记为破坏性操作。"
-        "安全模式下默认拒绝以避免副作用；在自定义模式中可改为自动批准。"
-    )
+    decision = st.session_state.get("ea_approval_decision")
+    if decision == "approved":
+        st.session_state.pop("ea_approval_decision", None)
+        return True
+    # Default: refuse. The app.py UI shows Approve/Refuse buttons when the
+    # approval_request event is emitted; if the student doesn't click Approve
+    # before the run reaches this callback, we refuse for safety.
     return False
 
 
@@ -202,7 +196,6 @@ def agent_signature(
     loop_detection_threshold: int | None = 3,
     require_approval: bool = False,
     audit_log: bool = False,
-    log_level: str = "SILENT",
 ) -> tuple[Any, ...]:
     """A hashable fingerprint of the config, to detect changes."""
     return (
@@ -216,7 +209,6 @@ def agent_signature(
         loop_detection_threshold,
         require_approval,
         audit_log,
-        log_level,
     )
 
 

@@ -367,7 +367,6 @@ def _render_code_export(
     loop_detection_threshold: int | None = 3,
     require_approval: bool = False,
     audit_log: bool = False,
-    log_level: str = "SILENT",
     rag_text: str = "",
 ) -> None:
     """Render a readable agent.py preview and download action."""
@@ -393,7 +392,6 @@ def _render_code_export(
             loop_detection_threshold=loop_detection_threshold,
             require_approval=require_approval,
             audit_log=audit_log,
-            log_level=log_level,
             rag_text=rag_text,
         )
         environment = api_key_environment(llm)
@@ -521,7 +519,6 @@ def _run_app() -> None:
             )
             st.session_state.ea_require_approval = saved_agent_config.get("require_approval", False)
             st.session_state.ea_audit_log = saved_agent_config.get("audit_log", False)
-            st.session_state.ea_log_level = saved_agent_config.get("log_level", "SILENT")
             st.session_state.ea_visual_config_initialized = True
             restored_agent_config = bool(saved_agent_config)
             if restored_agent_config:
@@ -540,16 +537,16 @@ def _run_app() -> None:
         mode_is_custom = agent_mode == "自定义"
         _mode_descriptions = {
             "标准模式": (
-                "循环检测开（阈值 3）· 无确认门 · 无审计 · 静默日志。\n"
+                "循环检测开（阈值 3）· 无确认门 · 无审计。\n"
                 "适合快速体验 Agent 基本循环，无额外安全防护。"
             ),
             "安全模式": (
-                "循环检测开 · **破坏性工具需确认** · 审计日志开 · INFO 日志。\n"
+                "循环检测开 · **破坏性工具需确认** · 审计日志开。\n"
                 "破坏性工具（如 write_file）执行前会弹确认门，每次工具调用写入审计日志。"
             ),
             "调试模式": (
-                "循环检测开 · 无确认门 · 审计日志开 · DEBUG 日志。\n"
-                "打印每一步思考/动作/观察，适合排查 Agent 行为问题。"
+                "循环检测开 · 无确认门 · 审计日志开。\n"
+                "审计日志记录每次工具调用；时间线和执行地图显示每一步思考/动作/观察。"
             ),
             "自定义": "手动调整下方安全门开关，自由组合防护策略。",
         }
@@ -559,13 +556,11 @@ def _run_app() -> None:
             st.session_state.get("ea_loop_detection_threshold", 3),
             st.session_state.get("ea_require_approval", False),
             st.session_state.get("ea_audit_log", False),
-            st.session_state.get("ea_log_level", "SILENT"),
         )
         if not mode_is_custom:
             st.session_state.ea_loop_detection_threshold = effective["loop_detection_threshold"]
             st.session_state.ea_require_approval = effective["require_approval"]
             st.session_state.ea_audit_log = effective["audit_log"]
-            st.session_state.ea_log_level = effective["log_level"]
         with st.sidebar.expander("安全门（自定义模式下可调）", expanded=mode_is_custom):
             loop_detection_threshold = st.number_input(
                 "重复调用检测阈值",
@@ -587,13 +582,6 @@ def _run_app() -> None:
                 key="ea_audit_log",
                 disabled=not mode_is_custom,
                 help="每次工具调用写入 .agentmold/audit.jsonl，可回放。",
-            )
-            log_level = st.selectbox(
-                "日志级别",
-                options=["SILENT", "INFO", "DEBUG"],
-                key="ea_log_level",
-                disabled=not mode_is_custom,
-                help="DEBUG 会打印每一步思考/动作/观察。",
             )
         name = st.sidebar.text_input("Agent 名称", key="ea_agent_name")
         instructions = st.sidebar.text_area(
@@ -994,22 +982,54 @@ def _run_app() -> None:
 
         restored_tool_names = set(st.session_state.ea_restored_tool_names)
         selected_tools = []
-        for tool_name, visual_tool in available_tools.items():
-            widget_key = _tool_widget_key(tool_name)
-            if widget_key not in st.session_state:
-                st.session_state[widget_key] = tool_name in restored_tool_names
-            label = f"{tool_name}  ·  {tool_origins[tool_name]}"
-            if getattr(visual_tool, "confirm", False):
-                label = f"⚠ {label}  ·  破坏性"
-            help_text = visual_tool.description or "未提供工具说明"
-            if getattr(visual_tool, "confirm", False):
-                help_text += "（标记为破坏性：安全模式下执行前需确认）"
-            if st.sidebar.checkbox(
-                label,
-                key=widget_key,
-                help=help_text,
-            ):
-                selected_tools.append(tool_name)
+        # Group tools by origin for clearer presentation.
+        _ORIGIN_LABELS = {
+            "内置": "内置工具",
+            "RAG": "RAG 检索",
+            "MCP": "MCP 工具",
+        }
+        # Build groups preserving first-seen order.
+        _origin_order: list[str] = []
+        _grouped: dict[str, list[str]] = {}
+        for tool_name in available_tools:
+            origin = tool_origins.get(tool_name, "")
+            # Normalize origin: "上传 · xxx" -> "上传模块", "MCP · url" -> "MCP 工具"
+            if origin.startswith("上传"):
+                group = "上传模块"
+            elif origin.startswith("MCP"):
+                group = "MCP 工具"
+            elif origin.startswith("RAG"):
+                group = "RAG 检索"
+            else:
+                group = "内置工具"
+            if group not in _grouped:
+                _grouped[group] = []
+                _origin_order.append(group)
+            _grouped[group].append(tool_name)
+
+        for group in _origin_order:
+            st.sidebar.markdown(f"**{group}**")
+            for tool_name in _grouped[group]:
+                visual_tool = available_tools[tool_name]
+                widget_key = _tool_widget_key(tool_name)
+                if widget_key not in st.session_state:
+                    st.session_state[widget_key] = tool_name in restored_tool_names
+                label = tool_name
+                if getattr(visual_tool, "confirm", False):
+                    label = f"⚠ {label} · 破坏性"
+                help_text = visual_tool.description or "未提供工具说明"
+                if getattr(visual_tool, "confirm", False):
+                    help_text += "（标记为破坏性：安全模式下执行前需确认）"
+                if st.sidebar.checkbox(
+                    label,
+                    key=widget_key,
+                    help=help_text,
+                ):
+                    selected_tools.append(tool_name)
+                # Inline one-line description so students see the purpose.
+                desc = visual_tool.description or ""
+                if desc:
+                    st.sidebar.caption(desc[:80] + ("…" if len(desc) > 80 else ""))
 
         current_agent_config = {
             "name": name,
@@ -1025,7 +1045,6 @@ def _run_app() -> None:
             "loop_detection_threshold": int(loop_detection_threshold),
             "require_approval": bool(require_approval),
             "audit_log": bool(audit_log),
-            "log_level": log_level,
         }
         if current_agent_config != load_visual_agent_config():
             try:
@@ -1066,7 +1085,6 @@ def _run_app() -> None:
                         "ea_loop_detection_threshold",
                         "ea_require_approval",
                         "ea_audit_log",
-                        "ea_log_level",
                         "ea_mcp_url",
                         "ea_mcp_tools",
                         "ea_mcp_origins",
@@ -1112,7 +1130,6 @@ def _run_app() -> None:
             loop_detection_threshold=loop_detection_threshold,
             require_approval=require_approval,
             audit_log=audit_log,
-            log_level=log_level,
         )
     )
     config_changed = st.session_state.agent_signature != current_sig
@@ -1147,7 +1164,6 @@ def _run_app() -> None:
                 loop_detection_threshold=loop_detection_threshold,
                 require_approval=require_approval,
                 audit_log=audit_log,
-                log_level=log_level,
                 audit_log_path=str(_AUDIT_LOG_PATH),
             )
             st.session_state.agent_signature = current_sig
@@ -1178,25 +1194,6 @@ def _run_app() -> None:
     if model_missing:
         agent = None
 
-    _render_trace_lab(st)
-    _render_architecture_demo(st)
-    if agent_file is None and not model_missing:
-        _render_code_export(
-            st,
-            name,
-            instructions,
-            llm,
-            selected_tools,
-            max_iterations,
-            loop_detection_threshold=loop_detection_threshold,
-            require_approval=require_approval,
-            audit_log=audit_log,
-            log_level=log_level,
-            rag_text=st.session_state.get("ea_rag_text", ""),
-        )
-    elif agent_file is None:
-        st.info("填写模型 ID 后可生成并导出 Agent。")
-
     # If an agent already exists but the config changed, rebuild it
     # automatically so the overview card always reflects reality — no
     # "please rebuild" blocking prompt.
@@ -1212,7 +1209,6 @@ def _run_app() -> None:
                 loop_detection_threshold=loop_detection_threshold,
                 require_approval=require_approval,
                 audit_log=audit_log,
-                log_level=log_level,
                 audit_log_path=str(_AUDIT_LOG_PATH),
             )
             st.session_state.agent_signature = current_sig
@@ -1305,7 +1301,10 @@ def _run_app() -> None:
                     st.rerun()
             with act_col2:
                 if st.button("🗑 重置会话", use_container_width=True, key="ea_reset_btn"):
-                    st.session_state.clear()
+                    # Only clear the conversation and run state, not the
+                    # agent config, MCP/RAG tools, or saved settings.
+                    for key in ("messages", "last_steps", "last_user_input", "run_meta"):
+                        st.session_state.pop(key, None)
                     st.rerun()
 
         st.markdown('<div class="ea-section-label">CONVERSATION</div>', unsafe_allow_html=True)
@@ -1413,8 +1412,28 @@ def _run_app() -> None:
                             # status removed to avoid stdout capture on Windows
                             try:
                                 st.warning(
-                                    f"⚠ **确认门:** 破坏性工具 `{step['name']}({step['arguments']})` "
-                                    "等待批准。安全模式下默认拒绝。"
+                                    f"⚠ **确认门 (HITL):** 破坏性工具 "
+                                    f"`{step['name']}({step['arguments']})` "
+                                    "请求执行。你决定是否允许。"
+                                )
+                                appr_col1, appr_col2 = st.columns(2)
+                                with appr_col1:
+                                    if st.button(
+                                        "✅ 批准执行",
+                                        key=f"ea_approve_{step.get('id', 'unknown')}",
+                                        use_container_width=True,
+                                    ):
+                                        st.session_state.ea_approval_decision = "approved"
+                                with appr_col2:
+                                    if st.button(
+                                        "❌ 拒绝（默认）",
+                                        key=f"ea_refuse_{step.get('id', 'unknown')}",
+                                        use_container_width=True,
+                                    ):
+                                        st.session_state.ea_approval_decision = "refused"
+                                st.caption(
+                                    "人机协作（HITL）安全门：点击「批准」允许破坏性操作，"
+                                    "「拒绝」则阻止。未点击时默认拒绝以保护安全。"
                                 )
                             except OSError:
                                 pass
@@ -1541,6 +1560,28 @@ def _run_app() -> None:
                 _execution_map_html(steps, user_input=user_input),
                 unsafe_allow_html=True,
             )
+
+    # ------------------------------------------------------------------
+    # Labs & Export (below the live workspace, ordered by learning arc)
+    # ------------------------------------------------------------------
+    st.divider()
+    _render_architecture_demo(st)
+    _render_trace_lab(st)
+    if agent_file is None and not model_missing:
+        _render_code_export(
+            st,
+            name,
+            instructions,
+            llm,
+            selected_tools,
+            max_iterations,
+            loop_detection_threshold=loop_detection_threshold,
+            require_approval=require_approval,
+            audit_log=audit_log,
+            rag_text=st.session_state.get("ea_rag_text", ""),
+        )
+    elif agent_file is None:
+        st.info("填写模型 ID 后可生成并导出 Agent。")
 
 
 def _app_main() -> None:
