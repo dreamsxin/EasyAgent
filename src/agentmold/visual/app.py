@@ -329,16 +329,21 @@ def _render_code_export(
     require_approval: bool = False,
     audit_log: bool = False,
     log_level: str = "SILENT",
+    rag_text: str = "",
 ) -> None:
     """Render a readable agent.py preview and download action."""
     with st.expander("PYTHON EXPORT · agent.py", expanded=False):
-        custom_tools = [tool_name for tool_name in selected_tools if tool_name != "calculate"]
-        if custom_tools:
+        # Only block genuinely non-exportable tools: write_file (inline closure),
+        # uploaded modules, and MCP tools (need external files/connections).
+        from agentmold.visual.codegen import _NON_EXPORTABLE
+
+        blocked = [t for t in selected_tools if t in _NON_EXPORTABLE]
+        if blocked:
             st.warning(
-                "当前 Agent 使用非 calculate 工具（工作区文件工具、破坏性写入或上传模块），"
-                "单文件导出已停用：这些工具需要额外初始化，无法仅靠 agent.py 携带。"
+                f"以下工具无法单文件导出（需要额外初始化或外部依赖）：{', '.join(blocked)}。"
+                "请取消选择这些工具后再导出。"
             )
-            st.caption(f"仅选择 calculate 时可导出。当前含：{', '.join(custom_tools)}")
+            st.caption("破坏性写入工具是内联闭包，上传模块和 MCP 工具需要外部文件/连接。")
             return
         source = generate_agent_python(
             name=name,
@@ -350,6 +355,7 @@ def _render_code_export(
             require_approval=require_approval,
             audit_log=audit_log,
             log_level=log_level,
+            rag_text=rag_text,
         )
         environment = api_key_environment(llm)
         action_col, status_col = st.columns([1, 2])
@@ -639,6 +645,27 @@ def _run_app() -> None:
                 step=256,
                 key=f"ea_max_tokens_{widget_suffix}",
             )
+            # DeepSeek thinking mode controls.
+            is_deepseek = connection_type in {"DeepSeek OpenAI", "DeepSeek Anthropic"}
+            thinking_enabled = False
+            thinking_effort = "high"
+            if is_deepseek:
+                st.markdown("**🧠 思考模式**")
+                thinking_enabled = st.checkbox(
+                    "开启思考模式",
+                    key=f"ea_thinking_{widget_suffix}",
+                    help="开启后模型会先输出思维链再给最终回答，"
+                    "提升准确性但增加延迟。Temperature 会自动忽略。",
+                )
+                if thinking_enabled:
+                    thinking_effort = st.select_slider(
+                        "思考强度",
+                        options=["low", "high", "max"],
+                        value="high",
+                        key=f"ea_thinking_effort_{widget_suffix}",
+                        help="low=快速思考，high=深度思考，max=最大化推理。",
+                    )
+                    st.caption("思考模式开启时，temperature 自动忽略。")
             save_col, clear_col = st.columns(2)
             if save_col.button("保存配置", key=f"ea_save_{widget_suffix}"):
                 try:
@@ -683,6 +710,8 @@ def _run_app() -> None:
             timeout,
             max_tokens,
             custom_interface,
+            thinking_enabled=thinking_enabled,
+            thinking_effort=thinking_effort,
         )
         max_iterations = st.sidebar.slider(
             "最大迭代次数",
@@ -1124,6 +1153,7 @@ def _run_app() -> None:
             require_approval=require_approval,
             audit_log=audit_log,
             log_level=log_level,
+            rag_text=st.session_state.get("ea_rag_text", ""),
         )
     elif agent_file is None:
         st.info("填写模型 ID 后可生成并导出 Agent。")

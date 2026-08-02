@@ -96,10 +96,14 @@ class AnthropicLLM(LLM):
         kwargs: dict[str, Any] = {
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
             "system": system_text,
             "messages": _to_anthropic_messages(convo),
         }
+        # DeepSeek/Anthropic thinking mode: suppress temperature (API rejects it
+        # when thinking/reasoning is enabled) and pass the reasoning param.
+        thinking_enabled = "reasoning" in self.kwargs or "thinking" in self.kwargs
+        if not thinking_enabled:
+            kwargs["temperature"] = self.temperature
         kwargs.update(
             {
                 key: value
@@ -239,10 +243,14 @@ def _to_anthropic_messages(messages: list[Message]) -> list[dict[str, Any]]:
 
 def _parse_anthropic_response(response: Any) -> LlmResponse:
     content = ""
+    thinking = ""
     tool_calls = []
     for block in response.content:
         if block.type == "text":
             content += block.text
+        elif block.type == "thinking":
+            # DeepSeek/Anthropic thinking content block.
+            thinking += getattr(block, "thinking", "") or ""
         elif block.type == "tool_use":
             tool_calls.append(
                 {
@@ -251,16 +259,23 @@ def _parse_anthropic_response(response: Any) -> LlmResponse:
                     "arguments": dict(block.input),
                 }
             )
+    if thinking:
+        content = f"<thinking>\n{thinking}\n</thinking>\n\n{content}"
     return LlmResponse(content=content, tool_calls=tool_calls, raw=response)
 
 
 def _anthropic_text_delta(event: Any) -> str:
+    """Extract visible text (including thinking) from an Anthropic stream event."""
     if getattr(event, "type", None) != "content_block_delta":
         return ""
     delta = getattr(event, "delta", None)
-    if getattr(delta, "type", None) != "text_delta":
-        return ""
-    return str(getattr(delta, "text", ""))
+    delta_type = getattr(delta, "type", None)
+    if delta_type == "text_delta":
+        return str(getattr(delta, "text", ""))
+    if delta_type == "thinking_delta":
+        # DeepSeek/Anthropic thinking content -- surface it with a tag.
+        return str(getattr(delta, "thinking", ""))
+    return ""
 
 
 register_provider("anthropic", AnthropicLLM)

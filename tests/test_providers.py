@@ -635,3 +635,58 @@ async def test_anthropic_async_stream_close_does_not_leak_errno22():
     assert first["content"] == "partial"
     # Closing must not raise despite async stream.close() raising [Errno 22].
     await gen.aclose()
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek thinking (reasoning_content) support
+# ---------------------------------------------------------------------------
+
+
+def test_deepseek_reasoner_parses_reasoning_content():
+    """DeepSeek reasoner returns reasoning_content separately from content."""
+    message = SimpleNamespace(
+        content="The answer is 42.",
+        reasoning_content="Let me think about this carefully...",
+        tool_calls=None,
+    )
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+    recorder = _CreateRecorder(response)
+    llm = OpenAILLM.__new__(OpenAILLM)
+    LLM.__init__(llm, model="deepseek-reasoner")
+    llm._client = SimpleNamespace(chat=SimpleNamespace(completions=recorder))
+
+    result = llm._complete([Message(role="user", content="go")])
+    assert "<thinking>" in result.content
+    assert "Let me think about this carefully..." in result.content
+    assert "The answer is 42." in result.content
+
+
+def test_deepseek_reasoner_suppresses_temperature():
+    """deepseek-reasoner must not send temperature (API rejects it)."""
+    llm = OpenAILLM.__new__(OpenAILLM)
+    LLM.__init__(llm, model="deepseek-reasoner", temperature=0.7)
+    llm._client = SimpleNamespace()
+    kwargs = llm._request_kwargs([Message(role="user", content="go")], None)
+    assert "temperature" not in kwargs
+
+
+def test_deepseek_reasoner_stream_captures_reasoning():
+    """Streaming must capture reasoning_content deltas as a thinking block."""
+    from agentmold.llm.providers.openai_provider import _consume_openai_chunk
+
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    tool_parts: dict[int, dict[str, str]] = {}
+
+    # Simulate a chunk with reasoning_content.
+    chunk = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                index=0,
+                delta=SimpleNamespace(content=None, reasoning_content="Step 1: analyze"),
+            )
+        ]
+    )
+    _consume_openai_chunk(chunk, content_parts, tool_parts, reasoning_parts)
+    assert reasoning_parts == ["Step 1: analyze"]
+    assert content_parts == []  # No content yet, only reasoning.

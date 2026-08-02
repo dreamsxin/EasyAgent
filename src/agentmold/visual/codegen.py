@@ -25,9 +25,48 @@ _CONFIG_ORDER = (
     "max_retries",
     "retry_delay",
 )
+
+# Tools that can be imported as bare names.
 _TOOL_IMPORTS = {
     "calculate": "agentmold.tools",
 }
+# Tools that require a factory call with arguments.
+# Each entry maps tool name -> (import statement, setup code template, expression).
+# The setup code is indented inside build_agent(); the expression goes in the
+# tools=[...] list.
+_TOOL_FACTORIES = {
+    "retrieve": {
+        "import": "from agentmold.rag import rag_tools",
+        "setup": (
+            "    _rag_tools = rag_tools(\n"
+            "        {rag_text!r},\n"
+            "        chunk_size=500,\n"
+            "        chunk_overlap=80,\n"
+            "        source='rag-input',\n"
+            "    )\n"
+            "    retrieve = _rag_tools[0]\n"
+        ),
+        "expression": "retrieve",
+    },
+    "read_file": {
+        "import": "from agentmold.tools import workspace_tools",
+        "setup": (
+            "    _workspace_tools = workspace_tools('.agentmold/workspace')\n"
+            "    read_file = next(t for t in _workspace_tools if t.name == 'read_file')\n"
+        ),
+        "expression": "read_file",
+    },
+    "list_directory": {
+        "import": "from agentmold.tools import workspace_tools",
+        "setup": (
+            "    _workspace_tools = workspace_tools('.agentmold/workspace')\n"
+            "    list_directory = next(t for t in _workspace_tools if t.name == 'list_directory')\n"
+        ),
+        "expression": "list_directory",
+    },
+}
+# Tools that genuinely cannot be exported in a single file.
+_NON_EXPORTABLE = {"write_file"}
 
 
 def api_key_environment(llm: Literal["mock"] | dict[str, Any]) -> str | None:
@@ -49,6 +88,7 @@ def generate_agent_python(
     require_approval: bool = False,
     audit_log: bool = False,
     log_level: str = "SILENT",
+    rag_text: str = "",
 ) -> str:
     """Generate an importable ``agent.py`` that can also run directly."""
     if not isinstance(name, str) or not isinstance(instructions, str):
@@ -71,9 +111,15 @@ def generate_agent_python(
         raise ValueError("log_level must be one of SILENT, INFO, DEBUG")
 
     tools = list(dict.fromkeys(selected_tools))
-    unsupported = [tool for tool in tools if tool not in _TOOL_IMPORTS]
-    if unsupported:
-        raise ValueError(f"unsupported visual tools: {', '.join(unsupported)}")
+    # Reject only genuinely non-exportable tools (write_file is an inline
+    # closure bound to the workspace; uploaded modules and MCP tools need
+    # external files/connections).
+    non_exportable = [t for t in tools if t in _NON_EXPORTABLE]
+    if non_exportable:
+        raise ValueError(f"non-exportable tools: {', '.join(non_exportable)}")
+    unknown = [t for t in tools if t not in _TOOL_IMPORTS and t not in _TOOL_FACTORIES]
+    if unknown:
+        raise ValueError(f"unsupported visual tools: {', '.join(unknown)}")
 
     environment = api_key_environment(llm)
     lines = ['"""Agent exported by EasyAgent visual lab."""', ""]
@@ -85,9 +131,16 @@ def generate_agent_python(
         lines.append("from agentmold import Agent, LogLevel")
     else:
         lines.append("from agentmold import Agent")
-    for module in sorted({_TOOL_IMPORTS[tool] for tool in tools}):
-        names = sorted(tool for tool in tools if _TOOL_IMPORTS[tool] == module)
+    # Bare-import tools (calculate).
+    for module in sorted({_TOOL_IMPORTS[t] for t in tools if t in _TOOL_IMPORTS}):
+        names = sorted(t for t in tools if _TOOL_IMPORTS.get(t) == module)
         lines.append(f"from {module} import {', '.join(names)}")
+    # Factory tools (retrieve, read_file, list_directory).
+    factory_imports = sorted(
+        {_TOOL_FACTORIES[t]["import"] for t in tools if t in _TOOL_FACTORIES}
+    )
+    for imp in factory_imports:
+        lines.append(imp)
     lines.extend(["", "", "def build_agent() -> Agent:"])
 
     llm_expression = repr(llm)
@@ -107,7 +160,27 @@ def generate_agent_python(
             ]
         )
 
-    tool_expression = "[" + ", ".join(tools) + "]"
+    # Emit factory setup code (e.g. rag_tools(...) -> retrieve).
+    # Group workspace tools so workspace_tools() is called only once.
+    workspace_tools_selected = [t for t in tools if t in ("read_file", "list_directory")]
+    if "retrieve" in tools:
+        setup = _TOOL_FACTORIES["retrieve"]["setup"].format(rag_text=rag_text)
+        lines.append(setup)
+    if workspace_tools_selected:
+        lines.append("    _workspace_tools = workspace_tools('.agentmold/workspace')")
+        for wt in workspace_tools_selected:
+            lines.append(
+                f"    {wt} = next(t for t in _workspace_tools if t.name == '{wt}')"
+            )
+
+    # Build the tools list expression.
+    tool_exprs = []
+    for t in tools:
+        if t in _TOOL_IMPORTS:
+            tool_exprs.append(t)
+        elif t in _TOOL_FACTORIES:
+            tool_exprs.append(_TOOL_FACTORIES[t]["expression"])
+    tool_expression = "[" + ", ".join(tool_exprs) + "]"
     lines.append("    return Agent(")
     lines.append(f"        name={name!r},")
     lines.append(f"        instructions={instructions!r},")

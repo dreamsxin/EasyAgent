@@ -101,15 +101,30 @@ class OpenAILLM(LLM):
         tool_choice = request_options.pop("tool_choice", "auto")
         request_options.pop("stream", None)
         stream_options = request_options.pop("stream_options", None)
+        # DeepSeek thinking params go in extra_body (non-standard OpenAI fields).
+        thinking = request_options.pop("thinking", None)
+        reasoning_effort = request_options.pop("reasoning_effort", None)
+        extra_body: dict[str, Any] = {}
+        if thinking is not None:
+            extra_body["thinking"] = thinking
+        if reasoning_effort is not None:
+            extra_body["reasoning_effort"] = reasoning_effort
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": payload,
             **request_options,
         }
+        if extra_body:
+            kwargs["extra_body"] = extra_body
         if tools:
             kwargs["tools"] = [{"type": "function", "function": t} for t in tools]
             kwargs["tool_choice"] = tool_choice
-        if self.temperature is not None and not self.model.startswith(("o1", "o3")):
+        # Suppress temperature for reasoning models (o1/o3/deepseek-reasoner)
+        # and when DeepSeek thinking mode is enabled (API rejects temperature).
+        thinking_active = thinking is not None or self.model.startswith(
+            ("deepseek-reasoner", "deepseek-r1")
+        )
+        if self.temperature is not None and not self.model.startswith(("o1", "o3", "deepseek-reasoner", "deepseek-r1")) and not thinking_active:
             kwargs["temperature"] = self.temperature
         if stream:
             kwargs["stream"] = True
@@ -126,12 +141,16 @@ class OpenAILLM(LLM):
     async def _astream_once(self, kwargs: dict[str, Any]) -> AsyncIterator[LlmStreamEvent]:
         chunks = await self._async_client.chat.completions.create(**kwargs)
         content_parts: list[str] = []
+        reasoning_parts: list[str] = []
         tool_parts: dict[int, dict[str, str]] = {}
         raw: Any = None
         async for chunk in chunks:
             raw = chunk if _value(chunk, "usage") is not None else raw or chunk
-            for content in _consume_openai_chunk(chunk, content_parts, tool_parts):
+            for content in _consume_openai_chunk(chunk, content_parts, tool_parts, reasoning_parts):
                 yield {"type": "text_delta", "content": content}
+        if reasoning_parts:
+            reasoning = "".join(reasoning_parts)
+            yield {"type": "text_delta", "content": f"<thinking>\n{reasoning}\n</thinking>\n\n"}
         yield {
             "type": "response",
             "response": _openai_stream_response(content_parts, tool_parts, raw),
@@ -206,17 +225,28 @@ def _parse_openai_response(response: Any) -> LlmResponse:
                 "arguments": _parse_tool_arguments(call.function.name, call.function.arguments),
             }
         )
-    return LlmResponse(content=choice.content or "", tool_calls=tool_calls, raw=response)
+    content = choice.content or ""
+    # DeepSeek reasoner models return reasoning in a separate field.
+    reasoning = getattr(choice, "reasoning_content", None)
+    if reasoning:
+        content = f"<thinking>\n{reasoning}\n</thinking>\n\n{content}"
+    return LlmResponse(content=content, tool_calls=tool_calls, raw=response)
 
 
 def _openai_stream_events(chunks: Any) -> Iterator[LlmStreamEvent]:
     content_parts: list[str] = []
+    reasoning_parts: list[str] = []
     tool_parts: dict[int, dict[str, str]] = {}
     raw: Any = None
     for chunk in chunks:
         raw = chunk if _value(chunk, "usage") is not None else raw or chunk
-        for content in _consume_openai_chunk(chunk, content_parts, tool_parts):
+        for content in _consume_openai_chunk(chunk, content_parts, tool_parts, reasoning_parts):
             yield {"type": "text_delta", "content": content}
+    # Emit accumulated reasoning content as a text delta before the final
+    # response so the user can see DeepSeek's thinking process.
+    if reasoning_parts:
+        reasoning = "".join(reasoning_parts)
+        yield {"type": "text_delta", "content": f"<thinking>\n{reasoning}\n</thinking>\n\n"}
     yield {
         "type": "response",
         "response": _openai_stream_response(content_parts, tool_parts, raw),
@@ -227,6 +257,7 @@ def _consume_openai_chunk(
     chunk: Any,
     content_parts: list[str],
     tool_parts: dict[int, dict[str, str]],
+    reasoning_parts: list[str] | None = None,
 ) -> list[str]:
     emitted: list[str] = []
     for choice in _value(chunk, "choices", []) or []:
@@ -237,6 +268,10 @@ def _consume_openai_chunk(
         if content:
             content_parts.append(content)
             emitted.append(content)
+        # DeepSeek reasoner streams reasoning_content separately.
+        reasoning = _value(delta, "reasoning_content")
+        if reasoning and reasoning_parts is not None:
+            reasoning_parts.append(reasoning)
         for call in _value(delta, "tool_calls", []) or []:
             index = int(_value(call, "index", 0) or 0)
             current = tool_parts.setdefault(

@@ -349,6 +349,8 @@ def llm_config_from_ui(
     timeout: float,
     max_tokens: int,
     custom_interface: str = "OpenAI 兼容",
+    thinking_enabled: bool = False,
+    thinking_effort: str = "high",
 ) -> Literal["mock"] | dict[str, Any]:
     """Map the visual provider controls to the public ``Agent(llm=...)`` shape."""
     if connection_type == "Mock（离线）":
@@ -384,4 +386,14 @@ def llm_config_from_ui(
     }
     if provider in {"anthropic", "deepseek-anthropic"}:
         config["max_tokens"] = max_tokens
+    # DeepSeek thinking mode: pass thinking params via the provider's kwargs.
+    # OpenAI-format endpoint: {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
+    # Anthropic-format endpoint: {"reasoning": {"effort": "high"}}
+    if thinking_enabled:
+        if provider in {"deepseek", "openai"}:
+            config["thinking"] = {"type": "enabled"}
+            if thinking_effort != "high":
+                config["reasoning_effort"] = thinking_effort
+        elif provider in {"deepseek-anthropic", "anthropic"}:
+            config["reasoning"] = {"effort": thinking_effort}
     return {key: value for key, value in config.items() if value not in {"", None}}

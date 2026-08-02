@@ -73,7 +73,7 @@ def inject_theme(st: Any) -> None:
             background: rgba(8, 12, 18, 0.92);
         }
         [data-testid="stSidebar"] {
-            background: #0c121b;
+            background: var(--ea-surface);
             border-right: 1px solid var(--ea-line);
         }
         [data-testid="stSidebar"] > div:first-child {
@@ -85,38 +85,38 @@ def inject_theme(st: Any) -> None:
         [data-testid="stSidebar"] label,
         [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
         [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
-            color: #c6d3e1 !important;
+            color: var(--ea-text-soft) !important;
         }
         [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {
-            color: #8295aa !important;
+            color: var(--ea-muted) !important;
         }
         [data-testid="stSidebar"] [data-baseweb="select"] > div,
         [data-testid="stSidebar"] input,
         [data-testid="stSidebar"] textarea {
-            border-color: #3a5068;
+            border-color: var(--ea-line-strong);
         }
         [data-testid="stSidebar"] [data-testid="stExpander"] {
-            background: #111d2a;
-            border: 1px solid #3a5068;
+            background: var(--ea-surface-2);
+            border: 1px solid var(--ea-line-strong);
             border-radius: 8px;
             margin: 0.45rem 0 0.7rem;
             overflow: hidden;
         }
         [data-testid="stSidebar"] [data-testid="stExpander"] details[open] {
-            background: #142638;
+            background: var(--ea-surface-2);
             border-color: var(--ea-cyan);
             box-shadow: inset 0 2px 0 rgba(93, 228, 255, 0.65);
         }
         [data-testid="stSidebar"] [data-testid="stExpander"] summary {
-            background: #182b3e;
+            background: var(--ea-surface-3);
             color: var(--ea-text) !important;
             font-weight: 700;
         }
         [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
-            background: #203a52;
+            background: var(--ea-surface-raised);
         }
         [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] {
-            background: #142638;
+            background: var(--ea-surface-2);
         }
         /* Keep the native Streamlit controls legible across light and dark browser themes. */
         [data-baseweb="input"] > div,
@@ -204,7 +204,7 @@ def inject_theme(st: Any) -> None:
             color: var(--ea-input-text) !important;
         }
         [data-baseweb="tag"] {
-            background: #dceaf5 !important;
+            background: var(--ea-surface-2) !important;
             border: 1px solid #8ba3ba !important;
             color: var(--ea-input-text) !important;
         }
@@ -214,8 +214,8 @@ def inject_theme(st: Any) -> None:
             fill: var(--ea-input-text) !important;
         }
         [data-baseweb="tag"]:hover {
-            background: #c9deec !important;
-            border-color: #5f7c98 !important;
+            background: var(--ea-text-soft) !important;
+            border-color: var(--ea-muted) !important;
         }
         [data-testid="stAlert"],
         [data-testid="stToast"],
@@ -339,7 +339,7 @@ def inject_theme(st: Any) -> None:
         .ea-status-line strong { color: var(--ea-lime); }
         .ea-run-metrics {
             align-items: stretch;
-            background: #0c131d;
+            background: var(--ea-surface);
             border: 1px solid var(--ea-line);
             border-radius: 8px;
             display: grid;
@@ -352,7 +352,7 @@ def inject_theme(st: Any) -> None:
         .ea-run-state,
         .ea-run-metric,
         .ea-run-id {
-            border-right: 1px solid #1d2a39;
+            border-right: 1px solid var(--ea-line);
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -363,7 +363,7 @@ def inject_theme(st: Any) -> None:
         .ea-run-state span,
         .ea-run-metric span,
         .ea-run-id span {
-            color: #62758b;
+            color: var(--ea-muted);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-size: 0.62rem;
             font-weight: 700;
@@ -396,7 +396,7 @@ def inject_theme(st: Any) -> None:
             padding: 0.5rem 0.6rem 0.1rem;
         }
         .ea-timeline {
-            background: #0c131d;
+            background: var(--ea-surface);
             border: 1px solid var(--ea-line);
             border-radius: 8px;
             padding: 0.55rem 0.75rem;
@@ -406,11 +406,11 @@ def inject_theme(st: Any) -> None:
             grid-template-columns: 2rem 1.6rem minmax(0, 1fr);
             gap: 0.65rem;
             padding: 0.65rem 0.1rem;
-            border-bottom: 1px solid #1d2a39;
+            border-bottom: 1px solid var(--ea-line);
         }
         .ea-timeline-row:last-child { border-bottom: 0; }
         .ea-timeline-index {
-            color: #53677d;
+            color: var(--ea-muted);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-size: 0.68rem;
             padding-top: 0.15rem;
@@ -446,7 +446,7 @@ def inject_theme(st: Any) -> None:
             margin-left: 0.45rem;
         }
         .ea-timeline-detail {
-            color: #b8c7d6;
+            color: var(--ea-text-soft);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-size: 0.75rem;
             line-height: 1.4;
@@ -454,8 +454,8 @@ def inject_theme(st: Any) -> None:
             overflow-wrap: anywhere;
         }
         .ea-execution-map {
-            background: #0b131d;
-            border: 1px solid #30455b;
+            background: var(--ea-surface);
+            border: 1px solid var(--ea-line-strong);
             border-radius: 8px;
             min-height: 12rem;
             overflow: hidden;
@@ -477,7 +477,7 @@ def inject_theme(st: Any) -> None:
         }
         .ea-map-heading {
             align-items: center;
-            border-bottom: 1px solid #1f3042;
+            border-bottom: 1px solid var(--ea-line);
             color: var(--ea-muted);
             display: flex;
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -496,7 +496,7 @@ def inject_theme(st: Any) -> None:
             margin-right: 0.3rem;
             width: 0.4rem;
         }
-        .ea-map-heading small { color: #62758b; font-size: 0.58rem; letter-spacing: 0.08em; }
+        .ea-map-heading small { color: var(--ea-muted); font-size: 0.58rem; letter-spacing: 0.08em; }
         .ea-flow-canvas { padding: 0.7rem 0.1rem 0.2rem; }
         .ea-flow-step {
             align-items: start;
@@ -508,15 +508,15 @@ def inject_theme(st: Any) -> None:
                 var(--ea-flow-delay) both;
         }
         .ea-flow-index {
-            color: #516a82;
+            color: var(--ea-muted);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-size: 0.65rem;
             padding-top: 0.55rem;
         }
         .ea-flow-node {
             align-items: center;
-            background: #121e2b;
-            border: 1px solid #486079;
+            background: var(--ea-surface-2);
+            border: 1px solid var(--ea-line-strong);
             border-radius: 50%;
             color: var(--ea-text);
             display: flex;
@@ -541,13 +541,13 @@ def inject_theme(st: Any) -> None:
         .ea-flow-user .ea-flow-node { color: var(--ea-cyan); }
         .ea-flow-copy { min-width: 0; padding: 0.22rem 0.2rem 0.8rem 0.55rem; }
         .ea-flow-code {
-            color: #6e849a;
+            color: var(--ea-muted);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-size: 0.61rem;
             font-weight: 700;
             letter-spacing: 0.1em;
         }
-        .ea-flow-code span { color: #4e6478; float: right; font-size: 0.56rem; }
+        .ea-flow-code span { color: var(--ea-muted); float: right; font-size: 0.56rem; }
         .ea-flow-copy strong {
             color: var(--ea-text);
             display: block;
@@ -555,7 +555,7 @@ def inject_theme(st: Any) -> None:
             margin-top: 0.14rem;
         }
         .ea-flow-copy small {
-            color: #9ab0c4;
+            color: var(--ea-text-soft);
             display: block;
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-size: 0.68rem;
@@ -564,7 +564,7 @@ def inject_theme(st: Any) -> None:
             overflow-wrap: anywhere;
         }
         .ea-flow-connector {
-            border-left: 1px solid #38516a;
+            border-left: 1px solid var(--ea-line-strong);
             bottom: -0.1rem;
             left: 3.1rem;
             position: absolute;
@@ -609,7 +609,7 @@ def inject_theme(st: Any) -> None:
             margin-top: 0.15rem;
         }
         .ea-map-empty-orbit {
-            border: 1px solid #38516a;
+            border: 1px solid var(--ea-line-strong);
             border-radius: 50%;
             height: 2rem;
             position: relative;
@@ -780,7 +780,7 @@ def inject_theme(st: Any) -> None:
         .ea-arch-node-answer .ea-arch-node-icon span { display: inline-block; transform: rotate(-45deg); }
         .ea-arch-node-router .ea-arch-node-icon { color: var(--ea-amber); border-radius: 7px; }
         .ea-arch-empty {
-            background: #0c131d;
+            background: var(--ea-surface);
             border: 1px dashed var(--ea-line);
             border-radius: 8px;
             color: var(--ea-muted);
@@ -793,7 +793,7 @@ def inject_theme(st: Any) -> None:
             .ea-arch-node-wrap { animation: none; }
         }
         .ea-empty {
-            background: #0c131d;
+            background: var(--ea-surface);
             border: 1px dashed var(--ea-line);
             border-radius: 8px;
             color: var(--ea-muted);
@@ -803,8 +803,8 @@ def inject_theme(st: Any) -> None:
         }
         .ea-trace-metrics {
             align-items: stretch;
-            background: #0c131d;
-            border: 1px solid #3c5068;
+            background: var(--ea-surface);
+            border: 1px solid var(--ea-muted);
             border-radius: 8px;
             display: grid;
             gap: 0.45rem;
@@ -813,7 +813,7 @@ def inject_theme(st: Any) -> None:
             padding: 0.55rem;
         }
         .ea-trace-metrics > div {
-            border-right: 1px solid #1d2a39;
+            border-right: 1px solid var(--ea-line);
             min-width: 0;
             padding: 0.2rem 0.55rem;
         }
@@ -822,7 +822,7 @@ def inject_theme(st: Any) -> None:
         .ea-compare-run-head span,
         .ea-compare-prompt span,
         .ea-compare-grid-metrics span {
-            color: #62758b;
+            color: var(--ea-muted);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-size: 0.62rem;
             font-weight: 700;
@@ -846,8 +846,8 @@ def inject_theme(st: Any) -> None:
             margin-top: 0.7rem;
         }
         .ea-compare-run {
-            background: #0c131d;
-            border: 1px solid #33485e;
+            background: var(--ea-surface);
+            border: 1px solid var(--ea-line);
             border-radius: 8px;
             min-width: 0;
             padding: 0.8rem;
@@ -872,25 +872,25 @@ def inject_theme(st: Any) -> None:
         }
         .ea-compare-grid-metrics > div { min-width: 0; }
         .ea-compare-prompt {
-            border-top: 1px solid #1d2a39;
+            border-top: 1px solid var(--ea-line);
             margin-top: 0.7rem;
             padding-top: 0.55rem;
         }
         .ea-compare-prompt p {
-            color: #b8c7d6;
+            color: var(--ea-text-soft);
             font-size: 0.78rem;
             line-height: 1.45;
             margin: 0.3rem 0 0;
             overflow-wrap: anywhere;
         }
         [data-testid="stCode"] {
-            background: #0c131d;
-            border: 1px solid #33485e;
+            background: var(--ea-surface);
+            border: 1px solid var(--ea-line);
             border-radius: 8px;
         }
         [data-testid="stCode"] pre,
         [data-testid="stCode"] code {
-            background: #0c131d !important;
+            background: var(--ea-surface) !important;
         }
         @media (max-width: 1200px) {
             .ea-trace-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -905,21 +905,21 @@ def inject_theme(st: Any) -> None:
         }
         .stButton > button {
             background: var(--ea-surface-2);
-            border: 1px solid #33485e;
+            border: 1px solid var(--ea-line);
             border-radius: 7px;
             color: var(--ea-text);
             font-weight: 650;
         }
         .stButton > button:hover {
-            background: #1c2e40;
+            background: var(--ea-surface-raised);
             border-color: var(--ea-cyan);
             color: #ffffff;
         }
         .stButton > button:disabled,
         [data-testid="stButton"] button:disabled {
-            background: #162231 !important;
-            border-color: #2a3b4d !important;
-            color: #71869a !important;
+            background: var(--ea-surface-3) !important;
+            border-color: var(--ea-surface-raised) !important;
+            color: var(--ea-muted) !important;
             opacity: 1 !important;
         }
         [data-testid="stTabs"] [role="tablist"] {
@@ -955,7 +955,7 @@ def inject_theme(st: Any) -> None:
         }
         [data-testid="stCode"] pre,
         [data-testid="stCode"] code {
-            color: #dbe8f4 !important;
+            color: var(--ea-text-soft) !important;
         }
         [data-testid="stCode"] [data-testid="stCodeCopyButton"] {
             background: var(--ea-surface-raised) !important;
@@ -966,13 +966,13 @@ def inject_theme(st: Any) -> None:
             border-color: var(--ea-line) !important;
         }
         [data-testid="stChatMessage"] {
-            background: #0f1722;
-            border: 1px solid #213044;
+            background: var(--ea-surface);
+            border: 1px solid var(--ea-line);
             border-radius: 8px;
             margin-bottom: 0.55rem;
         }
         [data-testid="stChatInput"] {
-            border-color: #33485e;
+            border-color: var(--ea-line);
         }
         [data-testid="stChatInput"] textarea:focus {
             border-color: var(--ea-cyan);
@@ -1207,6 +1207,8 @@ def inject_theme(st: Any) -> None:
             --ea-surface-2: #eef3f8;
             --ea-surface-3: #e2e9f0;
             --ea-surface-raised: #d0dae8;
+            --ea-input-bg: #ffffff;
+            --ea-input-text: #1a2735;
             --ea-line: #c5d2de;
             --ea-line-strong: #8a9bad;
             --ea-text: #1a2735;
