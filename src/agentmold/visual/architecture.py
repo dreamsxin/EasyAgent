@@ -274,38 +274,117 @@ answer = agent(question)
 }
 
 
-def architecture_description(arch_key: str) -> str:
-    """Return the one-paragraph summary for *arch_key*."""
-    preset = ARCHITECTURE_PRESETS.get(arch_key)
+# ---------------------------------------------------------------------------
+# Tool calling mode presets (educational comparison)
+# ---------------------------------------------------------------------------
+
+TOOL_CALLING_PRESETS: dict[str, dict[str, Any]] = {
+    "Function Calling（原生函数调用）": {
+        "title": "Function Calling",
+        "summary": (
+            "工具的 JSON Schema 通过 API 的 tools 参数传递给模型。模型原生返回"
+            "结构化的 tool_calls（包含工具名和参数），Agent 直接执行。"
+            "这是 EasyAgent 的默认方式，可靠且无需文本解析。"
+        ),
+        "nodes": [
+            _node("user", "user", "用户问题"),
+            _node("llm", "llm", "LLM 推理", detail="API 请求携带 tools 参数"),
+            _node("tool_calls", "tool", "结构化 tool_calls", detail='{"name":"retrieve","arguments":{...}}'),
+            _node("execute", "tool", "Agent 执行工具", detail="registry.call(name, arguments)"),
+            _node("result", "memory", "结果写回记忆", detail="role=tool, tool_call_id"),
+            _node("answer", "answer", "最终回答"),
+        ],
+        "edges": [
+            _edge("user", "llm"),
+            _edge("llm", "tool_calls", label="返回 tool_calls"),
+            _edge("tool_calls", "execute"),
+            _edge("execute", "result"),
+            _edge("result", "llm", label="继续对话", style="loop"),
+            _edge("llm", "answer", label="无需工具"),
+        ],
+        "code": """# EasyAgent 默认使用 Function Calling。
+# 工具 schema 通过 API tools 参数传递，无需手动解析。
+from agentmold import Agent, tool
+
+@tool
+def retrieve(query: str) -> str:
+    '''检索知识库。'''
+    ...
+
+agent = Agent(tools=[retrieve], llm="mock")
+# 模型自动返回结构化 tool_calls，Agent 执行后继续对话。
+answer = agent("检索道的本质")
+""",
+    },
+    "Prompt Injection（提示词注入）": {
+        "title": "Prompt Injection",
+        "summary": (
+            "工具定义以文本形式写入系统提示词。模型在回复中用约定格式"
+            "（如 ```tool 代码块）输出工具调用，Agent 解析文本提取调用。"
+            "这是早期 LLM 不支持 function calling 时的通用方式，"
+            "依赖模型遵循格式，较为脆弱。EasyAgent 不使用此方式。"
+        ),
+        "nodes": [
+            _node("user", "user", "用户问题"),
+            _node("llm", "llm", "LLM 推理", detail="系统提示含工具定义文本"),
+            _node("text", "tool", "文本输出含调用标记", detail="```tool\\n{\"name\":\"retrieve\",...}\\n```"),
+            _node("parse", "decision", "文本解析", detail="正则/JSON 提取工具调用"),
+            _node("execute", "tool", "Agent 执行工具", detail="解析成功才执行"),
+            _node("result", "memory", "结果写回记忆", detail="作为纯文本观察"),
+            _node("answer", "answer", "最终回答"),
+        ],
+        "edges": [
+            _edge("user", "llm"),
+            _edge("llm", "text", label="文本回复"),
+            _edge("text", "parse"),
+            _edge("parse", "execute", label="解析成功"),
+            _edge("parse", "answer", label="解析失败=最终回答"),
+            _edge("execute", "result"),
+            _edge("result", "llm", label="继续对话", style="loop"),
+        ],
+        "code": """# Prompt Injection 模式（概念演示，EasyAgent 不直接支持）。
+# 工具定义写入系统提示词，模型用文本格式输出调用。
+import re, json
+
+SYSTEM_PROMPT = \"\"\"你可以调用以下工具：
+- retrieve(query): 检索知识库
+
+调用工具时输出：
+```tool
+{"name": "retrieve", "arguments": {"query": "..."}}
+```
+\"\"\"
+
+# Agent 需要手动解析模型回复中的工具调用。
+def parse_tool_calls(text):
+    pattern = r'```tool\\n(.*?)\\n```'
+    matches = re.findall(pattern, text, re.DOTALL)
+    return [json.loads(m) for m in matches]
+# ↑ 依赖模型严格遵循格式，不同模型表现差异大，容易失败。
+""",
+    },
+}
+
+
+def tool_calling_description(mode_key: str) -> str:
+    """Return the summary for a tool-calling mode preset."""
+    preset = TOOL_CALLING_PRESETS.get(mode_key)
     return preset["summary"] if preset else ""
 
 
-def architecture_code(arch_key: str) -> str:
-    """Return the EasyAgent code snippet for *arch_key*."""
-    preset = ARCHITECTURE_PRESETS.get(arch_key)
-    return preset["code"].strip() if preset else ""
-
-
-def architecture_diagram_html(arch_key: str) -> str:
-    """Render an architecture flowchart as a styled HTML string.
-
-    Nodes light up in sequence using the ``ea-flow-arrive`` animation with a
-    per-node ``--ea-flow-delay``.  Loop edges are rendered as dashed connectors
-    with a label badge.
-    """
-    preset = ARCHITECTURE_PRESETS.get(arch_key)
+def tool_calling_diagram_html(mode_key: str) -> str:
+    """Render a tool-calling mode flowchart, reusing the architecture renderer."""
+    preset = TOOL_CALLING_PRESETS.get(mode_key)
     if preset is None:
-        return '<div class="ea-arch-empty">选择一种架构查看流程图。</div>'
+        return '<div class="ea-arch-empty">选择一种工具调用方式查看对比。</div>'
+    # Reuse the same rendering logic as architecture diagrams.
+    return _render_preset_diagram(preset)
 
+
+def _render_preset_diagram(preset: dict[str, Any]) -> str:
+    """Shared renderer for any preset with nodes/edges/title."""
     nodes: list[dict[str, Any]] = preset["nodes"]
     edges: list[dict[str, Any]] = preset["edges"]
-
-    # Build a lookup of node id -> node for edge rendering.
-    node_map = {n["id"]: n for n in nodes}
-    # Track which nodes are edge targets (for connector rendering).
-    has_incoming: set[str] = set()
-    for edge in edges:
-        has_incoming.add(edge["target"])
 
     rows: list[str] = []
     for index, node in enumerate(nodes):
@@ -316,8 +395,6 @@ def architecture_diagram_html(arch_key: str) -> str:
         detail = node.get("detail", "")
         delay = min(index * 0.08, 0.6)
         connector = ""
-        # Draw a connector if this node has an incoming solid/loop edge.
-        # Prefer loop edges so the feedback cycle is visible.
         incoming = [e for e in edges if e["target"] == node["id"]]
         if incoming:
             edge = next((e for e in incoming if e["style"] == "loop"), incoming[0])
@@ -346,9 +423,34 @@ def architecture_diagram_html(arch_key: str) -> str:
     title = preset["title"]
     return (
         f'<div class="ea-arch-canvas" role="img" '
-        f'aria-label="{html.escape(title)} 架构图">'
+        f'aria-label="{html.escape(title)} 流程图">'
         f'<div class="ea-arch-heading"><span><b></b> {html.escape(title)}</span>'
         f"<small>{len(nodes)} NODES · {len(edges)} EDGES</small></div>"
         f'<div class="ea-arch-flow">{"".join(rows)}</div>'
         "</div>"
     )
+
+
+def architecture_description(arch_key: str) -> str:
+    """Return the one-paragraph summary for *arch_key*."""
+    preset = ARCHITECTURE_PRESETS.get(arch_key)
+    return preset["summary"] if preset else ""
+
+
+def architecture_code(arch_key: str) -> str:
+    """Return the EasyAgent code snippet for *arch_key*."""
+    preset = ARCHITECTURE_PRESETS.get(arch_key)
+    return preset["code"].strip() if preset else ""
+
+
+def architecture_diagram_html(arch_key: str) -> str:
+    """Render an architecture flowchart as a styled HTML string.
+
+    Nodes light up in sequence using the ``ea-flow-arrive`` animation with a
+    per-node ``--ea-flow-delay``.  Loop edges are rendered as dashed connectors
+    with a label badge.
+    """
+    preset = ARCHITECTURE_PRESETS.get(arch_key)
+    if preset is None:
+        return '<div class="ea-arch-empty">选择一种架构查看流程图。</div>'
+    return _render_preset_diagram(preset)

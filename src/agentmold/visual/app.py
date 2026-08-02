@@ -28,6 +28,9 @@ from agentmold.visual.architecture import (
     ARCHITECTURE_PRESETS as _ARCHITECTURE_PRESETS,
 )
 from agentmold.visual.architecture import (
+    TOOL_CALLING_PRESETS as _TOOL_CALLING_PRESETS,
+)
+from agentmold.visual.architecture import (
     architecture_code as _architecture_code,
 )
 from agentmold.visual.architecture import (
@@ -35,6 +38,12 @@ from agentmold.visual.architecture import (
 )
 from agentmold.visual.architecture import (
     architecture_diagram_html as _architecture_diagram_html,
+)
+from agentmold.visual.architecture import (
+    tool_calling_description as _tool_calling_description,
+)
+from agentmold.visual.architecture import (
+    tool_calling_diagram_html as _tool_calling_diagram_html,
 )
 from agentmold.visual.agent_config import (
     CONNECTION_DEFAULTS as _CONNECTION_DEFAULTS,
@@ -291,6 +300,10 @@ def _render_architecture_demo(st: Any) -> None:
     Plan-and-Execute, Reflection, Multi-Agent, Routing).  The right-hand area
     shows an animated node flowchart and the corresponding EasyAgent code
     snippet, so learners can see how each pattern maps onto ordinary Python.
+
+    Below the architecture selector, a tool-calling mode comparison shows the
+    difference between Function Calling (EasyAgent's default) and Prompt
+    Injection (the legacy text-parsing approach).
     """
     with st.expander("🧠 AGENT 架构演示", expanded=False):
         arch_options = list(_ARCHITECTURE_PRESETS.keys())
@@ -315,6 +328,32 @@ def _render_architecture_demo(st: Any) -> None:
         with code_col:
             st.markdown("**EasyAgent 实现**")
             st.code(_architecture_code(selected), language="python")
+
+        st.divider()
+        st.markdown("#### 🔧 工具调用方式对比")
+        tc_options = list(_TOOL_CALLING_PRESETS.keys())
+        tc_selected = st.selectbox(
+            "选择工具调用方式",
+            options=tc_options,
+            index=0,
+            key="ea_tool_calling_mode_demo",
+            help="对比 Function Calling（原生）与 Prompt Injection（提示词注入）的区别。",
+        )
+        tc_desc = _tool_calling_description(tc_selected)
+        if tc_desc:
+            st.caption(tc_desc)
+
+        tc_diagram_col, tc_code_col = st.columns([1, 1])
+        with tc_diagram_col:
+            st.markdown("**调用流程图**")
+            st.markdown(
+                _tool_calling_diagram_html(tc_selected),
+                unsafe_allow_html=True,
+            )
+        with tc_code_col:
+            st.markdown("**代码示例**")
+            tc_preset = _TOOL_CALLING_PRESETS.get(tc_selected, {})
+            st.code(tc_preset.get("code", "").strip(), language="python")
 
 
 def _render_code_export(

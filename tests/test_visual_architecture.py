@@ -6,9 +6,12 @@ import pytest
 
 from agentmold.visual.architecture import (
     ARCHITECTURE_PRESETS,
+    TOOL_CALLING_PRESETS,
     architecture_code,
     architecture_description,
     architecture_diagram_html,
+    tool_calling_description,
+    tool_calling_diagram_html,
 )
 
 
@@ -56,3 +59,39 @@ def test_code_snippets_are_importable_python():
     for arch_key in ARCHITECTURE_PRESETS:
         code = architecture_code(arch_key)
         ast.parse(code)  # raises SyntaxError if invalid
+
+
+# ---------------------------------------------------------------------------
+# Tool calling mode presets
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode_key", list(TOOL_CALLING_PRESETS))
+def test_tool_calling_preset_has_required_fields(mode_key):
+    preset = TOOL_CALLING_PRESETS[mode_key]
+    assert preset["title"]
+    assert preset["summary"]
+    assert isinstance(preset["nodes"], list) and len(preset["nodes"]) >= 3
+    assert isinstance(preset["edges"], list) and len(preset["edges"]) >= 2
+    assert preset["code"].strip()
+
+
+@pytest.mark.parametrize("mode_key", list(TOOL_CALLING_PRESETS))
+def test_tool_calling_diagram_renders(mode_key):
+    html_out = tool_calling_diagram_html(mode_key)
+    assert "ea-arch-canvas" in html_out
+    assert "ea-arch-node" in html_out
+    for node in TOOL_CALLING_PRESETS[mode_key]["nodes"]:
+        assert node["label"] in html_out
+
+
+def test_tool_calling_unknown_key_returns_placeholder():
+    assert "ea-arch-empty" in tool_calling_diagram_html("Nonexistent")
+    assert tool_calling_description("Nonexistent") == ""
+
+
+def test_tool_calling_code_snippets_are_valid_python():
+    import ast
+
+    for mode_key in TOOL_CALLING_PRESETS:
+        ast.parse(TOOL_CALLING_PRESETS[mode_key]["code"])
