@@ -88,6 +88,12 @@ and needs no model catalog or credentials. Every hosted, local, or extension pro
 the two explicit dictionary fields. EasyAgent never infers a provider from a vendor's model
 naming convention because those names change independently of this package.
 
+Tool descriptions are part of the provider schema, not the system prompt. Changing a
+`Tool.description` can therefore change whether a model selects that tool even when the
+callable and parameter schema stay identical. The visual lab's description experiment uses
+session-owned tool bindings and records the effective schema in `AgentTrace.tool_schemas`;
+it never mutates shared source tools.
+
 Retries in `LLM.complete()` repeat provider requests after normalized `LLMError` failures.
 Native streams retry only before exposing their first event; once text is visible, an error
 is surfaced instead of replaying duplicate text. Retries do not rewind already completed

@@ -13,6 +13,16 @@ from agentmold.visual.architecture import (
     tool_calling_description,
     tool_calling_diagram_html,
 )
+from agentmold.visual.architecture import (
+    INTENT_PRESETS,
+    RETRIEVAL_PRESETS,
+    intent_code,
+    intent_description,
+    intent_diagram_html,
+    retrieval_code,
+    retrieval_description,
+    retrieval_diagram_html,
+)
 
 
 @pytest.mark.parametrize("arch_key", list(ARCHITECTURE_PRESETS))
@@ -95,3 +105,77 @@ def test_tool_calling_code_snippets_are_valid_python():
 
     for mode_key in TOOL_CALLING_PRESETS:
         ast.parse(TOOL_CALLING_PRESETS[mode_key]["code"])
+
+
+# ---------------------------------------------------------------------------
+# Engineering practice presets: intent recognition
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("preset_key", list(INTENT_PRESETS))
+def test_intent_preset_has_required_fields(preset_key):
+    preset = INTENT_PRESETS[preset_key]
+    assert preset["title"]
+    assert preset["summary"]
+    assert isinstance(preset["nodes"], list) and len(preset["nodes"]) >= 3
+    assert isinstance(preset["edges"], list) and len(preset["edges"]) >= 2
+    assert preset["code"].strip()
+
+
+@pytest.mark.parametrize("preset_key", list(INTENT_PRESETS))
+def test_intent_diagram_renders(preset_key):
+    html_out = intent_diagram_html(preset_key)
+    assert "ea-arch-canvas" in html_out
+    assert "ea-arch-node" in html_out
+    for node in INTENT_PRESETS[preset_key]["nodes"]:
+        assert node["label"] in html_out
+
+
+def test_intent_unknown_key_returns_placeholder():
+    assert "ea-arch-empty" in intent_diagram_html("Nonexistent")
+    assert intent_description("Nonexistent") == ""
+    assert intent_code("Nonexistent") == ""
+
+
+def test_intent_code_snippets_are_valid_python():
+    import ast
+
+    for preset_key in INTENT_PRESETS:
+        ast.parse(INTENT_PRESETS[preset_key]["code"])
+
+
+# ---------------------------------------------------------------------------
+# Engineering practice presets: retrieval strategy
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("preset_key", list(RETRIEVAL_PRESETS))
+def test_retrieval_preset_has_required_fields(preset_key):
+    preset = RETRIEVAL_PRESETS[preset_key]
+    assert preset["title"]
+    assert preset["summary"]
+    assert isinstance(preset["nodes"], list) and len(preset["nodes"]) >= 3
+    assert isinstance(preset["edges"], list) and len(preset["edges"]) >= 2
+    assert preset["code"].strip()
+
+
+@pytest.mark.parametrize("preset_key", list(RETRIEVAL_PRESETS))
+def test_retrieval_diagram_renders(preset_key):
+    html_out = retrieval_diagram_html(preset_key)
+    assert "ea-arch-canvas" in html_out
+    assert "ea-arch-node" in html_out
+    for node in RETRIEVAL_PRESETS[preset_key]["nodes"]:
+        assert node["label"] in html_out
+
+
+def test_retrieval_unknown_key_returns_placeholder():
+    assert "ea-arch-empty" in retrieval_diagram_html("Nonexistent")
+    assert retrieval_description("Nonexistent") == ""
+    assert retrieval_code("Nonexistent") == ""
+
+
+def test_retrieval_code_snippets_are_valid_python():
+    import ast
+
+    for preset_key in RETRIEVAL_PRESETS:
+        ast.parse(RETRIEVAL_PRESETS[preset_key]["code"])

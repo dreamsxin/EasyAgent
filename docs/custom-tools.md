@@ -70,6 +70,19 @@ On the next launch, the visual lab restores the last Agent configuration, reload
 configured modules, and rebuilds the Agent. A changed module replaces the previous upload
 with the same source filename.
 
+## Tool Description Experiments
+
+The visual lab can override one tool's top-level `description` without changing its Python
+function or parameter schema. The override is persisted in `.agentmold/visual_agent.json`
+and is sent through the provider's native tools/function schema. Editing it therefore lets
+you test whether the same model chooses tools differently for the same prompt.
+
+Each Agent build creates a new tool binding with a deep-copied parameter schema. The source
+tool object is never mutated, so an override cannot change the global built-in tool, an MCP
+server fingerprint, or another visual session. Empty text restores the latest source
+description. Completed traces record the effective tool schemas so Trace Lab can compare
+runs before and after an edit.
+
 ## Security Boundary
 
 Loading a tool module imports and executes its Python code with the same operating-system

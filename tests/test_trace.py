@@ -12,6 +12,19 @@ from agentmold.exceptions import MaxIterationsError
 from agentmold.llm import LLM, LlmResponse
 
 
+def test_trace_includes_tool_schema_snapshot():
+    from agentmold.tools import calculate
+
+    agent = Agent(name="SchemaBot", tools=[calculate], llm="mock", log_level=LogLevel.SILENT)
+    list(agent.run_stream("hello"))
+
+    assert agent.last_trace is not None
+    schema = agent.last_trace.to_dict()["tool_schemas"]
+    assert schema[0]["name"] == "calculate"
+    assert "description" in schema[0]
+    assert schema[0]["parameters"]
+
+
 def test_agent_exposes_and_exports_last_trace(tmp_path):
     agent = Agent(name="TraceBot", llm="mock", log_level=LogLevel.SILENT)
 

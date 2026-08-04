@@ -181,6 +181,7 @@ class AgentTrace:
     agent_name: str = ""
     instructions: str = ""
     max_iterations: int | None = None
+    tool_schemas: list[dict[str, Any]] = field(default_factory=list)
     event_times: list[str] = field(default_factory=list, repr=False)
     _started_monotonic: float = field(default_factory=time.perf_counter, repr=False)
 
@@ -218,6 +219,7 @@ class AgentTrace:
             "instructions": self.instructions,
             "model": self.model,
             "model_config": self.model_config,
+            "tool_schemas": self.tool_schemas,
             "usage": self.usage,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
@@ -496,6 +498,7 @@ class Agent:
             self.log.answer(f"Running agent {self.name!r}...")
             self.memory.add(Message(role="user", content=user_input))
             tool_schemas = self.registry.schemas()
+            trace.tool_schemas = json.loads(json.dumps(tool_schemas, ensure_ascii=False))
             for iteration in range(1, self.max_iterations + 1):
                 messages = self.memory.messages()
                 response = yield from self._stream_llm_response(
@@ -628,6 +631,7 @@ class Agent:
             self.log.answer(f"Running agent {self.name!r}...")
             self.memory.add(Message(role="user", content=user_input))
             tool_schemas = self.registry.schemas()
+            trace.tool_schemas = json.loads(json.dumps(tool_schemas, ensure_ascii=False))
             for iteration in range(1, self.max_iterations + 1):
                 messages = self.memory.messages()
                 response: LlmResponse | None = None

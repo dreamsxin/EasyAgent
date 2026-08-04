@@ -1,6 +1,6 @@
 """Tests for the visual graph builder (pure function, no Streamlit needed)."""
 
-from __future__ import annotations
+from types import SimpleNamespace
 
 from agentmold.visual.agent_config import (
     CONNECTION_DEFAULTS as _CONNECTION_DEFAULTS,
@@ -20,7 +20,15 @@ from agentmold.visual.agent_config import (
 from agentmold.visual.agent_config import (
     load_visual_tools as _load_visual_tools,
 )
-from agentmold.visual.app import _inject_theme
+from agentmold.visual.agent_config import bind_visual_tools, resolve_mode, visual_approval_gate
+from agentmold.visual.app import (
+    _description_widget_key,
+    _inject_theme,
+    _one_line_description,
+    _reset_visual_conversation,
+    _tool_group_summary,
+    _tool_origin_group,
+)
 from agentmold.visual.graph import STEP_COLORS, trace_to_graph
 from agentmold.visual.renderers import (
     execution_map_html as _execution_map_html,
@@ -110,7 +118,55 @@ def test_unknown_step_type_gets_default_color():
     assert nodes[0].color == "#6b7280"
 
 
-def test_agent_signature_changes_with_instructions():
+def test_visual_description_override_is_isolated_from_source_tool():
+    from agentmold.tools import calculate
+
+    original = calculate.description
+    bound = bind_visual_tools(
+        ["calculate"],
+        {"calculate": calculate},
+        {"calculate": "Use this only for exact arithmetic."},
+    )
+
+    assert bound[0] is not calculate
+    assert bound[0].description == "Use this only for exact arithmetic."
+    assert bound[0].func is calculate.func
+    assert calculate.description == original
+    bound[0].parameters["properties"]["expression"]["description"] = "changed"
+    assert calculate.parameters["properties"]["expression"].get("description") != "changed"
+
+
+def test_visual_mcp_binding_uses_current_safe_mode():
+    from agentmold import tool
+
+    @tool
+    def remote_lookup(query: str) -> str:
+        """Look up a remote value."""
+        return query
+
+    bound = bind_visual_tools(
+        ["remote_lookup"],
+        {"remote_lookup": remote_lookup},
+        tool_origins={"remote_lookup": "MCP · local"},
+        require_approval=True,
+    )
+
+    assert bound[0].confirm is True
+    assert remote_lookup.confirm is False
+
+
+    before = _agent_signature("A", "prompt", "mock", ["calculate"], 10)
+    after = _agent_signature(
+        "A",
+        "prompt",
+        "mock",
+        ["calculate"],
+        10,
+        description_overrides={"calculate": "Use for exact arithmetic."},
+    )
+    assert before != after
+
+
     before = _agent_signature("A", "old", "mock", ["calculate"], 10)
     after = _agent_signature("A", "new", "mock", ["calculate"], 10)
     assert before != after
@@ -120,6 +176,81 @@ def test_agent_signature_changes_with_uploaded_tool_content():
     before = _agent_signature("A", "prompt", "mock", ["custom"], 10, (("tools.py", "a"),))
     after = _agent_signature("A", "prompt", "mock", ["custom"], 10, (("tools.py", "b"),))
     assert before != after
+
+
+def test_visual_config_keeps_legacy_log_level_keyword_compatible():
+    resolved = resolve_mode("标准模式", 8, True, True, log_level="DEBUG")
+    before = _agent_signature("A", "prompt", "mock", [], 10, log_level="INFO")
+    after = _agent_signature("A", "prompt", "mock", [], 10, log_level="DEBUG")
+
+    assert resolved == {
+        "loop_detection_threshold": 3,
+        "require_approval": False,
+        "audit_log": False,
+    }
+    assert before == after
+
+
+def test_visual_approval_gate_always_refuses_without_session_state():
+    assert visual_approval_gate("write_file", {"file_path": "notes.txt"}) is False
+
+
+def test_reset_visual_conversation_clears_memory_but_preserves_agent_tools():
+    agent = _build_agent("A", "Keep system prompt.", "mock", ["calculate"], 4)
+    agent.memory.add(SimpleNamespace(role="user", content="old question"))
+    state = {
+        "messages": [{"role": "user", "content": "old question"}],
+        "last_steps": [{"type": "answer", "content": "old answer"}],
+        "last_user_input": "old question",
+        "run_meta": {"state": "complete"},
+        "ea_agent_mode": "标准模式",
+        "ea_rag_text": "keep document",
+    }
+    st = SimpleNamespace(session_state=state)
+
+    _reset_visual_conversation(st, agent)
+
+    memory_messages = agent.memory.messages()
+    assert [(message.role, message.content) for message in memory_messages] == [
+        ("system", agent._build_system_prompt())
+    ]
+    assert [tool.name for tool in agent.tools] == ["calculate"]
+    assert state == {"ea_agent_mode": "标准模式", "ea_rag_text": "keep document"}
+
+
+def test_tool_origin_groups_unknown_sources_as_other():
+    assert _tool_origin_group("内置") == "内置工具"
+    assert _tool_origin_group("RAG · notes") == "RAG 检索"
+    assert _tool_origin_group("MCP · server") == "MCP 工具"
+    assert _tool_origin_group("上传 · custom.py") == "上传模块"
+    assert _tool_origin_group("plugin") == "其他工具"
+
+
+def test_tool_group_summary_reports_selected_and_destructive_counts():
+    from agentmold import tool
+
+    @tool
+    def safe_tool(value: str) -> str:
+        """Read a value."""
+        return value
+
+    @tool(confirm=True)
+    def dangerous_tool(value: str) -> str:
+        """Change a value."""
+        return value
+
+    tools = {"safe_tool": safe_tool, "dangerous_tool": dangerous_tool}
+    assert _tool_group_summary(
+        "内置工具", list(tools), {"safe_tool"}, tools
+    ) == "内置工具 · 1/2 已选 · ⚠ 1"
+    assert _description_widget_key("retrieve").startswith("ea_tool_description_")
+    assert _description_widget_key("retrieve") == _description_widget_key("retrieve")
+
+
+    assert _one_line_description("Read files.\n\nOnly inside workspace.") == (
+        "Read files. Only inside workspace."
+    )
+    assert _one_line_description("word " * 30, limit=12) == "word word wo…"
 
 
 def test_visual_tool_loader_builds_agent_with_uploaded_tool(tmp_path):
@@ -223,6 +354,28 @@ def test_theme_keeps_collapsed_sidebar_discoverable_on_small_screens():
     assert "@media (max-width: 900px)" in recorder.content
     assert '[data-testid="stExpandSidebarButton"]' in recorder.content
     assert 'content: "Agent 配置"' in recorder.content
+    assert "--ea-bg: #080c12" in recorder.content
+    assert "<script>" not in recorder.content
+    assert "data-ea-theme" not in recorder.content
+
+
+def test_theme_uses_streamlit_context_for_light_palette():
+    class ThemeRecorder:
+        context = SimpleNamespace(theme={"type": "light"})
+        content = ""
+
+        def markdown(self, content: str, *, unsafe_allow_html: bool) -> None:
+            assert unsafe_allow_html is True
+            self.content = content
+
+    recorder = ThemeRecorder()
+    _inject_theme(recorder)
+
+    assert "--ea-bg: #f4f7fa" in recorder.content
+    assert "--ea-text: #1a2735" in recorder.content
+    assert "--ea-header-bg: rgba(244, 247, 250, 0.92)" in recorder.content
+    assert "color: var(--ea-text) !important" in recorder.content
+    assert "<script>" not in recorder.content
 
 
 def test_custom_openai_config_from_visual_controls():

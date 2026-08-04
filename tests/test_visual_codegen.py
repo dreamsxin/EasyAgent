@@ -33,7 +33,33 @@ def test_generated_mock_agent_round_trips_through_loader(tmp_path):
     assert 'if __name__ == "__main__":' in source
 
 
-def test_generated_agent_runs_one_shot_without_user_code(tmp_path):
+def test_generated_agent_applies_tool_description_override_without_mutating_source(tmp_path):
+    from agentmold.tools import calculate
+
+    original = calculate.description
+    source = generate_agent_python(
+        name="Experiment Bot",
+        instructions="Compare tool selection.",
+        llm="mock",
+        selected_tools=["calculate"],
+        max_iterations=5,
+        tool_description_overrides={
+            "calculate": "Use this whenever the user needs exact arithmetic."
+        },
+    )
+    path = tmp_path / "agent.py"
+    path.write_text(source, encoding="utf-8")
+
+    agent = load_agent(path)
+
+    assert agent.tools[0].description == (
+        "Use this whenever the user needs exact arithmetic."
+    )
+    assert agent.tools[0] is not calculate
+    assert calculate.description == original
+    assert "description_overrides" in source
+
+
     source = generate_agent_python(
         name="Study Bot",
         instructions="Explain clearly.",
@@ -126,3 +152,22 @@ def test_codegen_rejects_tools_outside_visual_allowlist():
             selected_tools=["write_anywhere"],
             max_iterations=10,
         )
+
+
+def test_generated_workspace_agent_runs_in_empty_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = generate_agent_python(
+        name="Workspace Bot",
+        instructions="Inspect files.",
+        llm="mock",
+        selected_tools=["read_file", "list_directory"],
+        max_iterations=5,
+    )
+    path = tmp_path / "agent.py"
+    path.write_text(source, encoding="utf-8")
+
+    agent = load_agent(path)
+    assert [tool.name for tool in agent.tools] == ["read_file", "list_directory"]
+    # The generated code must create the workspace before workspace_tools() runs.
+    assert (tmp_path / ".agentmold" / "workspace").exists()
+    assert "Path('.agentmold/workspace')" in source

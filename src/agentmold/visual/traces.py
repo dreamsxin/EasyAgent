@@ -7,6 +7,7 @@ object or execution engine.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -183,6 +184,20 @@ def summarize_trace_run(run: dict[str, Any]) -> dict[str, Any]:
         if isinstance(raw_model_config, dict)
         else {}
     )
+    raw_tool_schemas = run.get("tool_schemas")
+    tool_schemas = (
+        [schema for schema in raw_tool_schemas if isinstance(schema, dict)]
+        if isinstance(raw_tool_schemas, list)
+        else []
+    )
+    tool_descriptions = {
+        str(schema.get("name")): str(schema.get("description") or "")
+        for schema in tool_schemas
+        if schema.get("name")
+    }
+    tool_schema_fingerprint = hashlib.sha256(
+        json.dumps(tool_schemas, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:12]
     raw_child_run_ids = run.get("child_run_ids")
     child_run_ids = (
         [str(run_id) for run_id in raw_child_run_ids if isinstance(run_id, str) and run_id]
@@ -201,6 +216,9 @@ def summarize_trace_run(run: dict[str, Any]) -> dict[str, Any]:
         "max_iterations": _int_number(run.get("max_iterations")),
         "model": str(run.get("model") or "unknown"),
         "model_config": model_config,
+        "tool_schemas": tool_schemas,
+        "tool_descriptions": tool_descriptions,
+        "tool_schema_fingerprint": tool_schema_fingerprint,
         "usage": usage,
         "duration_ms": _number(run.get("duration_ms")),
         **usage_summary,

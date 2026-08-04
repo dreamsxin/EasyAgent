@@ -88,6 +88,37 @@ def test_visual_agent_config_round_trip_and_delete(tmp_path):
     assert not delete_visual_agent_config(path)
 
 
+def test_visual_agent_config_tool_description_overrides_round_trip(tmp_path):
+    path = tmp_path / "agent.json"
+    save_visual_agent_config(
+        {
+            "name": "Researcher",
+            "tool_description_overrides": {
+                "calculate": "  Use for exact arithmetic.  ",
+                "empty": "   ",
+                "too_long": "x" * 2001,
+                7: "bad key",
+            },
+        },
+        path,
+    )
+
+    assert load_visual_agent_config(path)["tool_description_overrides"] == {
+        "calculate": "Use for exact arithmetic."
+    }
+
+
+def test_visual_agent_config_drops_invalid_override_container(tmp_path):
+    path = tmp_path / "agent.json"
+    path.write_text(
+        json.dumps({"agent": {"tool_description_overrides": ["invalid"]}}),
+        encoding="utf-8",
+    )
+
+    assert "tool_description_overrides" not in load_visual_agent_config(path)
+
+
+
 def test_visual_agent_config_filters_invalid_values(tmp_path):
     path = tmp_path / "agent.json"
     path.write_text(

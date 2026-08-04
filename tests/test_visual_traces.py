@@ -68,7 +68,28 @@ def test_summary_normalizes_metrics_and_label():
     assert "research-model" in trace_label(run)
 
 
-def test_summary_normalizes_cache_hit_metrics():
+def test_summary_includes_tool_schema_descriptions_and_fingerprint():
+    summary = summarize_trace_run(
+        {
+            "run_id": "schema-run",
+            "ended_at": "now",
+            "tool_schemas": [
+                {
+                    "name": "retrieve",
+                    "description": "Search private documents first.",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+            ],
+            "events": [],
+        }
+    )
+
+    assert summary["tool_descriptions"] == {
+        "retrieve": "Search private documents first."
+    }
+    assert len(summary["tool_schema_fingerprint"]) == 12
+
+
     summary = summarize_trace_run(
         {
             "run_id": "cached",

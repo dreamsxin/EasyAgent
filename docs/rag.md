@@ -161,3 +161,8 @@ report = evaluate(
 )
 print(report.mean_score)
 ```
+
+## 延伸阅读
+
+RAG 只是三种知识来源之一。何时该用 RAG、何时该用 LLM 参数化知识、何时该用 grep
+关键词搜索？详见 [工程实践：意图识别与检索策略](engineering.md#二rag-vs-llm-知识-vs-grep三种知识来源的区别)。

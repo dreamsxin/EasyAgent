@@ -6,6 +6,7 @@ Requires the ``anthropic`` package: ``pip install 'agentmold[anthropic]'``.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
@@ -99,9 +100,8 @@ class AnthropicLLM(LLM):
             "system": system_text,
             "messages": _to_anthropic_messages(convo),
         }
-        # DeepSeek/Anthropic thinking mode: suppress temperature (API rejects it
-        # when thinking/reasoning is enabled) and pass the reasoning param.
-        thinking_enabled = "reasoning" in self.kwargs or "thinking" in self.kwargs
+        # DeepSeek/Anthropic thinking mode: suppress temperature when enabled.
+        thinking_enabled = _anthropic_thinking_enabled(self.kwargs)
         if not thinking_enabled:
             kwargs["temperature"] = self.temperature
         kwargs.update(
@@ -112,6 +112,12 @@ class AnthropicLLM(LLM):
             }
         )
         if tools:
+            if thinking_enabled:
+                raise ConfigurationError(
+                    "Anthropic-compatible thinking with tools is not supported because "
+                    "thinking signatures cannot yet be preserved across tool rounds. "
+                    "Disable thinking or use the DeepSeek OpenAI-compatible endpoint."
+                )
             kwargs["tools"] = [
                 {
                     "name": tool["name"],
@@ -133,12 +139,15 @@ class AnthropicLLM(LLM):
         manager = self._client.messages.stream(**kwargs)
         message_stream = manager.__enter__()
         final_message = None
+        visible_parts: list[str] = []
+        thinking_state = {"open": False, "closed": False}
         try:
             for event in message_stream:
-                content = _anthropic_text_delta(event)
-                if content:
+                for content in _anthropic_visible_deltas(event, visible_parts, thinking_state):
                     yield {"type": "text_delta", "content": content}
             final_message = message_stream.get_final_message()
+            for content in _finish_anthropic_thinking(visible_parts, thinking_state):
+                yield {"type": "text_delta", "content": content}
         finally:
             try:
                 message_stream.close()
@@ -146,19 +155,22 @@ class AnthropicLLM(LLM):
                 pass
         yield {
             "type": "response",
-            "response": _parse_anthropic_response(final_message),
+            "response": _parse_anthropic_response(final_message, visible_parts=visible_parts),
         }
 
     async def _astream_once(self, kwargs: dict[str, Any]) -> AsyncIterator[LlmStreamEvent]:
         manager = self._async_client.messages.stream(**kwargs)
         message_stream = await manager.__aenter__()
         final_message = None
+        visible_parts: list[str] = []
+        thinking_state = {"open": False, "closed": False}
         try:
             async for event in message_stream:
-                content = _anthropic_text_delta(event)
-                if content:
+                for content in _anthropic_visible_deltas(event, visible_parts, thinking_state):
                     yield {"type": "text_delta", "content": content}
             final_message = await message_stream.get_final_message()
+            for content in _finish_anthropic_thinking(visible_parts, thinking_state):
+                yield {"type": "text_delta", "content": content}
         finally:
             try:
                 await message_stream.close()
@@ -166,7 +178,7 @@ class AnthropicLLM(LLM):
                 pass
         yield {
             "type": "response",
-            "response": _parse_anthropic_response(final_message),
+            "response": _parse_anthropic_response(final_message, visible_parts=visible_parts),
         }
 
 
@@ -241,16 +253,16 @@ def _to_anthropic_messages(messages: list[Message]) -> list[dict[str, Any]]:
     return result
 
 
-def _parse_anthropic_response(response: Any) -> LlmResponse:
+def _parse_anthropic_response(
+    response: Any,
+    *,
+    visible_parts: list[str] | None = None,
+) -> LlmResponse:
     content = ""
-    thinking = ""
     tool_calls = []
     for block in response.content:
         if block.type == "text":
             content += block.text
-        elif block.type == "thinking":
-            # DeepSeek/Anthropic thinking content block.
-            thinking += getattr(block, "thinking", "") or ""
         elif block.type == "tool_use":
             tool_calls.append(
                 {
@@ -259,23 +271,104 @@ def _parse_anthropic_response(response: Any) -> LlmResponse:
                     "arguments": dict(block.input),
                 }
             )
-    if thinking:
-        content = f"<thinking>\n{thinking}\n</thinking>\n\n{content}"
+    if visible_parts is not None:
+        content = "".join(visible_parts)
+    else:
+        content = _strip_thinking_blocks(content)
     return LlmResponse(content=content, tool_calls=tool_calls, raw=response)
 
 
-def _anthropic_text_delta(event: Any) -> str:
-    """Extract visible text (including thinking) from an Anthropic stream event."""
+_THINKING_BLOCK_RE = re.compile(r"<thinking>.*?</thinking>\s*", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_thinking_blocks(content: str) -> str:
+    """Remove model-emitted reasoning blocks from user-visible content."""
+    return _THINKING_BLOCK_RE.sub("", content).strip()
+
+
+def _anthropic_thinking_enabled(options: dict[str, Any]) -> bool:
+    """Return whether Anthropic/DeepSeek thinking is explicitly enabled."""
+    reasoning = options.get("reasoning")
+    if isinstance(reasoning, dict):
+        return reasoning.get("effort") not in {None, "none"}
+    thinking = options.get("thinking")
+    return isinstance(thinking, dict) and thinking.get("type") == "enabled"
+
+
+def _anthropic_visible_deltas(
+    event: Any,
+    visible_parts: list[str],
+    thinking_state: dict[str, bool],
+) -> list[str]:
+    """Convert one Anthropic delta into canonical visible stream fragments."""
     if getattr(event, "type", None) != "content_block_delta":
-        return ""
+        return []
     delta = getattr(event, "delta", None)
     delta_type = getattr(delta, "type", None)
-    if delta_type == "text_delta":
-        return str(getattr(delta, "text", ""))
+    emitted: list[str] = []
     if delta_type == "thinking_delta":
-        # DeepSeek/Anthropic thinking content -- surface it with a tag.
-        return str(getattr(delta, "thinking", ""))
-    return ""
+        # Native thinking is provider metadata, not assistant answer text.
+        return []
+    if delta_type == "text_delta":
+        content = str(getattr(delta, "text", ""))
+        if content:
+            visible = _visible_content_delta(content, thinking_state)
+            if visible:
+                visible_parts.append(visible)
+                emitted.append(visible)
+    return emitted
+
+
+def _visible_content_delta(content: str, state: dict[str, Any]) -> str:
+    """Incrementally hide ``<thinking>`` blocks split across stream chunks."""
+    opening = "<thinking>"
+    closing = "</thinking>"
+    buffer = str(state.get("tag_buffer", "")) + content
+    inside = bool(state.get("inside_thinking", False))
+    emitted: list[str] = []
+
+    while buffer:
+        marker = closing if inside else opening
+        index = buffer.lower().find(marker)
+        if index >= 0:
+            if not inside:
+                emitted.append(buffer[:index])
+            buffer = buffer[index + len(marker) :]
+            inside = not inside
+            continue
+
+        keep = 0
+        lowered = buffer.lower()
+        for size in range(1, min(len(buffer), len(marker) - 1) + 1):
+            if lowered.endswith(marker[:size]):
+                keep = size
+        if not inside:
+            emitted.append(buffer[:-keep] if keep else buffer)
+        buffer = buffer[-keep:] if keep else ""
+        break
+
+    state["tag_buffer"] = buffer
+    state["inside_thinking"] = inside
+    return "".join(emitted)
+
+
+def _finish_anthropic_thinking(
+    visible_parts: list[str],
+    thinking_state: dict[str, Any],
+) -> list[str]:
+    """Flush safe trailing text and omit unfinished reasoning blocks."""
+    buffer = str(thinking_state.pop("tag_buffer", ""))
+    if not buffer or thinking_state.get("inside_thinking", False):
+        return []
+    visible_parts.append(buffer)
+    return [buffer]
+
+
+def _anthropic_text_delta(event: Any) -> str:
+    """Extract user-visible text from one Anthropic stream event."""
+    visible_parts: list[str] = []
+    state = {"open": False, "closed": False}
+    return "".join(_anthropic_visible_deltas(event, visible_parts, state))
 
 
 register_provider("anthropic", AnthropicLLM)
