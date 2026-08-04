@@ -19,6 +19,11 @@ RECIPES = [
     "09_agent_architectures.py",
 ]
 
+# Recipes that require an optional extra; skipped when that extra is missing.
+_OPTIONAL_RECIPES = {
+    "07_mcp_tools.py": "mcp",
+}
+
 
 def test_cookbook_has_curated_offline_recipes():
     recipes = sorted(path.name for path in COOKBOOK_DIR.glob("*.py"))
@@ -35,6 +40,12 @@ def test_cookbook_recipes_run_offline(tmp_path, monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     for name in RECIPES:
+        required = _OPTIONAL_RECIPES.get(name)
+        if required is not None:
+            try:
+                __import__(required)
+            except ImportError:
+                continue  # optional extra not installed in this environment
         runpy.run_path(str(COOKBOOK_DIR / name), run_name="__main__")
 
     output = tmp_path / "artifacts" / "cookbook"

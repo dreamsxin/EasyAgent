@@ -89,6 +89,7 @@ def generate_agent_python(
     audit_log: bool = False,
     log_level: str = "SILENT",
     rag_text: str = "",
+    tool_description_overrides: dict[str, str] | None = None,
 ) -> str:
     """Generate an importable ``agent.py`` that can also run directly."""
     if not isinstance(name, str) or not isinstance(instructions, str):
@@ -111,6 +112,11 @@ def generate_agent_python(
         raise ValueError("log_level must be one of SILENT, INFO, DEBUG")
 
     tools = list(dict.fromkeys(selected_tools))
+    description_overrides = {
+        name: description.strip()
+        for name, description in (tool_description_overrides or {}).items()
+        if name in tools and isinstance(description, str) and description.strip()
+    }
     # Reject only genuinely non-exportable tools (write_file is an inline
     # closure bound to the workspace; uploaded modules and MCP tools need
     # external files/connections).
@@ -122,13 +128,21 @@ def generate_agent_python(
         raise ValueError(f"unsupported visual tools: {', '.join(unknown)}")
 
     environment = api_key_environment(llm)
+    workspace_tools_selected = [t for t in tools if t in ("read_file", "list_directory")]
     lines = ['"""Agent exported by EasyAgent visual lab."""', ""]
     if environment:
         lines.append("import os")
+    if workspace_tools_selected:
+        lines.append("from pathlib import Path")
     lines.extend(["import sys", ""])
     needs_loglevel = log_level != "SILENT"
+    needs_tool_binding = bool(description_overrides)
+    if needs_tool_binding:
+        lines.append("from copy import deepcopy")
     if needs_loglevel:
-        lines.append("from agentmold import Agent, LogLevel")
+        lines.append("from agentmold import Agent, LogLevel, Tool")
+    elif needs_tool_binding:
+        lines.append("from agentmold import Agent, Tool")
     else:
         lines.append("from agentmold import Agent")
     # Bare-import tools (calculate).
@@ -167,7 +181,9 @@ def generate_agent_python(
         setup = _TOOL_FACTORIES["retrieve"]["setup"].format(rag_text=rag_text)
         lines.append(setup)
     if workspace_tools_selected:
-        lines.append("    _workspace_tools = workspace_tools('.agentmold/workspace')")
+        lines.append("    workspace_root = Path('.agentmold/workspace')")
+        lines.append("    workspace_root.mkdir(parents=True, exist_ok=True)")
+        lines.append("    _workspace_tools = workspace_tools(workspace_root)")
         for wt in workspace_tools_selected:
             lines.append(
                 f"    {wt} = next(t for t in _workspace_tools if t.name == '{wt}')"
@@ -180,7 +196,26 @@ def generate_agent_python(
             tool_exprs.append(t)
         elif t in _TOOL_FACTORIES:
             tool_exprs.append(_TOOL_FACTORIES[t]["expression"])
-    tool_expression = "[" + ", ".join(tool_exprs) + "]"
+    if description_overrides:
+        lines.append(f"    description_overrides = {description_overrides!r}")
+        lines.append("    source_tools = [" + ", ".join(tool_exprs) + "]")
+        lines.extend(
+            [
+                "    tools = [",
+                "        Tool(",
+                "            func=item.func,",
+                "            name=item.name,",
+                "            description=description_overrides.get(item.name, item.description),",
+                "            parameters=deepcopy(item.parameters),",
+                "            confirm=item.confirm,",
+                "        )",
+                "        for item in source_tools",
+                "    ]",
+            ]
+        )
+        tool_expression = "tools"
+    else:
+        tool_expression = "[" + ", ".join(tool_exprs) + "]"
     lines.append("    return Agent(")
     lines.append(f"        name={name!r},")
     lines.append(f"        instructions={instructions!r},")

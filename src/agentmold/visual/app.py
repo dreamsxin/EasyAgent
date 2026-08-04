@@ -11,6 +11,7 @@ LLM, tools, iterations), build it with a clear button, then chat with it
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from typing import TYPE_CHECKING, Any, Literal
@@ -44,6 +45,30 @@ from agentmold.visual.architecture import (
 )
 from agentmold.visual.architecture import (
     tool_calling_diagram_html as _tool_calling_diagram_html,
+)
+from agentmold.visual.architecture import (
+    INTENT_PRESETS as _INTENT_PRESETS,
+)
+from agentmold.visual.architecture import (
+    intent_code as _intent_code,
+)
+from agentmold.visual.architecture import (
+    intent_description as _intent_description,
+)
+from agentmold.visual.architecture import (
+    intent_diagram_html as _intent_diagram_html,
+)
+from agentmold.visual.architecture import (
+    RETRIEVAL_PRESETS as _RETRIEVAL_PRESETS,
+)
+from agentmold.visual.architecture import (
+    retrieval_code as _retrieval_code,
+)
+from agentmold.visual.architecture import (
+    retrieval_description as _retrieval_description,
+)
+from agentmold.visual.architecture import (
+    retrieval_diagram_html as _retrieval_diagram_html,
 )
 from agentmold.visual.agent_config import (
     CONNECTION_DEFAULTS as _CONNECTION_DEFAULTS,
@@ -337,7 +362,7 @@ def _render_architecture_demo(st: Any) -> None:
             options=tc_options,
             index=0,
             key="ea_tool_calling_mode_demo",
-            help="对比 Function Calling（原生）与 Prompt Injection（提示词注入）的区别。",
+            help="对比 Function Calling（原生）与 Prompt-based Tool Calling（提示词工具调用）的区别。",
         )
         tc_desc = _tool_calling_description(tc_selected)
         if tc_desc:
@@ -356,6 +381,92 @@ def _render_architecture_demo(st: Any) -> None:
             st.code(tc_preset.get("code", "").strip(), language="python")
 
 
+def _render_engineering_demo(st: Any) -> None:
+    """Render the engineering-practice teaching panel.
+
+    Two interactive comparison sub-modules (intent recognition cascade and
+    retrieval strategy) plus a quick-reference decision table, all following
+    the same selectbox + diagram + code pattern as the architecture demo.
+    """
+    with st.expander("🏭 工程实践：意图识别与检索策略", expanded=False):
+        # --- Sub-module A: intent recognition cascade ---
+        st.markdown("#### 🎯 意图识别优化")
+        st.caption(
+            "工程中用三级级联：规则匹配（<1ms）-> 轻量模型（5-20ms）-> 大模型兜底（500ms+）。"
+            "先便宜后贵，逐层升级。详见 [工程实践文档](docs/engineering.md)。"
+        )
+        intent_options = list(_INTENT_PRESETS.keys())
+        intent_selected = st.selectbox(
+            "选择意图识别策略",
+            options=intent_options,
+            index=0,
+            key="ea_intent_recognition",
+            help="查看三级意图识别策略的流程图与代码对比。",
+        )
+        intent_desc = _intent_description(intent_selected)
+        if intent_desc:
+            st.caption(intent_desc)
+
+        intent_diagram_col, intent_code_col = st.columns([1, 1])
+        with intent_diagram_col:
+            st.markdown("**级联流程图**")
+            st.markdown(
+                _intent_diagram_html(intent_selected),
+                unsafe_allow_html=True,
+            )
+        with intent_code_col:
+            st.markdown("**代码示例**")
+            st.code(_intent_code(intent_selected), language="python")
+
+        st.divider()
+
+        # --- Sub-module B: retrieval strategy comparison ---
+        st.markdown("#### 📖 检索策略：RAG vs LLM vs grep")
+        st.caption(
+            "三种知识来源各有适用场景：LLM 参数化知识（闭卷）、RAG 检索增强（开卷）、"
+            "grep 关键词搜索（查目录）。详见 [工程实践文档](docs/engineering.md)。"
+        )
+        retrieval_options = list(_RETRIEVAL_PRESETS.keys())
+        retrieval_selected = st.selectbox(
+            "选择检索策略",
+            options=retrieval_options,
+            index=0,
+            key="ea_retrieval_strategy",
+            help="对比三种知识获取方式的流程与代码。",
+        )
+        retrieval_desc = _retrieval_description(retrieval_selected)
+        if retrieval_desc:
+            st.caption(retrieval_desc)
+
+        retrieval_diagram_col, retrieval_code_col = st.columns([1, 1])
+        with retrieval_diagram_col:
+            st.markdown("**检索流程图**")
+            st.markdown(
+                _retrieval_diagram_html(retrieval_selected),
+                unsafe_allow_html=True,
+            )
+        with retrieval_code_col:
+            st.markdown("**代码示例**")
+            st.code(_retrieval_code(retrieval_selected), language="python")
+
+        st.divider()
+
+        # --- Sub-module C: quick-reference decision table ---
+        st.markdown("#### ⚡ 工程决策速查")
+        st.markdown(
+            "| 决策场景 | 推荐选择 | 关键依据 |\n"
+            "|----------|----------|----------|\n"
+            "| 高频明确关键词 | 规则匹配 | 延迟 <1ms，零成本 |\n"
+            "| 措辞多变但类别有限 | DistilBERT 分类 | 可离线，泛化优于规则 |\n"
+            "| 长尾、复杂、多意图 | 大模型兜底 | 泛化最强，成本最高 |\n"
+            "| 通识、稳定事实 | LLM 参数化知识 | 无需检索，延迟最低 |\n"
+            "| 私有文档、需引用 | RAG 检索增强 | 可溯源，知识可更新 |\n"
+            "| 精确术语、代码搜索 | grep 关键词搜索 | 零语义偏差 |\n"
+            "| 主模型超时 | 降级到小模型 -> 规则 -> 兜底文案 | 保证可用性 |\n"
+            "| 长对话 token 超限 | CompactingMemory 压缩 | 保留意图，压缩历史 |"
+        )
+
+
 def _render_code_export(
     st: Any,
     name: str,
@@ -368,6 +479,8 @@ def _render_code_export(
     require_approval: bool = False,
     audit_log: bool = False,
     rag_text: str = "",
+    tool_origins: dict[str, str] | None = None,
+    tool_description_overrides: dict[str, str] | None = None,
 ) -> None:
     """Render a readable agent.py preview and download action."""
     with st.expander("PYTHON EXPORT · agent.py", expanded=False):
@@ -375,7 +488,13 @@ def _render_code_export(
         # uploaded modules, and MCP tools (need external files/connections).
         from agentmold.visual.codegen import _NON_EXPORTABLE
 
-        blocked = [t for t in selected_tools if t in _NON_EXPORTABLE]
+        origins = tool_origins or {}
+        blocked = [
+            tool
+            for tool in selected_tools
+            if tool in _NON_EXPORTABLE
+            or origins.get(tool, "").startswith(("上传", "MCP"))
+        ]
         if blocked:
             st.warning(
                 f"以下工具无法单文件导出（需要额外初始化或外部依赖）：{', '.join(blocked)}。"
@@ -383,17 +502,22 @@ def _render_code_export(
             )
             st.caption("破坏性写入工具是内联闭包，上传模块和 MCP 工具需要外部文件/连接。")
             return
-        source = generate_agent_python(
-            name=name,
-            instructions=instructions,
-            llm=llm,
-            selected_tools=selected_tools,
-            max_iterations=max_iterations,
-            loop_detection_threshold=loop_detection_threshold,
-            require_approval=require_approval,
-            audit_log=audit_log,
-            rag_text=rag_text,
-        )
+        try:
+            source = generate_agent_python(
+                name=name,
+                instructions=instructions,
+                llm=llm,
+                selected_tools=selected_tools,
+                max_iterations=max_iterations,
+                loop_detection_threshold=loop_detection_threshold,
+                require_approval=require_approval,
+                audit_log=audit_log,
+                rag_text=rag_text,
+                tool_description_overrides=tool_description_overrides,
+            )
+        except (TypeError, ValueError) as exc:
+            st.error(f"当前工具组合无法导出：{exc}")
+            return
         environment = api_key_environment(llm)
         action_col, status_col = st.columns([1, 2])
         action_col.download_button(
@@ -415,6 +539,47 @@ def _render_code_export(
         st.code(source, language="python", line_numbers=True)
 
 
+def _render_learning_labs(
+    st: Any,
+    *,
+    agent_file: Path | None,
+    model_missing: bool,
+    name: str,
+    instructions: str,
+    llm: Literal["mock"] | dict[str, Any],
+    selected_tools: list[str],
+    max_iterations: int,
+    loop_detection_threshold: int | None,
+    require_approval: bool,
+    audit_log: bool,
+    tool_origins: dict[str, str] | None = None,
+) -> None:
+    """Render concept, replay, and export labs independently of live Agent state."""
+    st.divider()
+    _render_architecture_demo(st)
+    _render_engineering_demo(st)
+    _render_trace_lab(st)
+    if agent_file is None and not model_missing:
+        _render_code_export(
+            st,
+            name,
+            instructions,
+            llm,
+            selected_tools,
+            max_iterations,
+            loop_detection_threshold=loop_detection_threshold,
+            require_approval=require_approval,
+            audit_log=audit_log,
+            rag_text=st.session_state.get("ea_rag_text", ""),
+            tool_origins=tool_origins,
+            tool_description_overrides=st.session_state.get(
+                "ea_tool_description_overrides", {}
+            ),
+        )
+    elif agent_file is None:
+        st.info("填写模型 ID 后可生成并导出 Agent。")
+
+
 def _profile_setting(
     profile: dict[str, Any],
     key: str,
@@ -426,6 +591,60 @@ def _profile_setting(
         return converter(profile.get(key, default))
     except (TypeError, ValueError):
         return default
+
+
+def _tool_origin_group(origin: str) -> str:
+    """Return a learner-facing group for one tool origin label."""
+    if origin == "内置":
+        return "内置工具"
+    if origin.startswith("RAG"):
+        return "RAG 检索"
+    if origin.startswith("MCP"):
+        return "MCP 工具"
+    if origin.startswith("上传"):
+        return "上传模块"
+    return "其他工具"
+
+
+def _one_line_description(description: str, limit: int = 80) -> str:
+    """Collapse a tool description to one compact line for the sidebar."""
+    compact = " ".join(description.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[:limit] + "…"
+
+
+def _description_widget_key(tool_name: str) -> str:
+    digest = hashlib.sha256(tool_name.encode("utf-8")).hexdigest()[:12]
+    return f"ea_tool_description_{digest}"
+
+
+def _tool_group_summary(
+    group: str,
+    tool_names: list[str],
+    selected: set[str],
+    available_tools: dict[str, Tool],
+) -> str:
+    selected_count = sum(name in selected for name in tool_names)
+    destructive = sum(
+        bool(getattr(available_tools[name], "confirm", False)) for name in tool_names
+    )
+    suffix = f" · ⚠ {destructive}" if destructive else ""
+    return f"{group} · {selected_count}/{len(tool_names)} 已选{suffix}"
+
+
+def _reset_visual_conversation(st: Any, agent: Any) -> None:
+    """Clear rendered conversation and the Agent's real short-term memory."""
+    memory = getattr(agent, "memory", None)
+    clear_session = getattr(memory, "clear_session", None)
+    if callable(clear_session):
+        clear_session()
+    else:
+        clear = getattr(memory, "clear", None)
+        if callable(clear):
+            clear()
+    for key in ("messages", "last_steps", "last_user_input", "run_meta"):
+        st.session_state.pop(key, None)
 
 
 def _inject_theme(st: Any) -> None:
@@ -487,6 +706,7 @@ def _run_app() -> None:
         max_iterations = 0
         tool_signature = ()
         available_tools = {}
+        tool_origins = {}
         build_clicked = False
     else:
         st.sidebar.header("⚙️ Agent 配置")
@@ -519,6 +739,9 @@ def _run_app() -> None:
             )
             st.session_state.ea_require_approval = saved_agent_config.get("require_approval", False)
             st.session_state.ea_audit_log = saved_agent_config.get("audit_log", False)
+            st.session_state.ea_tool_description_overrides = dict(
+                saved_agent_config.get("tool_description_overrides", {})
+            )
             st.session_state.ea_visual_config_initialized = True
             restored_agent_config = bool(saved_agent_config)
             if restored_agent_config:
@@ -561,7 +784,19 @@ def _run_app() -> None:
             st.session_state.ea_loop_detection_threshold = effective["loop_detection_threshold"]
             st.session_state.ea_require_approval = effective["require_approval"]
             st.session_state.ea_audit_log = effective["audit_log"]
-        with st.sidebar.expander("安全门（自定义模式下可调）", expanded=mode_is_custom):
+        with st.sidebar.expander(
+            "运行与安全 · "
+            f"loop={effective['loop_detection_threshold']} · "
+            f"HITL{'开' if effective['require_approval'] else '关'} · "
+            f"audit{'开' if effective['audit_log'] else '关'}",
+            expanded=mode_is_custom,
+        ):
+            max_iterations = st.slider(
+                "最大迭代次数",
+                min_value=1,
+                max_value=20,
+                key="ea_max_iterations",
+            )
             loop_detection_threshold = st.number_input(
                 "重复调用检测阈值",
                 min_value=1,
@@ -584,11 +819,16 @@ def _run_app() -> None:
                 help="每次工具调用写入 .agentmold/audit.jsonl，可回放。",
             )
         name = st.sidebar.text_input("Agent 名称", key="ea_agent_name")
-        instructions = st.sidebar.text_area(
-            "指令（系统提示）",
-            height=100,
-            key="ea_agent_instructions",
-        )
+        with st.sidebar.expander(
+            "Agent 指令 · "
+            f"{len(st.session_state.get('ea_agent_instructions', ''))} 字符",
+            expanded=st.session_state.get("agent") is None,
+        ):
+            instructions = st.text_area(
+                "指令（系统提示）",
+                height=100,
+                key="ea_agent_instructions",
+            )
         saved_profiles = load_visual_profiles()
         profile_notice = st.session_state.pop("ea_profile_notice", None)
         if profile_notice:
@@ -630,7 +870,14 @@ def _run_app() -> None:
             st.session_state[f"ea_timeout_{widget_suffix}"] = profile_defaults["timeout"]
             st.session_state[f"ea_max_tokens_{widget_suffix}"] = profile_defaults["max_tokens"]
             st.session_state.ea_active_profile = profile_key
-        with st.sidebar.expander("接口参数", expanded=connection_type != "Mock（离线）"):
+        interface_expanded = (
+            connection_type == "自定义提供商"
+            or (connection_type != "Mock（离线）" and not saved_profile)
+        )
+        with st.sidebar.expander(
+            f"接口参数 · {connection_type} / {profile_defaults['model'] or '未设置模型'}",
+            expanded=interface_expanded,
+        ):
             model = st.text_input(
                 "模型",
                 key=f"ea_model_{widget_suffix}",
@@ -740,18 +987,11 @@ def _run_app() -> None:
             thinking_enabled=thinking_enabled,
             thinking_effort=thinking_effort,
         )
-        max_iterations = st.sidebar.slider(
-            "最大迭代次数",
-            min_value=1,
-            max_value=20,
-            key="ea_max_iterations",
-        )
-
         st.sidebar.divider()
         st.sidebar.header("🛠️ 工具")
         with st.sidebar.expander(
-            "自定义工具模块",
-            expanded=bool(st.session_state.ea_custom_tool_files),
+            f"自定义工具模块 · {len(st.session_state.ea_custom_tool_files)} 个",
+            expanded=bool(st.session_state.get("ea_visual_tool_errors", [])),
         ):
             st.warning("上传的 Python 文件会在本机执行，拥有与 Streamlit 服务相同的权限。")
             st.caption("模块必须导出 `TOOLS` 或零参数 `build_tools()`，且返回 `Tool` 列表。")
@@ -807,6 +1047,8 @@ def _run_app() -> None:
                         isinstance(key, str)
                         and key.startswith("ea_tool_")
                         and key != "ea_tool_upload_epoch"
+                        and key != "ea_tool_calling_mode_demo"
+                        and not key.startswith("ea_tool_description_")
                     ):
                         st.session_state.pop(key, None)
                 st.session_state.ea_tool_upload_epoch = upload_epoch + 1
@@ -816,8 +1058,11 @@ def _run_app() -> None:
 
         # --- MCP server connection ---
         with st.sidebar.expander(
-            "MCP 工具服务",
-            expanded=bool(st.session_state.get("ea_mcp_url")),
+            f"MCP 工具服务 · "
+            f"{'已连接' if st.session_state.get('ea_mcp_tools') else '未连接'}"
+            f" · {len(st.session_state.get('ea_mcp_tools', {}))} 个工具",
+            expanded=bool(st.session_state.get("ea_mcp_error"))
+            or not bool(st.session_state.get("ea_mcp_tools")),
         ):
             st.caption(
                 "连接 MCP server，自动发现其工具。需要 "
@@ -879,8 +1124,11 @@ def _run_app() -> None:
 
         # --- RAG document retrieval ---
         with st.sidebar.expander(
-            "RAG 文档检索",
-            expanded=bool(st.session_state.get("ea_rag_text")),
+            f"RAG 文档检索 · "
+            f"{'已建库' if st.session_state.get('ea_rag_tool') else '未建库'}"
+            f" · {st.session_state.get('ea_rag_chunk_count', 0)} chunks",
+            expanded=bool(st.session_state.get("ea_rag_text"))
+            and not bool(st.session_state.get("ea_rag_tool")),
         ):
             st.caption(
                 "粘贴文档文本，自动切分建库并生成 retrieve 工具。"
@@ -905,6 +1153,13 @@ def _run_app() -> None:
                     st.session_state.pop("ea_rag_tool", None)
                     st.session_state.pop("ea_rag_origin", None)
                     st.session_state.pop("ea_rag_chunk_count", None)
+                    st.session_state.ea_rag_text = ""
+                    try:
+                        config = load_visual_agent_config()
+                        config.pop("rag_text", None)
+                        save_visual_agent_config(config)
+                    except OSError:
+                        pass
                     st.rerun()
 
             if rag_build and rag_text and rag_text.strip():
@@ -956,6 +1211,7 @@ def _run_app() -> None:
                 st.session_state.ea_rag_chunk_count = len(chunks)
 
         custom_tool_files = list(st.session_state.ea_custom_tool_files)
+        st.session_state.setdefault("ea_tool_description_overrides", {})
         tool_signature = uploaded_tools_signature(custom_tool_files)
         if st.session_state.get("ea_visual_tool_cache_signature") != tool_signature:
             tool_map, tool_origins, tool_errors = _load_visual_tools(custom_tool_files)
@@ -982,54 +1238,113 @@ def _run_app() -> None:
 
         restored_tool_names = set(st.session_state.ea_restored_tool_names)
         selected_tools = []
-        # Group tools by origin for clearer presentation.
-        _ORIGIN_LABELS = {
-            "内置": "内置工具",
-            "RAG": "RAG 检索",
-            "MCP": "MCP 工具",
-        }
         # Build groups preserving first-seen order.
         _origin_order: list[str] = []
         _grouped: dict[str, list[str]] = {}
         for tool_name in available_tools:
-            origin = tool_origins.get(tool_name, "")
-            # Normalize origin: "上传 · xxx" -> "上传模块", "MCP · url" -> "MCP 工具"
-            if origin.startswith("上传"):
-                group = "上传模块"
-            elif origin.startswith("MCP"):
-                group = "MCP 工具"
-            elif origin.startswith("RAG"):
-                group = "RAG 检索"
-            else:
-                group = "内置工具"
+            group = _tool_origin_group(tool_origins.get(tool_name, ""))
             if group not in _grouped:
                 _grouped[group] = []
                 _origin_order.append(group)
             _grouped[group].append(tool_name)
 
+        current_selected = {
+            tool_name
+            for tool_name in available_tools
+            if st.session_state.get(
+                _tool_widget_key(tool_name), tool_name in restored_tool_names
+            )
+        }
+        destructive_selected = sum(
+            bool(getattr(available_tools[name], "confirm", False))
+            for name in current_selected
+        )
+        summary = f"已选 {len(current_selected)}/{len(available_tools)}"
+        if destructive_selected:
+            summary += f" · ⚠ {destructive_selected} 个破坏性"
+        st.sidebar.caption(summary)
+
         for group in _origin_order:
-            st.sidebar.markdown(f"**{group}**")
-            for tool_name in _grouped[group]:
-                visual_tool = available_tools[tool_name]
-                widget_key = _tool_widget_key(tool_name)
-                if widget_key not in st.session_state:
-                    st.session_state[widget_key] = tool_name in restored_tool_names
-                label = tool_name
-                if getattr(visual_tool, "confirm", False):
-                    label = f"⚠ {label} · 破坏性"
-                help_text = visual_tool.description or "未提供工具说明"
-                if getattr(visual_tool, "confirm", False):
-                    help_text += "（标记为破坏性：安全模式下执行前需确认）"
-                if st.sidebar.checkbox(
-                    label,
-                    key=widget_key,
-                    help=help_text,
-                ):
-                    selected_tools.append(tool_name)
-                # Inline one-line description so students see the purpose.
-                desc = visual_tool.description or ""
-                if desc:
-                    st.sidebar.caption(desc[:80] + ("…" if len(desc) > 80 else ""))
+            group_names = _grouped[group]
+            group_selected = current_selected.intersection(group_names)
+            with st.sidebar.expander(
+                _tool_group_summary(group, group_names, current_selected, available_tools),
+                expanded=group == "内置工具" or bool(group_selected),
+            ):
+                for tool_name in group_names:
+                    visual_tool = available_tools[tool_name]
+                    widget_key = _tool_widget_key(tool_name)
+                    if widget_key not in st.session_state:
+                        st.session_state[widget_key] = tool_name in restored_tool_names
+                    label = tool_name
+                    if getattr(visual_tool, "confirm", False):
+                        label = f"⚠ {label} · 破坏性"
+                    effective_description = st.session_state.ea_tool_description_overrides.get(
+                        tool_name, visual_tool.description
+                    )
+                    help_text = effective_description or "未提供工具说明"
+                    if getattr(visual_tool, "confirm", False):
+                        help_text += "（标记为破坏性：安全模式下执行前需确认）"
+                    if st.checkbox(label, key=widget_key, help=help_text):
+                        selected_tools.append(tool_name)
+
+        overrides = st.session_state.ea_tool_description_overrides
+        with st.sidebar.expander(
+            f"🧪 工具描述实验 · {len(overrides)} 项覆盖",
+            expanded=False,
+        ):
+            editor_tool = st.selectbox(
+                "选择工具",
+                options=list(available_tools),
+                key="ea_description_editor_tool",
+                format_func=lambda tool_name: (
+                    f"{tool_name} · {_tool_origin_group(tool_origins.get(tool_name, ''))}"
+                ),
+            )
+            source_tool = available_tools[editor_tool]
+            st.caption(f"原始描述：{source_tool.description or '（无）'}")
+            description_key = _description_widget_key(editor_tool)
+            if st.session_state.get("ea_description_editor_active") != editor_tool:
+                st.session_state[description_key] = overrides.get(
+                    editor_tool, source_tool.description
+                )
+                st.session_state.ea_description_editor_active = editor_tool
+            edited_description = st.text_area(
+                "模型看到的工具描述",
+                key=description_key,
+                height=110,
+                max_chars=2000,
+            )
+            apply_col, reset_col = st.columns(2)
+            if apply_col.button("应用描述", use_container_width=True):
+                normalized = edited_description.strip()
+                if not normalized or normalized == source_tool.description.strip():
+                    overrides.pop(editor_tool, None)
+                else:
+                    overrides[editor_tool] = normalized
+                st.session_state.ea_tool_description_overrides = dict(overrides)
+                st.session_state.ea_description_notice = f"已更新 {editor_tool} 的描述"
+                st.rerun()
+            if reset_col.button("恢复原始", use_container_width=True):
+                overrides.pop(editor_tool, None)
+                st.session_state.ea_tool_description_overrides = dict(overrides)
+                st.session_state.ea_description_editor_active = None
+                st.session_state.ea_description_notice = f"已恢复 {editor_tool} 的原始描述"
+                st.rerun()
+            notice = st.session_state.pop("ea_description_notice", None)
+            if notice:
+                st.success(notice)
+            effective_description = overrides.get(editor_tool, source_tool.description)
+            st.caption("模型实际收到的 Schema")
+            st.json(
+                {
+                    "name": source_tool.name,
+                    "description": effective_description,
+                    "parameters": source_tool.parameters,
+                },
+                expanded=False,
+            )
+            st.caption("修改后用同一问题运行，再到 Trace Lab 对比工具选择。")
 
         current_agent_config = {
             "name": name,
@@ -1045,6 +1360,9 @@ def _run_app() -> None:
             "loop_detection_threshold": int(loop_detection_threshold),
             "require_approval": bool(require_approval),
             "audit_log": bool(audit_log),
+            "tool_description_overrides": dict(
+                st.session_state.get("ea_tool_description_overrides", {})
+            ),
         }
         if current_agent_config != load_visual_agent_config():
             try:
@@ -1067,36 +1385,40 @@ def _run_app() -> None:
             disabled=model_missing,
         ) or (restored_agent_config and not model_missing)
         reload_clicked = False
-        if st.sidebar.button("↩ 恢复默认配置", use_container_width=True):
-            delete_visual_agent_config()
-            for tool_name in available_tools:
-                st.session_state.pop(_tool_widget_key(tool_name), None)
-            for key in list(st.session_state):
-                if isinstance(key, str) and (
-                    key.startswith("ea_agent_")
-                    or key
-                    in {
-                        "ea_connection_type",
-                        "ea_custom_interface",
-                        "ea_max_iterations",
-                        "ea_restored_tool_names",
-                        "ea_visual_config_initialized",
-                        "ea_agent_mode",
-                        "ea_loop_detection_threshold",
-                        "ea_require_approval",
-                        "ea_audit_log",
-                        "ea_mcp_url",
-                        "ea_mcp_tools",
-                        "ea_mcp_origins",
-                        "ea_mcp_error",
-                        "ea_rag_text",
-                        "ea_rag_tool",
-                        "ea_rag_origin",
-                        "ea_rag_chunk_count",
-                    }
-                ):
-                    st.session_state.pop(key, None)
-            st.rerun()
+        with st.sidebar.expander("更多操作", expanded=False):
+            if st.button("↩ 恢复默认配置", use_container_width=True):
+                delete_visual_agent_config()
+                for tool_name in available_tools:
+                    st.session_state.pop(_tool_widget_key(tool_name), None)
+                for key in list(st.session_state):
+                    if isinstance(key, str) and (
+                        key.startswith("ea_agent_")
+                        or key
+                        in {
+                            "ea_connection_type",
+                            "ea_custom_interface",
+                            "ea_max_iterations",
+                            "ea_restored_tool_names",
+                            "ea_visual_config_initialized",
+                            "ea_agent_mode",
+                            "ea_loop_detection_threshold",
+                            "ea_require_approval",
+                            "ea_audit_log",
+                            "ea_mcp_url",
+                            "ea_mcp_tools",
+                            "ea_mcp_origins",
+                            "ea_mcp_error",
+                            "ea_rag_text",
+                            "ea_rag_tool",
+                            "ea_rag_origin",
+                            "ea_rag_chunk_count",
+                            "ea_tool_description_overrides",
+                            "ea_description_editor_tool",
+                            "ea_description_editor_active",
+                        }
+                    ):
+                        st.session_state.pop(key, None)
+                st.rerun()
     # "重置会话" is an operational action, not a configuration step -
     # it lives with the status card on the right, not in the sidebar.
 
@@ -1130,6 +1452,7 @@ def _run_app() -> None:
             loop_detection_threshold=loop_detection_threshold,
             require_approval=require_approval,
             audit_log=audit_log,
+            description_overrides=st.session_state.get("ea_tool_description_overrides", {}),
         )
     )
     config_changed = st.session_state.agent_signature != current_sig
@@ -1165,6 +1488,8 @@ def _run_app() -> None:
                 require_approval=require_approval,
                 audit_log=audit_log,
                 audit_log_path=str(_AUDIT_LOG_PATH),
+                description_overrides=st.session_state.get("ea_tool_description_overrides", {}),
+                tool_origins=tool_origins,
             )
             st.session_state.agent_signature = current_sig
             # Fresh conversation for the new agent.
@@ -1210,6 +1535,8 @@ def _run_app() -> None:
                 require_approval=require_approval,
                 audit_log=audit_log,
                 audit_log_path=str(_AUDIT_LOG_PATH),
+                description_overrides=st.session_state.get("ea_tool_description_overrides", {}),
+                tool_origins=tool_origins,
             )
             st.session_state.agent_signature = current_sig
             # Keep existing conversation history - only the agent changed.
@@ -1237,8 +1564,22 @@ def _run_app() -> None:
                 st.info(
                     "👆 还没有 Agent。请在左侧完成配置（模型、工具、模式），\n"
                     "然后点击 **🔨 生成 Agent** 按钮。\n\n"
-                    "选择 Mock（离线）可无需 API Key 直接体验。"
+                    "选择 Mock（离线）可无需 API Key 直接体验 Agent 基本循环。"
                 )
+            _render_learning_labs(
+                st,
+                agent_file=agent_file,
+                model_missing=model_missing,
+                name=name,
+                instructions=instructions,
+                llm=llm,
+                selected_tools=selected_tools,
+                max_iterations=max_iterations,
+                loop_detection_threshold=loop_detection_threshold,
+                require_approval=require_approval,
+                audit_log=audit_log,
+                tool_origins=tool_origins,
+            )
             st.stop()
 
         with st.container(border=True):
@@ -1282,7 +1623,7 @@ def _run_app() -> None:
                 ):
                     st.caption(
                         "工具通过 API 原生 function calling 传递给模型，"
-                        "而非提示词注入。模型返回结构化 tool_calls，"
+                        "而非提示词工具调用。模型返回结构化 tool_calls，"
                         "Agent 执行对应 Python 函数后将结果写回记忆。"
                     )
                     for t in agent.tools:
@@ -1301,10 +1642,7 @@ def _run_app() -> None:
                     st.rerun()
             with act_col2:
                 if st.button("🗑 重置会话", use_container_width=True, key="ea_reset_btn"):
-                    # Only clear the conversation and run state, not the
-                    # agent config, MCP/RAG tools, or saved settings.
-                    for key in ("messages", "last_steps", "last_user_input", "run_meta"):
-                        st.session_state.pop(key, None)
+                    _reset_visual_conversation(st, agent)
                     st.rerun()
 
         st.markdown('<div class="ea-section-label">CONVERSATION</div>', unsafe_allow_html=True)
@@ -1409,31 +1747,15 @@ def _run_app() -> None:
                                 pass
                         elif step["type"] == "approval_request":
                             run_meta["phase"] = "确认门"
-                            # status removed to avoid stdout capture on Windows
                             try:
                                 st.warning(
                                     f"⚠ **确认门 (HITL):** 破坏性工具 "
                                     f"`{step['name']}({step['arguments']})` "
-                                    "请求执行。你决定是否允许。"
+                                    "已被安全模式拦截。"
                                 )
-                                appr_col1, appr_col2 = st.columns(2)
-                                with appr_col1:
-                                    if st.button(
-                                        "✅ 批准执行",
-                                        key=f"ea_approve_{step.get('id', 'unknown')}",
-                                        use_container_width=True,
-                                    ):
-                                        st.session_state.ea_approval_decision = "approved"
-                                with appr_col2:
-                                    if st.button(
-                                        "❌ 拒绝（默认）",
-                                        key=f"ea_refuse_{step.get('id', 'unknown')}",
-                                        use_container_width=True,
-                                    ):
-                                        st.session_state.ea_approval_decision = "refused"
                                 st.caption(
-                                    "人机协作（HITL）安全门：点击「批准」允许破坏性操作，"
-                                    "「拒绝」则阻止。未点击时默认拒绝以保护安全。"
+                                    "这是人机协作（HITL）安全门教学事件：当前同步运行默认拒绝，"
+                                    "以避免脚本重跑时产生未绑定到本次调用的批准。"
                                 )
                             except OSError:
                                 pass
@@ -1561,27 +1883,22 @@ def _run_app() -> None:
                 unsafe_allow_html=True,
             )
 
-    # ------------------------------------------------------------------
-    # Labs & Export (below the live workspace, ordered by learning arc)
-    # ------------------------------------------------------------------
-    st.divider()
-    _render_architecture_demo(st)
-    _render_trace_lab(st)
-    if agent_file is None and not model_missing:
-        _render_code_export(
-            st,
-            name,
-            instructions,
-            llm,
-            selected_tools,
-            max_iterations,
-            loop_detection_threshold=loop_detection_threshold,
-            require_approval=require_approval,
-            audit_log=audit_log,
-            rag_text=st.session_state.get("ea_rag_text", ""),
-        )
-    elif agent_file is None:
-        st.info("填写模型 ID 后可生成并导出 Agent。")
+    # Labs & Export are also available in the no-agent setup state; the helper
+    # above renders them before st.stop() when there is no live Agent.
+    _render_learning_labs(
+        st,
+        agent_file=agent_file,
+        model_missing=model_missing,
+        name=name,
+        instructions=instructions,
+        llm=llm,
+        selected_tools=selected_tools,
+        max_iterations=max_iterations,
+        loop_detection_threshold=loop_detection_threshold,
+        require_approval=require_approval,
+        audit_log=audit_log,
+        tool_origins=tool_origins,
+    )
 
 
 def _app_main() -> None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import re
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
@@ -104,7 +105,13 @@ class OpenAILLM(LLM):
         # DeepSeek thinking params go in extra_body (non-standard OpenAI fields).
         thinking = request_options.pop("thinking", None)
         reasoning_effort = request_options.pop("reasoning_effort", None)
-        extra_body: dict[str, Any] = {}
+        configured_extra_body = request_options.pop("extra_body", None)
+        if configured_extra_body is None:
+            extra_body: dict[str, Any] = {}
+        elif isinstance(configured_extra_body, dict):
+            extra_body = dict(configured_extra_body)
+        else:
+            raise ConfigurationError("extra_body must be a dictionary when provided.")
         if thinking is not None:
             extra_body["thinking"] = thinking
         if reasoning_effort is not None:
@@ -120,11 +127,14 @@ class OpenAILLM(LLM):
             kwargs["tools"] = [{"type": "function", "function": t} for t in tools]
             kwargs["tool_choice"] = tool_choice
         # Suppress temperature for reasoning models (o1/o3/deepseek-reasoner)
-        # and when DeepSeek thinking mode is enabled (API rejects temperature).
-        thinking_active = thinking is not None or self.model.startswith(
-            ("deepseek-reasoner", "deepseek-r1")
+        # and only when DeepSeek thinking is explicitly enabled.
+        thinking_active = (
+            isinstance(thinking, dict) and thinking.get("type") == "enabled"
+        ) or self.model.startswith(("deepseek-reasoner", "deepseek-r1"))
+        native_reasoner = self.model.startswith(
+            ("o1", "o3", "deepseek-reasoner", "deepseek-r1")
         )
-        if self.temperature is not None and not self.model.startswith(("o1", "o3", "deepseek-reasoner", "deepseek-r1")) and not thinking_active:
+        if self.temperature is not None and not native_reasoner and not thinking_active:
             kwargs["temperature"] = self.temperature
         if stream:
             kwargs["stream"] = True
@@ -142,18 +152,26 @@ class OpenAILLM(LLM):
         chunks = await self._async_client.chat.completions.create(**kwargs)
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
+        visible_parts: list[str] = []
+        thinking_state = {"open": False, "closed": False}
         tool_parts: dict[int, dict[str, str]] = {}
         raw: Any = None
         async for chunk in chunks:
             raw = chunk if _value(chunk, "usage") is not None else raw or chunk
-            for content in _consume_openai_chunk(chunk, content_parts, tool_parts, reasoning_parts):
+            for content in _consume_openai_chunk(
+                chunk,
+                content_parts,
+                tool_parts,
+                reasoning_parts,
+                visible_parts,
+                thinking_state,
+            ):
                 yield {"type": "text_delta", "content": content}
-        if reasoning_parts:
-            reasoning = "".join(reasoning_parts)
-            yield {"type": "text_delta", "content": f"<thinking>\n{reasoning}\n</thinking>\n\n"}
+        for content in _finish_openai_thinking(visible_parts, thinking_state):
+            yield {"type": "text_delta", "content": content}
         yield {
             "type": "response",
-            "response": _openai_stream_response(content_parts, tool_parts, raw),
+            "response": _openai_stream_response(content_parts, tool_parts, raw, visible_parts),
         }
 
 
@@ -225,31 +243,50 @@ def _parse_openai_response(response: Any) -> LlmResponse:
                 "arguments": _parse_tool_arguments(call.function.name, call.function.arguments),
             }
         )
-    content = choice.content or ""
-    # DeepSeek reasoner models return reasoning in a separate field.
-    reasoning = getattr(choice, "reasoning_content", None)
-    if reasoning:
-        content = f"<thinking>\n{reasoning}\n</thinking>\n\n{content}"
-    return LlmResponse(content=content, tool_calls=tool_calls, raw=response)
+    return LlmResponse(
+        content=_strip_thinking_blocks(choice.content or ""),
+        tool_calls=tool_calls,
+        raw=response,
+    )
+
+
+_THINKING_BLOCK_RE = re.compile(r"<thinking>.*?</thinking>\s*", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_thinking_blocks(content: str) -> str:
+    """Remove model-emitted reasoning blocks from user-visible content."""
+    return _THINKING_BLOCK_RE.sub("", content).strip()
+
+
+def _format_thinking_content(reasoning: str | None, content: str) -> str:
+    """Backward-compatible helper that now returns only the visible answer."""
+    del reasoning
+    return _strip_thinking_blocks(content)
 
 
 def _openai_stream_events(chunks: Any) -> Iterator[LlmStreamEvent]:
     content_parts: list[str] = []
     reasoning_parts: list[str] = []
+    visible_parts: list[str] = []
+    thinking_state = {"open": False, "closed": False}
     tool_parts: dict[int, dict[str, str]] = {}
     raw: Any = None
     for chunk in chunks:
         raw = chunk if _value(chunk, "usage") is not None else raw or chunk
-        for content in _consume_openai_chunk(chunk, content_parts, tool_parts, reasoning_parts):
+        for content in _consume_openai_chunk(
+            chunk,
+            content_parts,
+            tool_parts,
+            reasoning_parts,
+            visible_parts,
+            thinking_state,
+        ):
             yield {"type": "text_delta", "content": content}
-    # Emit accumulated reasoning content as a text delta before the final
-    # response so the user can see DeepSeek's thinking process.
-    if reasoning_parts:
-        reasoning = "".join(reasoning_parts)
-        yield {"type": "text_delta", "content": f"<thinking>\n{reasoning}\n</thinking>\n\n"}
+    for content in _finish_openai_thinking(visible_parts, thinking_state):
+        yield {"type": "text_delta", "content": content}
     yield {
         "type": "response",
-        "response": _openai_stream_response(content_parts, tool_parts, raw),
+        "response": _openai_stream_response(content_parts, tool_parts, raw, visible_parts),
     }
 
 
@@ -258,20 +295,27 @@ def _consume_openai_chunk(
     content_parts: list[str],
     tool_parts: dict[int, dict[str, str]],
     reasoning_parts: list[str] | None = None,
+    visible_parts: list[str] | None = None,
+    thinking_state: dict[str, bool] | None = None,
 ) -> list[str]:
     emitted: list[str] = []
     for choice in _value(chunk, "choices", []) or []:
         if _value(choice, "index", 0) != 0:
             continue
         delta = _value(choice, "delta")
-        content = _value(delta, "content")
-        if content:
-            content_parts.append(content)
-            emitted.append(content)
-        # DeepSeek reasoner streams reasoning_content separately.
         reasoning = _value(delta, "reasoning_content")
         if reasoning and reasoning_parts is not None:
+            # Reasoning is provider metadata. Keep it available to callers via
+            # the raw chunks, but never expose it as assistant answer text.
             reasoning_parts.append(reasoning)
+        content = _value(delta, "content")
+        if content:
+            visible_content = _visible_content_delta(content, thinking_state)
+            content_parts.append(visible_content)
+            if visible_parts is not None:
+                visible_parts.append(visible_content)
+            if visible_content:
+                emitted.append(visible_content)
         for call in _value(delta, "tool_calls", []) or []:
             index = int(_value(call, "index", 0) or 0)
             current = tool_parts.setdefault(
@@ -287,10 +331,61 @@ def _consume_openai_chunk(
     return emitted
 
 
+def _visible_content_delta(content: str, state: dict[str, Any] | None) -> str:
+    """Incrementally hide ``<thinking>`` blocks split across stream chunks."""
+    if state is None:
+        return _strip_thinking_blocks(content)
+
+    opening = "<thinking>"
+    closing = "</thinking>"
+    buffer = str(state.get("tag_buffer", "")) + content
+    inside = bool(state.get("inside_thinking", False))
+    emitted: list[str] = []
+
+    while buffer:
+        marker = closing if inside else opening
+        index = buffer.lower().find(marker)
+        if index >= 0:
+            if not inside:
+                emitted.append(buffer[:index])
+            buffer = buffer[index + len(marker) :]
+            inside = not inside
+            continue
+
+        # Keep a possible split tag suffix for the next chunk. Text inside a
+        # thinking block is discarded; ordinary text before the suffix is safe.
+        keep = 0
+        lowered = buffer.lower()
+        for size in range(1, min(len(buffer), len(marker) - 1) + 1):
+            if lowered.endswith(marker[:size]):
+                keep = size
+        if not inside:
+            emitted.append(buffer[:-keep] if keep else buffer)
+        buffer = buffer[-keep:] if keep else ""
+        break
+
+    state["tag_buffer"] = buffer
+    state["inside_thinking"] = inside
+    return "".join(emitted)
+
+
+def _finish_openai_thinking(
+    visible_parts: list[str],
+    thinking_state: dict[str, Any],
+) -> list[str]:
+    """Flush safe trailing text and omit unfinished reasoning blocks."""
+    buffer = str(thinking_state.pop("tag_buffer", ""))
+    if not buffer or thinking_state.get("inside_thinking", False):
+        return []
+    visible_parts.append(buffer)
+    return [buffer]
+
+
 def _openai_stream_response(
     content_parts: list[str],
     tool_parts: dict[int, dict[str, str]],
     raw: Any,
+    visible_parts: list[str] | None = None,
 ) -> LlmResponse:
     tool_calls = []
     for index in sorted(tool_parts):
@@ -303,7 +398,8 @@ def _openai_stream_response(
                 "arguments": _parse_tool_arguments(name, call["arguments"]),
             }
         )
-    return LlmResponse(content="".join(content_parts), tool_calls=tool_calls, raw=raw)
+    content = "".join(visible_parts) if visible_parts is not None else "".join(content_parts)
+    return LlmResponse(content=content, tool_calls=tool_calls, raw=raw)
 
 
 def _parse_tool_arguments(name: str, raw_arguments: str | None) -> dict[str, Any]:

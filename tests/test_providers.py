@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from types import SimpleNamespace
 
+from agentmold.exceptions import ConfigurationError
 from agentmold.llm import LLM, Message, create_llm
 from agentmold.llm.providers.anthropic_provider import AnthropicLLM
 from agentmold.llm.providers.ollama_provider import OllamaLLM
@@ -656,9 +657,9 @@ def test_deepseek_reasoner_parses_reasoning_content():
     llm._client = SimpleNamespace(chat=SimpleNamespace(completions=recorder))
 
     result = llm._complete([Message(role="user", content="go")])
-    assert "<thinking>" in result.content
-    assert "Let me think about this carefully..." in result.content
-    assert "The answer is 42." in result.content
+    assert result.content == "The answer is 42."
+    assert "<thinking>" not in result.content
+    assert "Let me think about this carefully..." not in result.content
 
 
 def test_deepseek_reasoner_suppresses_temperature():
@@ -678,7 +679,6 @@ def test_deepseek_reasoner_stream_captures_reasoning():
     reasoning_parts: list[str] = []
     tool_parts: dict[int, dict[str, str]] = {}
 
-    # Simulate a chunk with reasoning_content.
     chunk = SimpleNamespace(
         choices=[
             SimpleNamespace(
@@ -689,4 +689,288 @@ def test_deepseek_reasoner_stream_captures_reasoning():
     )
     _consume_openai_chunk(chunk, content_parts, tool_parts, reasoning_parts)
     assert reasoning_parts == ["Step 1: analyze"]
-    assert content_parts == []  # No content yet, only reasoning.
+    assert content_parts == []
+
+
+def test_deepseek_reasoner_stream_deltas_equal_final_content():
+    chunks = [
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    index=0,
+                    delta=SimpleNamespace(content=None, reasoning_content="Step 1"),
+                )
+            ],
+            usage=None,
+        ),
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    index=0,
+                    delta=SimpleNamespace(content=None, reasoning_content=" and 2"),
+                )
+            ],
+            usage=None,
+        ),
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    index=0,
+                    delta=SimpleNamespace(content="Answer", reasoning_content=None),
+                )
+            ],
+            usage=None,
+        ),
+    ]
+    recorder = _CreateRecorder(chunks)
+    llm = OpenAILLM.__new__(OpenAILLM)
+    LLM.__init__(llm, model="deepseek-reasoner")
+    llm._client = SimpleNamespace(chat=SimpleNamespace(completions=recorder))
+
+    events = list(llm.stream([Message(role="user", content="go")]))
+    deltas = "".join(event["content"] for event in events[:-1])
+
+    assert deltas == "Answer"
+    assert events[-1]["response"].content == "Answer"
+
+
+async def test_deepseek_reasoner_async_stream_deltas_equal_final_content():
+    chunks = [
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    index=0,
+                    delta=SimpleNamespace(content=None, reasoning_content="Think"),
+                )
+            ],
+            usage=None,
+        ),
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    index=0,
+                    delta=SimpleNamespace(content="Done", reasoning_content=None),
+                )
+            ],
+            usage=None,
+        ),
+    ]
+    recorder = _AsyncCreateRecorder(_AsyncItems(chunks))
+    llm = OpenAILLM.__new__(OpenAILLM)
+    LLM.__init__(llm, model="deepseek-reasoner")
+    llm._async_client = SimpleNamespace(chat=SimpleNamespace(completions=recorder))
+
+    events = [event async for event in llm.astream([Message(role="user", content="go")])]
+    deltas = "".join(event["content"] for event in events[:-1])
+
+    assert deltas == "Done"
+    assert events[-1]["response"].content == "Done"
+
+
+def test_openai_extra_body_merges_thinking_without_losing_custom_fields():
+    llm = OpenAILLM.__new__(OpenAILLM)
+    LLM.__init__(
+        llm,
+        model="deepseek-chat",
+        temperature=0.4,
+        extra_body={"custom_flag": True},
+        thinking={"type": "enabled"},
+        reasoning_effort="high",
+    )
+    llm._client = SimpleNamespace()
+
+    kwargs = llm._request_kwargs([Message(role="user", content="go")], None)
+
+    assert kwargs["extra_body"] == {
+        "custom_flag": True,
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "high",
+    }
+    assert "temperature" not in kwargs
+
+
+def test_openai_disabled_thinking_keeps_temperature():
+    llm = OpenAILLM.__new__(OpenAILLM)
+    LLM.__init__(
+        llm,
+        model="deepseek-chat",
+        temperature=0.4,
+        thinking={"type": "disabled"},
+    )
+    llm._client = SimpleNamespace()
+
+    kwargs = llm._request_kwargs([Message(role="user", content="go")], None)
+
+    assert kwargs["temperature"] == 0.4
+    assert kwargs["extra_body"]["thinking"] == {"type": "disabled"}
+
+
+def test_openai_rejects_non_mapping_extra_body():
+    llm = OpenAILLM.__new__(OpenAILLM)
+    LLM.__init__(llm, model="deepseek-chat", extra_body="invalid")
+    llm._client = SimpleNamespace()
+
+    with pytest.raises(ConfigurationError, match="extra_body must be a dictionary"):
+        llm._request_kwargs([Message(role="user", content="go")], None)
+
+
+def test_anthropic_thinking_stream_deltas_equal_final_content():
+    events = [
+        SimpleNamespace(
+            type="content_block_delta",
+            delta=SimpleNamespace(type="thinking_delta", thinking="Check evidence"),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            delta=SimpleNamespace(type="text_delta", text="Result"),
+        ),
+    ]
+    final_message = SimpleNamespace(
+        content=[
+            SimpleNamespace(type="thinking", thinking="Check evidence"),
+            SimpleNamespace(type="text", text="Result"),
+        ]
+    )
+    recorder = _StreamRecorder(_StreamManager(events, final_message))
+    llm = AnthropicLLM.__new__(AnthropicLLM)
+    LLM.__init__(llm, model="test-model", thinking={"type": "enabled"})
+    llm.max_tokens = 100
+    llm._client = SimpleNamespace(messages=recorder)
+
+    streamed = list(llm.stream([Message(role="user", content="go")]))
+    deltas = "".join(event["content"] for event in streamed[:-1])
+
+    assert deltas == "Result"
+    assert streamed[-1]["response"].content == "Result"
+    assert "temperature" not in recorder.kwargs
+
+
+def test_openai_strips_model_emitted_thinking_block_from_content():
+    message = SimpleNamespace(
+        content=(
+            "<thinking> The search returned relevant chunks. "
+            "Let me synthesize an answer. </thinking>\n\n"
+            "道的本质是宇宙运行的底层法则。"
+        ),
+        reasoning_content=None,
+        tool_calls=None,
+    )
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+    recorder = _CreateRecorder(response)
+    llm = OpenAILLM.__new__(OpenAILLM)
+    LLM.__init__(llm, model="deepseek-chat")
+    llm._client = SimpleNamespace(chat=SimpleNamespace(completions=recorder))
+
+    result = llm._complete([Message(role="user", content="道的本质是什么？")])
+
+    assert result.content == "道的本质是宇宙运行的底层法则。"
+    assert "thinking" not in result.content.lower()
+    assert "relevant chunks" not in result.content
+
+
+def test_openai_stream_strips_thinking_tags_split_across_chunks():
+    parts = [
+        "<thin",
+        "king>internal reasoning",
+        " across chunks</think",
+        "ing>\n\nVisible ",
+        "answer",
+    ]
+    chunks = [
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    index=0,
+                    delta=SimpleNamespace(content=part, reasoning_content=None),
+                )
+            ],
+            usage=None,
+        )
+        for part in parts
+    ]
+    recorder = _CreateRecorder(chunks)
+    llm = OpenAILLM.__new__(OpenAILLM)
+    LLM.__init__(llm, model="deepseek-chat")
+    llm._client = SimpleNamespace(chat=SimpleNamespace(completions=recorder))
+
+    events = list(llm.stream([Message(role="user", content="go")]))
+    deltas = "".join(event["content"] for event in events[:-1])
+
+    assert deltas == "\n\nVisible answer"
+    assert events[-1]["response"].content == deltas
+    assert "thinking" not in deltas.lower()
+    assert "internal reasoning" not in deltas
+
+
+def test_anthropic_text_block_strips_model_emitted_thinking():
+    response = SimpleNamespace(
+        content=[
+            SimpleNamespace(
+                type="text",
+                text="<thinking>hidden analysis</thinking>\n\nVisible answer",
+            )
+        ]
+    )
+    recorder = _CreateRecorder(response)
+    llm = AnthropicLLM.__new__(AnthropicLLM)
+    LLM.__init__(llm, model="test-model")
+    llm.max_tokens = 100
+    llm._client = SimpleNamespace(messages=recorder)
+
+    result = llm._complete([Message(role="user", content="go")])
+
+    assert result.content == "Visible answer"
+
+
+def test_anthropic_stream_strips_thinking_tags_split_across_text_deltas():
+    events = [
+        SimpleNamespace(
+            type="content_block_delta",
+            delta=SimpleNamespace(type="text_delta", text=part),
+        )
+        for part in (
+            "<thin",
+            "king>hidden",
+            "</think",
+            "ing>\n\nVisible answer",
+        )
+    ]
+    final_message = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text="Visible answer")]
+    )
+    recorder = _StreamRecorder(_StreamManager(events, final_message))
+    llm = AnthropicLLM.__new__(AnthropicLLM)
+    LLM.__init__(llm, model="test-model")
+    llm.max_tokens = 100
+    llm._client = SimpleNamespace(messages=recorder)
+
+    streamed = list(llm.stream([Message(role="user", content="go")]))
+    deltas = "".join(event["content"] for event in streamed[:-1])
+
+    assert deltas == "\n\nVisible answer"
+    assert streamed[-1]["response"].content == deltas
+    assert "hidden" not in deltas
+
+
+def test_anthropic_disabled_thinking_keeps_temperature():
+    llm = AnthropicLLM.__new__(AnthropicLLM)
+    LLM.__init__(
+        llm,
+        model="test-model",
+        temperature=0.3,
+        thinking={"type": "disabled"},
+    )
+    llm.max_tokens = 100
+
+    kwargs = llm._request_kwargs([Message(role="user", content="go")], None)
+
+    assert kwargs["temperature"] == 0.3
+
+
+def test_anthropic_thinking_with_tools_fails_before_request():
+    llm = AnthropicLLM.__new__(AnthropicLLM)
+    LLM.__init__(llm, model="test-model", thinking={"type": "enabled"})
+    llm.max_tokens = 100
+
+    with pytest.raises(ConfigurationError, match="thinking with tools is not supported"):
+        llm._request_kwargs([Message(role="user", content="go")], [_tool_schema()])

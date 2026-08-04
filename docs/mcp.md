@@ -115,6 +115,10 @@ toolset = await mcp_tools(url, allow_private=True, known_fingerprints=saved_fing
 ```
 
 > **注意**：指纹检测只发出警告，不阻断执行。是否使用变更后的工具由你决定。
+>
+> 可视化实验室中的本地 description 覆盖发生在发现和指纹校验之后。它只创建当前
+> Agent 使用的工具绑定，不会改写 server 元数据或指纹，因此本地教学实验不会被误报为
+> MCP rug-pull。
 
 ## MCPToolSet
 

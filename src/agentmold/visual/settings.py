@@ -40,8 +40,9 @@ _AGENT_FIELDS = {
     "loop_detection_threshold",
     "require_approval",
     "audit_log",
-    "log_level",
+    "tool_description_overrides",
 }
+_MAX_TOOL_DESCRIPTION_LENGTH = 2_000
 
 
 def visual_profile_key(connection_type: str, custom_interface: str) -> str:
@@ -155,8 +156,20 @@ def load_visual_agent_config(path: str | Path = _DEFAULT_AGENT_PATH) -> dict[str
     for key in ("require_approval", "audit_log"):
         if key in loaded and not isinstance(loaded[key], bool):
             loaded.pop(key, None)
-    if "log_level" in loaded and loaded["log_level"] not in {"SILENT", "INFO", "DEBUG"}:
-        loaded.pop("log_level", None)
+    overrides = loaded.get("tool_description_overrides")
+    if overrides is not None:
+        if not isinstance(overrides, dict):
+            loaded.pop("tool_description_overrides", None)
+        else:
+            loaded["tool_description_overrides"] = {
+                str(name): value.strip()
+                for name, value in overrides.items()
+                if isinstance(name, str)
+                and name.strip()
+                and isinstance(value, str)
+                and value.strip()
+                and len(value.strip()) <= _MAX_TOOL_DESCRIPTION_LENGTH
+            }
     if "mcp_url" in loaded and not isinstance(loaded["mcp_url"], str):
         loaded.pop("mcp_url", None)
     if "rag_text" in loaded and not isinstance(loaded["rag_text"], str):
@@ -170,6 +183,17 @@ def save_visual_agent_config(
 ) -> Path:
     """Persist the visual Agent controls without duplicating provider credentials."""
     safe = {key: config[key] for key in _AGENT_FIELDS if key in config}
+    overrides = safe.get("tool_description_overrides")
+    if isinstance(overrides, dict):
+        safe["tool_description_overrides"] = {
+            name.strip(): value.strip()
+            for name, value in overrides.items()
+            if isinstance(name, str)
+            and name.strip()
+            and isinstance(value, str)
+            and value.strip()
+            and len(value.strip()) <= _MAX_TOOL_DESCRIPTION_LENGTH
+        }
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".tmp")

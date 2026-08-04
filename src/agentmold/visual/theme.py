@@ -13,35 +13,63 @@ __all__ = ["inject_theme"]
 
 
 def inject_theme(st: Any) -> None:
-    """Apply the visual research-console theme without changing Streamlit semantics.
+    """Apply colors for Streamlit's current light or dark theme."""
+    context = getattr(st, "context", None)
+    theme = getattr(context, "theme", None)
+    theme_type = theme.get("type") if isinstance(theme, dict) else getattr(theme, "type", None)
+    if theme_type not in {"light", "dark"}:
+        theme_type = "dark"
 
-    The theme defaults to dark.  A small JavaScript probe reads Streamlit's
-    computed background and sets ``data-ea-theme="light"`` or ``"dark"`` on the
-    ``<html>`` element so that light-mode overrides can fix color conflicts
-    when the user selects Streamlit's Light theme.
-    """
+    palettes = {
+        "dark": {
+            "bg": "#080c12",
+            "surface": "#101823",
+            "surface-2": "#141f2c",
+            "surface-3": "#1a2a3c",
+            "surface-raised": "#22384e",
+            "input-bg": "#f7fbff",
+            "input-text": "#172434",
+            "line": "#253447",
+            "line-strong": "#526d89",
+            "text": "#e8f0f7",
+            "text-soft": "#d6e2ee",
+            "muted": "#8ea0b4",
+            "muted-strong": "#a9bdd0",
+            "cyan": "#5de4ff",
+            "magenta": "#e68cff",
+            "lime": "#b6f36b",
+            "amber": "#ffc36b",
+            "header-bg": "rgba(8, 12, 18, 0.92)",
+        },
+        "light": {
+            "bg": "#f4f7fa",
+            "surface": "#ffffff",
+            "surface-2": "#eef3f8",
+            "surface-3": "#e2e9f0",
+            "surface-raised": "#d0dae8",
+            "input-bg": "#ffffff",
+            "input-text": "#1a2735",
+            "line": "#c5d2de",
+            "line-strong": "#8a9bad",
+            "text": "#1a2735",
+            "text-soft": "#2a3a4e",
+            "muted": "#5a6e82",
+            "muted-strong": "#4a5e72",
+            "cyan": "#087ea4",
+            "magenta": "#9b3caf",
+            "lime": "#4d8d25",
+            "amber": "#ad6d16",
+            "header-bg": "rgba(244, 247, 250, 0.92)",
+        },
+    }
+    variables = "\n".join(
+        f"            --ea-{name}: {value};" for name, value in palettes[theme_type].items()
+    )
     st.markdown(
-        """
-        <style>
-        :root {
-            --ea-bg: #080c12;
-            --ea-surface: #101823;
-            --ea-surface-2: #141f2c;
-            --ea-surface-3: #1a2a3c;
-            --ea-surface-raised: #22384e;
-            --ea-input-bg: #f7fbff;
-            --ea-input-text: #172434;
-            --ea-line: #253447;
-            --ea-line-strong: #526d89;
-            --ea-text: #e8f0f7;
-            --ea-text-soft: #d6e2ee;
-            --ea-muted: #8ea0b4;
-            --ea-muted-strong: #a9bdd0;
-            --ea-cyan: #5de4ff;
-            --ea-magenta: #e68cff;
-            --ea-lime: #b6f36b;
-            --ea-amber: #ffc36b;
-        }
+        "<style>\n        :root {\n"
+        + variables
+        + "\n        }\n"
+        + """
         .stApp,
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"],
@@ -70,7 +98,7 @@ def inject_theme(st: Any) -> None:
             color: var(--ea-text-soft) !important;
         }
         [data-testid="stHeader"] {
-            background: rgba(8, 12, 18, 0.92);
+            background: var(--ea-header-bg);
         }
         [data-testid="stSidebar"] {
             background: var(--ea-surface);
@@ -173,7 +201,7 @@ def inject_theme(st: Any) -> None:
         [role="option"]:hover,
         [role="option"][aria-selected="true"] {
             background: var(--ea-surface-raised) !important;
-            color: #ffffff !important;
+            color: var(--ea-text) !important;
         }
         [data-testid*="VirtualDropdown"] {
             background: var(--ea-surface-3) !important;
@@ -197,7 +225,7 @@ def inject_theme(st: Any) -> None:
         [data-testid*="VirtualDropdown"] li:hover,
         [data-testid*="VirtualDropdown"] li[aria-selected="true"] {
             background: var(--ea-surface-raised) !important;
-            color: #ffffff !important;
+            color: var(--ea-text) !important;
         }
         [data-baseweb="popover"] input {
             background: var(--ea-input-bg) !important;
@@ -205,16 +233,16 @@ def inject_theme(st: Any) -> None:
         }
         [data-baseweb="tag"] {
             background: var(--ea-surface-2) !important;
-            border: 1px solid #8ba3ba !important;
-            color: var(--ea-input-text) !important;
+            border: 1px solid var(--ea-line-strong) !important;
+            color: var(--ea-text) !important;
         }
         [data-baseweb="tag"] > span:first-child,
         [data-baseweb="tag"] svg {
-            color: var(--ea-input-text) !important;
-            fill: var(--ea-input-text) !important;
+            color: var(--ea-text) !important;
+            fill: var(--ea-text) !important;
         }
         [data-baseweb="tag"]:hover {
-            background: var(--ea-text-soft) !important;
+            background: var(--ea-surface-raised) !important;
             border-color: var(--ea-muted) !important;
         }
         [data-testid="stAlert"],
@@ -250,7 +278,7 @@ def inject_theme(st: Any) -> None:
         [data-testid="stExpander"] summary:hover,
         [data-testid="stExpander"] details[open] summary {
             background: var(--ea-surface-raised) !important;
-            color: #ffffff !important;
+            color: var(--ea-text) !important;
         }
         [data-testid="stExpander"] summary p,
         [data-testid="stExpander"] summary span {
@@ -913,7 +941,7 @@ def inject_theme(st: Any) -> None:
         .stButton > button:hover {
             background: var(--ea-surface-raised);
             border-color: var(--ea-cyan);
-            color: #ffffff;
+            color: var(--ea-text);
         }
         .stButton > button:disabled,
         [data-testid="stButton"] button:disabled {
@@ -933,7 +961,7 @@ def inject_theme(st: Any) -> None:
         }
         [data-testid="stTabs"] button[role="tab"]:hover,
         [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-            color: #ffffff !important;
+            color: var(--ea-text) !important;
             border-bottom-color: var(--ea-cyan) !important;
         }
         [data-testid="stRadio"] label,
@@ -944,14 +972,14 @@ def inject_theme(st: Any) -> None:
         [data-testid="stRadio"] label:hover,
         [data-testid="stCheckbox"] label:hover,
         [data-testid="stToggle"] label:hover {
-            color: #ffffff !important;
+            color: var(--ea-text) !important;
         }
         [data-testid="stMetric"] label,
         [data-testid="stMetric"] [data-testid="stMetricLabel"] p {
             color: var(--ea-muted-strong) !important;
         }
         [data-testid="stMetric"] [data-testid="stMetricValue"] {
-            color: #ffffff !important;
+            color: var(--ea-text) !important;
         }
         [data-testid="stCode"] pre,
         [data-testid="stCode"] code {
@@ -1039,224 +1067,11 @@ def inject_theme(st: Any) -> None:
             [data-testid="stExpandSidebarButton"]:hover {
                 background: var(--ea-surface-raised) !important;
                 border-color: var(--ea-cyan) !important;
-                color: #ffffff !important;
+                color: var(--ea-text) !important;
             }
         }
 
-        /* ===========================================================
-           Light-mode overrides
-           The dark theme above forces dark backgrounds and light text
-           with !important.  When Streamlit is in Light mode these clash
-           (light text on Streamlit's light native widgets).  The JS probe
-           at the bottom sets data-ea-theme="light" on <html>; these rules
-           override the dark forces with light-appropriate values.
-           =========================================================== */
-        [data-ea-theme="light"] .stApp,
-        [data-ea-theme="light"] [data-testid="stAppViewContainer"],
-        [data-ea-theme="light"] [data-testid="stMain"],
-        [data-ea-theme="light"] [data-testid="stMainBlockContainer"] {
-            background: #f4f7fa !important;
-            color: #1a2735 !important;
-        }
-        [data-ea-theme="light"] .main .block-container,
-        [data-ea-theme="light"] .main .block-container p,
-        [data-ea-theme="light"] .main .block-container li,
-        [data-ea-theme="light"] .main .block-container h1,
-        [data-ea-theme="light"] .main .block-container h2,
-        [data-ea-theme="light"] .main .block-container h3,
-        [data-ea-theme="light"] .main .block-container h4,
-        [data-ea-theme="light"] .main .block-container label,
-        [data-ea-theme="light"] [data-testid="stWidgetLabel"] p {
-            color: #2a3a4e !important;
-        }
-        [data-ea-theme="light"] .main .block-container a {
-            color: #1a8cb8 !important;
-        }
-        [data-ea-theme="light"] [data-testid="stCaptionContainer"] p,
-        [data-ea-theme="light"] [data-testid="stCaptionContainer"] small {
-            color: #5a6e82 !important;
-        }
-        [data-ea-theme="light"] [data-testid="stHeader"] {
-            background: rgba(244, 247, 250, 0.92) !important;
-        }
-        [data-ea-theme="light"] [data-testid="stHeader"] button,
-        [data-ea-theme="light"] [data-testid="stToolbar"] button {
-            color: #2a3a4e !important;
-        }
-        [data-ea-theme="light"] [data-testid="stSidebar"] {
-            background: #e9eef4 !important;
-            border-right: 1px solid #c5d2de !important;
-        }
-        [data-ea-theme="light"] [data-testid="stSidebar"] h1,
-        [data-ea-theme="light"] [data-testid="stSidebar"] h2,
-        [data-ea-theme="light"] [data-testid="stSidebar"] h3,
-        [data-ea-theme="light"] [data-testid="stSidebar"] label,
-        [data-ea-theme="light"] [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
-        [data-ea-theme="light"] [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
-            color: #2a3a4e !important;
-        }
-        [data-ea-theme="light"] [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {
-            color: #5a6e82 !important;
-        }
-        [data-ea-theme="light"] [data-testid="stSidebar"] [data-baseweb="select"] > div,
-        [data-ea-theme="light"] [data-testid="stSidebar"] input,
-        [data-ea-theme="light"] [data-testid="stSidebar"] textarea {
-            background: #ffffff !important;
-            border-color: #b0c0d0 !important;
-            color: #1a2735 !important;
-        }
-        [data-ea-theme="light"] [data-testid="stSidebar"] [data-testid="stExpander"] {
-            background: #dde5ee !important;
-            border-color: #c5d2de !important;
-        }
-        [data-ea-theme="light"] [data-testid="stSidebar"] [data-testid="stExpander"] details[open] {
-            border-color: #1a8cb8 !important;
-        }
-        [data-ea-theme="light"] [data-testid="stSidebar"] [data-testid="stExpander"] summary {
-            color: #2a3a4e !important;
-        }
-        [data-ea-theme="light"] [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
-            background: #d0dae8 !important;
-        }
-        [data-ea-theme="light"] [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] {
-            background: #e2e9f0 !important;
-        }
-        /* Keep input fields readable in light mode. */
-        [data-ea-theme="light"] [data-baseweb="input"] > div,
-        [data-ea-theme="light"] [data-baseweb="textarea"] > div,
-        [data-ea-theme="light"] [data-baseweb="select"] > div,
-        [data-ea-theme="light"] [data-testid="stChatInput"] > div {
-            background: #ffffff !important;
-            border-color: #b0c0d0 !important;
-            color: #1a2735 !important;
-        }
-        [data-ea-theme="light"] [data-baseweb="input"] input,
-        [data-ea-theme="light"] [data-baseweb="textarea"] textarea,
-        [data-ea-theme="light"] [data-baseweb="select"] input,
-        [data-ea-theme="light"] [data-testid="stChatInput"] textarea {
-            background: #ffffff !important;
-            caret-color: #1a2735 !important;
-            color: #1a2735 !important;
-            -webkit-text-fill-color: #1a2735 !important;
-        }
-        [data-ea-theme="light"] [data-baseweb="input"] input::placeholder,
-        [data-ea-theme="light"] [data-baseweb="textarea"] textarea::placeholder,
-        [data-ea-theme="light"] [data-testid="stChatInput"] textarea::placeholder {
-            color: #8a9bad !important;
-            -webkit-text-fill-color: #8a9bad !important;
-        }
-        [data-ea-theme="light"] [data-baseweb="select"] span,
-        [data-ea-theme="light"] [data-baseweb="select"] svg {
-            color: #1a2735 !important;
-            fill: #1a2735 !important;
-        }
-        [data-ea-theme="light"] [data-testid="stNumberInput"] button {
-            background: #eef3f8 !important;
-            border-color: #b0c0d0 !important;
-            color: #1a2735 !important;
-        }
-        [data-ea-theme="light"] [data-testid="stNumberInput"] button:hover {
-            background: #dde7f0 !important;
-            color: #0b1724 !important;
-        }
-        [data-ea-theme="light"] [data-baseweb="popover"],
-        [data-ea-theme="light"] [data-baseweb="popover"] > div,
-        [data-ea-theme="light"] [data-baseweb="menu"],
-        [data-ea-theme="light"] [role="listbox"] {
-            background: #ffffff !important;
-            border: 1px solid #c5d2de !important;
-            color: #1a2735 !important;
-        }
-        [data-ea-theme="light"] [data-baseweb="menu"] li,
-        [data-ea-theme="light"] [role="option"] {
-            color: #2a3a4e !important;
-        }
-        [data-ea-theme="light"] [data-baseweb="menu"] li:hover,
-        [data-ea-theme="light"] [role="option"]:hover,
-        [data-ea-theme="light"] [role="option"][aria-selected="true"] {
-            background: #e2e9f0 !important;
-            color: #0b1724 !important;
-        }
-        [data-ea-theme="light"] [data-testid*="VirtualDropdown"] {
-            background: #ffffff !important;
-            border: 1px solid #c5d2de !important;
-            color: #1a2735 !important;
-        }
-        [data-ea-theme="light"] [data-testid*="VirtualDropdown"] li > div,
-        [data-ea-theme="light"] [data-testid*="VirtualDropdown"] li > div > div {
-            color: #2a3a4e !important;
-        }
-        [data-ea-theme="light"] [data-testid*="VirtualDropdown"] li:hover,
-        [data-ea-theme="light"] [data-testid*="VirtualDropdown"] li[aria-selected="true"] {
-            background: #e2e9f0 !important;
-            color: #0b1724 !important;
-        }
-        [data-ea-theme="light"] [data-baseweb="tag"] {
-            background: #e2e9f0 !important;
-            border: 1px solid #b0c0d0 !important;
-            color: #1a2735 !important;
-        }
-        [data-ea-theme="light"] [data-baseweb="tag"] > span:first-child,
-        [data-ea-theme="light"] [data-baseweb="tag"] svg {
-            color: #1a2735 !important;
-        }
-        /* Light-mode surfaces for custom EA components. */
-        [data-ea-theme="light"] {
-            --ea-bg: #f4f7fa;
-            --ea-surface: #ffffff;
-            --ea-surface-2: #eef3f8;
-            --ea-surface-3: #e2e9f0;
-            --ea-surface-raised: #d0dae8;
-            --ea-input-bg: #ffffff;
-            --ea-input-text: #1a2735;
-            --ea-line: #c5d2de;
-            --ea-line-strong: #8a9bad;
-            --ea-text: #1a2735;
-            --ea-text-soft: #2a3a4e;
-            --ea-muted: #5a6e82;
-            --ea-muted-strong: #4a5e72;
-            --ea-cyan: #1a8cb8;
-            --ea-magenta: #a846bc;
-            --ea-lime: #5a9e2e;
-            --ea-amber: #c4842e;
-        }
         </style>
-        <script>
-        // Probe Streamlit's rendered background to detect light vs dark mode.
-        // Streamlit does not expose its runtime theme to the Python script, so
-        // we read the computed background-color of the app container and set
-        // data-ea-theme on <html>.  The probe runs on load and on DOM mutations
-        // so theme switches are picked up without a full reload.
-        (function () {
-            function detectTheme() {
-                var el = document.querySelector('[data-testid="stAppViewContainer"]')
-                         || document.querySelector('.stApp');
-                if (!el) return;
-                var bg = window.getComputedStyle(el).backgroundColor;
-                // Parse "rgb(r, g, b)" and compute luminance.
-                var m = bg.match(/\\d+/g);
-                if (!m || m.length < 3) return;
-                var lum = (0.299 * +m[0] + 0.587 * +m[1] + 0.114 * +m[2]) / 255;
-                var theme = lum > 0.5 ? 'light' : 'dark';
-                document.documentElement.setAttribute('data-ea-theme', theme);
-            }
-            // Run once on load, then watch for Streamlit re-renders.
-            if (document.readyState !== 'loading') {
-                detectTheme();
-            } else {
-                document.addEventListener('DOMContentLoaded', detectTheme);
-            }
-            // Re-probe periodically for the first few seconds (Streamlit renders
-            // asynchronously), then settle on a MutationObserver.
-            var tries = 0;
-            var interval = setInterval(function () {
-                detectTheme();
-                if (++tries >= 8) clearInterval(interval);
-            }, 500);
-            var observer = new MutationObserver(function () { detectTheme(); });
-            observer.observe(document.body, { childList: true, subtree: true });
-        })();
-        </script>
         """,
         unsafe_allow_html=True,
     )

@@ -193,7 +193,9 @@ answer = chosen.run(question)
 ```
 
 For a classification that does not need an LLM, replace the router Agent with a
-keyword check or any classifier -- the dispatch logic stays the same.
+keyword check or any classifier -- the dispatch logic stays the same.  See
+[工程实践：意图识别与检索策略](engineering.md) for a three-tier intent recognition
+cascade (rules -> DistilBERT -> LLM) that optimizes cost and latency.
 
 ---
 

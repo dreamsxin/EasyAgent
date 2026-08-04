@@ -13,6 +13,9 @@ from agentmold.exceptions import MCPError
 from agentmold.mcp import MCPToolSet, _extract_text_content, _tool_fingerprint, mcp_tools
 from agentmold.tool import Tool
 
+# Skip the entire module when the optional ``mcp`` extra is not installed.
+pytest.importorskip("mcp")
+
 # ---------------------------------------------------------------------------
 # In-memory MCP server fixtures (no HTTP, no external service)
 # ---------------------------------------------------------------------------

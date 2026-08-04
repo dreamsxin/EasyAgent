@@ -351,6 +351,16 @@ def trace_compare_html(left: dict[str, Any], right: dict[str, Any]) -> str:
         if len(instructions) > 180:
             instructions = instructions[:180] + "…"
         instructions_text = html.escape(instructions or "（旧版 Trace 未记录）")
+        descriptions = summary.get("tool_descriptions")
+        if isinstance(descriptions, dict) and descriptions:
+            description_text = "\n".join(
+                f"{name}: {description}" for name, description in sorted(descriptions.items())
+            )
+        else:
+            description_text = "（无工具或旧版 Trace 未记录）"
+        if len(description_text) > 500:
+            description_text = description_text[:500] + "…"
+        descriptions_html = html.escape(description_text)
         return (
             f'<section class="ea-compare-run {side}">'
             f'<div class="ea-compare-run-head"><span>{html.escape(side.upper())}</span>'
@@ -362,10 +372,13 @@ def trace_compare_html(left: dict[str, Any], right: dict[str, Any]) -> str:
             + metric("CACHE HIT", format_percent(summary.get("cache_hit_rate")))
             + metric("COST USD", value(summary, "cost", lambda item: f"${float(item):.6f}"))
             + metric("TOOLS", str(summary.get("tool_calls", 0)))
+            + metric("SCHEMA", str(summary.get("tool_schema_fingerprint") or "-"))
             + metric("STATUS", str(summary.get("status", "unknown")).upper())
             + "</div>"
             f'<div class="ea-compare-prompt"><span>INPUT</span><p>{prompt_text}</p></div>'
             f'<div class="ea-compare-prompt"><span>SYSTEM</span><p>{instructions_text}</p></div>'
+            f'<div class="ea-compare-prompt"><span>TOOL DESCRIPTIONS</span>'
+            f"<p>{descriptions_html}</p></div>"
             "</section>"
         )
 

@@ -10,6 +10,10 @@
 
 **EasyAgent** 是一个面向研究人员和学生的极简 AI Agent 脚手架。我们相信构建 AI 代理应该像写一个普通函数一样简单——不需要学习新的领域语言，不需要理解复杂的抽象层。
 
+[![EasyAgent 可视化实验室：Agent 配置、对话与实时执行地图](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/visual-lab-overview.png)](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/visual-lab-overview.png)
+
+*在同一工作台配置 Agent、对话并查看实时执行地图。*
+
 ## ✨ 特性
 
 - **🎯 小型公开 API** — 用 `Agent`、`@tool` 和普通 Python 完成主要路径
@@ -98,6 +102,11 @@ response = agent.run("Hello! What can you do?")
 ### 可视化实验室（浏览器中配置与运行）
 
 不想先写代码？用内置的 Streamlit 可视化实验室：在侧边栏配置 Agent（名称/指令/模型/工具勾选），在聊天框提问，右侧查看本次执行流程。
+
+| Trace 回放与对比 | Function Calling 架构演示 |
+|:--:|:--:|
+| [![Trace Lab 对同一问题的工具描述进行双栏对比](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/trace-lab-compare.png)](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/trace-lab-compare.png) | [![Function Calling 流程图与 EasyAgent 代码示例](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/architecture-lab.png)](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/architecture-lab.png) |
+| 用同一输入回放并比较运行指标、工具 Schema 与有效描述。 | 交互查看原生 Function Calling 流程及对应 Python 实现。 |
 
 ```bash
 # 1. 安装可视化依赖
@@ -557,6 +566,7 @@ EasyAgent 的默认执行循环就是 ReAct（推理 → 行动 → 观察 → �
 - [核心概念](docs/concepts.md)
 - [执行模型与流式边界](docs/concepts.md#execution-events-are-not-tokens)
 - [Agent 架构模式](docs/architectures.md)
+- [工程实践：意图识别与检索策略](docs/engineering.md)
 - [API 参考](docs/api.md)
 - [批量实验与评测](docs/evaluation.md)
 - [长期记忆 Collection](docs/memory.md)
