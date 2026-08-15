@@ -47,7 +47,9 @@ evidence_tool = agent_as_tool(
   available separately as `evidence_agent.last_trace`.
 - The parent trace adds the child ID to `child_run_ids`. The child trace records both
   `parent_run_id` and the triggering `parent_tool_call_id`, so separately exported JSONL
-  runs can be joined without a new orchestration event type.
+  runs can be joined without a new orchestration event type. In the visual lab, child traces
+  are recorded with their parent, shown as one Trace family, and exported as a multi-run
+  JSONL bundle that can be imported into a new session.
 - The child keeps its normal conversation memory between calls by default.
 - Agent instances remain mutable and must not be used by concurrent conversations.
 

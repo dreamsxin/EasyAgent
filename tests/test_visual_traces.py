@@ -6,6 +6,7 @@ import pytest
 
 from agentmold.visual.traces import (
     append_trace_run,
+    build_trace_forest,
     diagnose_trace_run,
     find_trace_run,
     load_trace_runs,
@@ -13,6 +14,8 @@ from agentmold.visual.traces import (
     parse_trace_jsonl,
     summarize_trace_run,
     summarize_usage,
+    trace_family_from_forest,
+    trace_family_order,
     trace_label,
     traces_to_jsonl,
 )
@@ -68,6 +71,29 @@ def test_summary_normalizes_metrics_and_label():
     assert "research-model" in trace_label(run)
 
 
+def test_summary_uses_trace_v2_status_and_model_rounds():
+    summary = summarize_trace_run(
+        {
+            "trace_version": 2,
+            "run_id": "trace-v2",
+            "status": "interrupted",
+            "ended_at": "now",
+            "model_calls": [
+                {"round": 1, "status": "completed"},
+                {"round": 2, "status": "interrupted"},
+            ],
+            "events": [],
+        }
+    )
+
+    assert summary["status"] == "interrupted"
+    assert summary["rounds"] == 2
+
+    legacy = summarize_trace_run({"run_id": "legacy", "ended_at": "now", "events": []})
+    assert legacy["status"] == "complete"
+    assert legacy["rounds"] is None
+
+
 def test_summary_includes_tool_schema_descriptions_and_fingerprint():
     summary = summarize_trace_run(
         {
@@ -84,11 +110,8 @@ def test_summary_includes_tool_schema_descriptions_and_fingerprint():
         }
     )
 
-    assert summary["tool_descriptions"] == {
-        "retrieve": "Search private documents first."
-    }
+    assert summary["tool_descriptions"] == {"retrieve": "Search private documents first."}
     assert len(summary["tool_schema_fingerprint"]) == 12
-
 
     summary = summarize_trace_run(
         {
@@ -124,6 +147,61 @@ def test_usage_summary_handles_nested_cached_token_fields():
     assert summary["cache_hit_tokens"] == 10
     assert summary["cache_miss_tokens"] == 40
     assert summary["cache_hit_rate"] == pytest.approx(0.2)
+
+
+def test_build_trace_forest_groups_children_and_orphans():
+    runs = [
+        {"run_id": "root", "started_at": "1", "events": []},
+        {
+            "run_id": "child-b",
+            "parent_run_id": "root",
+            "parent_tool_call_id": "call-b",
+            "started_at": "3",
+            "events": [],
+        },
+        {
+            "run_id": "child-a",
+            "parent_run_id": "root",
+            "parent_tool_call_id": "call-a",
+            "started_at": "2",
+            "events": [],
+        },
+        {
+            "run_id": "grandchild",
+            "parent_run_id": "child-a",
+            "parent_tool_call_id": "call-c",
+            "started_at": "4",
+            "events": [],
+        },
+        {
+            "run_id": "orphan",
+            "parent_run_id": "missing",
+            "started_at": "5",
+            "events": [],
+        },
+    ]
+
+    forest = build_trace_forest(runs)
+    assert [run["run_id"] for run in forest["roots"]] == ["root"]
+    assert [run["run_id"] for run in forest["children"]["root"]] == [
+        "child-a",
+        "child-b",
+    ]
+    assert [run["run_id"] for run in forest["orphans"]] == ["orphan"]
+    assert [run["run_id"] for run in trace_family_from_forest(forest, "root")] == [
+        "root",
+        "child-a",
+        "grandchild",
+        "child-b",
+    ]
+    assert trace_family_order(forest) == [
+        ("root", 0),
+        ("child-a", 1),
+        ("grandchild", 2),
+        ("child-b", 1),
+        ("orphan", 0),
+    ]
+    assert trace_family_from_forest(forest, "missing") == []
 
 
 def test_trace_log_round_trip_and_prefix_lookup(tmp_path):

@@ -18,7 +18,15 @@ from agentmold.exceptions import (
     MCPError,
     ToolLoadError,
 )
-from agentmold.experiment import EvalCase, EvalReport, EvalResult, aevaluate, evaluate
+from agentmold.experiment import (
+    EvalCase,
+    EvalContext,
+    EvalReport,
+    EvalResult,
+    MetricResult,
+    aevaluate,
+    evaluate,
+)
 from agentmold.llm import LLM
 from agentmold.loading import load_agent, load_tools
 from agentmold.mcp import MCPToolSet, mcp_tools
@@ -47,8 +55,10 @@ __all__ = [
     "TextDeltaEvent",
     "ExtensionLoadError",
     "EvalCase",
+    "EvalContext",
     "EvalReport",
     "EvalResult",
+    "MetricResult",
     "LogLevel",
     "LLM",
     "Memory",

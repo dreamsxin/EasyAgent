@@ -51,6 +51,41 @@ async def test_arun_supports_async_tools_and_yields_same_events():
 
 
 @pytest.mark.asyncio
+async def test_arun_stream_yields_approval_and_structured_refusal():
+    class ConfirmingLLM(LLM):
+        def _complete(self, messages, tools=None):
+            if messages[-1].role == "tool":
+                return LlmResponse(content="refused")
+            return LlmResponse(
+                content="",
+                tool_calls=[{"id": "danger", "name": "erase", "arguments": {}}],
+            )
+
+    @tool(confirm=True)
+    async def erase() -> str:
+        """Represent a destructive async action."""
+        return "erased"
+
+    agent = Agent(
+        tools=[erase],
+        llm=ConfirmingLLM(model="confirm"),
+        log_level=LogLevel.SILENT,
+    )
+    events = [event async for event in agent.arun_stream("go")]
+
+    assert [event["type"] for event in events] == [
+        "tool_call",
+        "approval_request",
+        "tool_result",
+        "answer",
+    ]
+    assert events[2]["status"] == "refused"
+    assert events[0]["execution_id"] == events[2]["execution_id"]
+    assert agent.last_trace is not None
+    assert agent.last_trace.status == "completed"
+
+
+@pytest.mark.asyncio
 async def test_arun_stream_yields_transient_text_deltas():
     class AsyncStreamingLLM(LLM):
         supports_native_streaming = True
