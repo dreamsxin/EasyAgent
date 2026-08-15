@@ -8,6 +8,17 @@ streamlit_testing = pytest.importorskip("streamlit.testing.v1")
 AppTest = streamlit_testing.AppTest
 
 
+def test_react_sidebar_has_direct_advanced_safety_controls() -> None:
+    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+
+    app.run()
+
+    assert not app.exception
+    assert all(selectbox.label != "策略预设" for selectbox in app.selectbox)
+    assert any(expander.label == "运行限制与安全（高级）" for expander in app.expander)
+    assert any(checkbox.label == "拒绝需要确认的工具" for checkbox in app.checkbox)
+
+
 @pytest.mark.parametrize(
     ("label", "mode", "trace_count"),
     [

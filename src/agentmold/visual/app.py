@@ -22,9 +22,6 @@ if TYPE_CHECKING:
 
 from agentmold import Agent, EvalCase, LogLevel, evaluate
 from agentmold.visual.agent_config import (
-    AGENT_MODE_PRESETS as _AGENT_MODE_PRESETS,
-)
-from agentmold.visual.agent_config import (
     AUDIT_LOG_PATH as _AUDIT_LOG_PATH,
 )
 from agentmold.visual.agent_config import (
@@ -50,9 +47,6 @@ from agentmold.visual.agent_config import (
 )
 from agentmold.visual.agent_config import (
     load_visual_tools as _load_visual_tools,
-)
-from agentmold.visual.agent_config import (
-    resolve_mode as _resolve_mode,
 )
 from agentmold.visual.agent_config import (
     tool_widget_key as _tool_widget_key,
@@ -949,7 +943,6 @@ def _run_app() -> None:
     tool_signature: tuple[tuple[str, str | None], ...]
     available_tools: dict[str, Tool]
     tool_origins: dict[str, str]
-    agent_mode = "代码定义"
     loop_detection_threshold = 3
     require_approval = False
     audit_log = False
@@ -991,7 +984,6 @@ def _run_app() -> None:
             st.session_state.ea_restored_tool_names = saved_agent_config.get(
                 "selected_tools", ["calculate"]
             )
-            st.session_state.ea_agent_mode = saved_agent_config.get("agent_mode", "标准模式")
             st.session_state.ea_loop_detection_threshold = saved_agent_config.get(
                 "loop_detection_threshold", 3
             )
@@ -1008,51 +1000,18 @@ def _run_app() -> None:
         agent_notice = st.session_state.pop("ea_agent_notice", None)
         if agent_notice:
             st.toast(agent_notice, icon="🔄")
-        st.sidebar.subheader("🎯 运行与安全策略")
-        agent_mode = st.sidebar.selectbox(
-            "策略预设",
-            options=list(_AGENT_MODE_PRESETS.keys()),
-            key="ea_agent_mode",
-            help="预设循环检测、破坏性调用拒绝和工具审计；不改变教学架构。",
-        )
-        mode_is_custom = agent_mode == "自定义"
-        _mode_descriptions = {
-            "标准模式": (
-                "循环检测开（阈值 3）· 无破坏性调用策略 · 无审计。\n适合快速体验 Agent 基本循环。"
-            ),
-            "安全模式": (
-                "循环检测开 · **破坏性调用默认拒绝** · 审计日志开。\n"
-                "confirm=True 的工具请求会被拒绝并记录；Visual Lab 不提供交互批准。"
-            ),
-            "调试模式": (
-                "循环检测开 · 无破坏性调用策略 · 审计日志开。\n"
-                "时间线只显示公开执行事件、模型轮次与工具行为，不显示隐藏思考。"
-            ),
-            "自定义": "手动调整下方安全门开关，自由组合防护策略。",
-        }
-        st.sidebar.caption(_mode_descriptions.get(agent_mode, ""))
-        effective = _resolve_mode(
-            agent_mode,
-            st.session_state.get("ea_loop_detection_threshold", 3),
-            st.session_state.get("ea_require_approval", False),
-            st.session_state.get("ea_audit_log", False),
-        )
-        if not mode_is_custom:
-            st.session_state.ea_loop_detection_threshold = effective["loop_detection_threshold"]
-            st.session_state.ea_require_approval = effective["require_approval"]
-            st.session_state.ea_audit_log = effective["audit_log"]
+        st.sidebar.caption("主要配置")
+        name = st.sidebar.text_input("Agent 名称", key="ea_agent_name")
         with st.sidebar.expander(
-            "运行与安全 · "
-            f"loop={effective['loop_detection_threshold']} · "
-            f"deny{'开' if effective['require_approval'] else '关'} · "
-            f"audit{'开' if effective['audit_log'] else '关'}",
-            expanded=mode_is_custom,
+            "运行限制与安全（高级）",
+            expanded=False,
         ):
             max_iterations = st.slider(
                 "最大迭代次数",
                 min_value=1,
                 max_value=20,
                 key="ea_max_iterations",
+                help="一次运行允许的最大模型轮次。",
             )
             loop_detection_threshold = st.number_input(
                 "重复调用检测阈值",
@@ -1060,22 +1019,26 @@ def _run_app() -> None:
                 max_value=20,
                 step=1,
                 key="ea_loop_detection_threshold",
-                disabled=not mode_is_custom,
-                help="同一工具相同参数连续调用 N 次即判定为死循环；设为 1 也可。",
+                help="同一工具与参数连续调用 N 次时停止，避免无效循环。",
             )
             require_approval = st.checkbox(
-                "破坏性工具需确认（HITL）",
+                "拒绝需要确认的工具",
                 key="ea_require_approval",
-                disabled=not mode_is_custom,
-                help="开启后，@tool(confirm=True) 的工具执行前会触发确认门。",
+                help=(
+                    "开启后，@tool(confirm=True) 和已标记的 MCP 工具会记录确认事件并拒绝执行。"
+                    "当前 Visual Lab 不提供运行中批准。"
+                ),
             )
             audit_log = st.checkbox(
                 "记录工具调用审计日志",
                 key="ea_audit_log",
-                disabled=not mode_is_custom,
-                help="每次工具调用写入 .agentmold/audit.jsonl，可回放。",
+                help="每次工具调用写入 .agentmold/audit.jsonl。",
             )
-        name = st.sidebar.text_input("Agent 名称", key="ea_agent_name")
+            st.caption(
+                f"当前：loop={int(loop_detection_threshold)} · "
+                f"deny={'开' if require_approval else '关'} · "
+                f"audit={'开' if audit_log else '关'}"
+            )
         with st.sidebar.expander(
             f"Agent 指令 · {len(st.session_state.get('ea_agent_instructions', ''))} 字符",
             expanded=st.session_state.get("agent") is None,
@@ -1536,7 +1499,7 @@ def _run_app() -> None:
                     )
                     help_text = effective_description or "未提供工具说明"
                     if getattr(visual_tool, "confirm", False):
-                        help_text += "（标记为破坏性：安全模式下执行前需确认）"
+                        help_text += "（需要确认；开启高级拒绝开关后不会执行）"
                     if st.checkbox(label, key=widget_key, help=help_text):
                         selected_tools.append(tool_name)
 
@@ -1608,7 +1571,6 @@ def _run_app() -> None:
             "custom_tool_files": custom_tool_files,
             "mcp_url": st.session_state.get("ea_mcp_url", ""),
             "rag_text": st.session_state.get("ea_rag_text", ""),
-            "agent_mode": agent_mode,
             "loop_detection_threshold": int(loop_detection_threshold),
             "require_approval": bool(require_approval),
             "audit_log": bool(audit_log),
@@ -1652,7 +1614,6 @@ def _run_app() -> None:
                             "ea_max_iterations",
                             "ea_restored_tool_names",
                             "ea_visual_config_initialized",
-                            "ea_agent_mode",
                             "ea_loop_detection_threshold",
                             "ea_require_approval",
                             "ea_audit_log",
@@ -1700,7 +1661,6 @@ def _run_app() -> None:
             selected_tools,
             max_iterations,
             tool_signature,
-            mode=agent_mode,
             loop_detection_threshold=loop_detection_threshold,
             require_approval=require_approval,
             audit_log=audit_log,
@@ -1845,10 +1805,9 @@ def _run_app() -> None:
             st.markdown(f"- **LLM:** `{agent.llm.model}`")
             st.markdown(f"- **工具:** {tool_list}")
             st.markdown(f"- **最大迭代:** {agent.max_iterations}")
-            st.markdown(f"- **模式:** {agent_mode}")
             gate_summary = []
             if require_approval:
-                gate_summary.append("✅ 确认门")
+                gate_summary.append("需确认工具=拒绝")
             if audit_log:
                 gate_summary.append("✅ 审计日志")
             gate_summary.append(f"循环检测={loop_detection_threshold}")
@@ -2004,13 +1963,12 @@ def _run_app() -> None:
                             run_meta["phase"] = "确认门"
                             try:
                                 st.warning(
-                                    f"⚠ **确认门 (HITL):** 破坏性工具 "
-                                    f"`{step['name']}({step['arguments']})` "
-                                    "已被安全模式拦截。"
+                                    f"⚠ **工具执行已拒绝:** 需要确认的工具 "
+                                    f"`{step['name']}({step['arguments']})` 未执行。"
                                 )
                                 st.caption(
-                                    "这是人机协作（HITL）安全门教学事件：当前同步运行默认拒绝，"
-                                    "以避免脚本重跑时产生未绑定到本次调用的批准。"
+                                    "Visual Lab 当前不提供运行中批准；"
+                                    "该确认请求和拒绝结果已写入 Trace。"
                                 )
                             except OSError:
                                 pass

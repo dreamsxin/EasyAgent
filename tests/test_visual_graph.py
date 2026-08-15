@@ -10,7 +10,7 @@ from agentmold.visual.agent_config import (
 from agentmold.visual.agent_config import (
     agent_signature as _agent_signature,
 )
-from agentmold.visual.agent_config import bind_visual_tools, resolve_mode, visual_approval_gate
+from agentmold.visual.agent_config import bind_visual_tools, visual_approval_gate
 from agentmold.visual.agent_config import (
     build_agent as _build_agent,
 )
@@ -180,16 +180,10 @@ def test_agent_signature_changes_with_uploaded_tool_content():
     assert before != after
 
 
-def test_visual_config_keeps_legacy_log_level_keyword_compatible():
-    resolved = resolve_mode("标准模式", 8, True, True, log_level="DEBUG")
+def test_visual_config_keeps_log_level_out_of_agent_signature():
     before = _agent_signature("A", "prompt", "mock", [], 10, log_level="INFO")
     after = _agent_signature("A", "prompt", "mock", [], 10, log_level="DEBUG")
 
-    assert resolved == {
-        "loop_detection_threshold": 3,
-        "require_approval": False,
-        "audit_log": False,
-    }
     assert before == after
 
 
@@ -205,7 +199,6 @@ def test_reset_visual_conversation_clears_memory_but_preserves_agent_tools():
         "last_steps": [{"type": "answer", "content": "old answer"}],
         "last_user_input": "old question",
         "run_meta": {"state": "complete"},
-        "ea_agent_mode": "标准模式",
         "ea_rag_text": "keep document",
     }
     st = SimpleNamespace(session_state=state)
@@ -217,7 +210,7 @@ def test_reset_visual_conversation_clears_memory_but_preserves_agent_tools():
         ("system", agent._build_system_prompt())
     ]
     assert [tool.name for tool in agent.tools] == ["calculate"]
-    assert state == {"ea_agent_mode": "标准模式", "ea_rag_text": "keep document"}
+    assert state == {"ea_rag_text": "keep document"}
 
 
 def test_tool_origin_groups_unknown_sources_as_other():

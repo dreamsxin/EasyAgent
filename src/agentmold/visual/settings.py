@@ -36,7 +36,6 @@ _AGENT_FIELDS = {
     "custom_tool_files",
     "mcp_url",
     "rag_text",
-    "agent_mode",
     "loop_detection_threshold",
     "require_approval",
     "audit_log",
@@ -146,8 +145,6 @@ def load_visual_agent_config(path: str | Path = _DEFAULT_AGENT_PATH) -> dict[str
                 and (key != "custom_tool_files" or Path(value).name == value)
             )
         )
-    if "agent_mode" in loaded and not isinstance(loaded["agent_mode"], str):
-        loaded.pop("agent_mode", None)
     threshold = loaded.get("loop_detection_threshold")
     if threshold is not None and (
         not isinstance(threshold, int) or isinstance(threshold, bool) or not 1 <= threshold <= 20
