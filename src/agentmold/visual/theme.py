@@ -326,8 +326,13 @@ def inject_theme(st: Any) -> None:
         .ea-title span { color: var(--ea-magenta); }
         .ea-subtitle {
             color: var(--ea-muted);
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
             font-size: 0.92rem;
+            font-weight: 400;
+            letter-spacing: 0;
+            line-height: 1.55;
             margin-top: 0.55rem;
+            text-rendering: optimizeLegibility;
         }
         .ea-strip {
             display: flex;

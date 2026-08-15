@@ -643,7 +643,7 @@ def _render_top_navigation(st: Any) -> tuple[str, str]:
             horizontal=True,
             label_visibility="collapsed",
         )
-    architecture_id = reverse.get(str(selection), "react")
+    architecture_id = reverse.get(str(selection), current_architecture)
     if architecture_id != current_architecture:
         st.session_state.ea_architecture_mode = architecture_id
         st.session_state.ea_visual_view = "architecture"

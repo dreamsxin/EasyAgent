@@ -125,7 +125,10 @@ def load_visual_agent_config(path: str | Path = _DEFAULT_AGENT_PATH) -> dict[str
         return {}
 
     loaded = {key: config[key] for key in _AGENT_FIELDS if key in config}
-    for key in ("name", "instructions", "connection_type", "custom_interface"):
+    for key in ("name", "instructions"):
+        if key in loaded and (not isinstance(loaded[key], str) or not loaded[key].strip()):
+            loaded.pop(key)
+    for key in ("connection_type", "custom_interface"):
         if key in loaded and not isinstance(loaded[key], str):
             loaded.pop(key)
     iterations = loaded.get("max_iterations")

@@ -50,6 +50,11 @@ class _NavigationStub:
         self.rerun_called = True
 
 
+class _SegmentedNavigationStub(_NavigationStub):
+    def segmented_control(self, *args, **kwargs):
+        return None
+
+
 def test_architecture_navigation_has_stable_order():
     assert list(_ARCHITECTURE_NAV) == [
         "react",
@@ -58,6 +63,17 @@ def test_architecture_navigation_has_stable_order():
         "multi_agent",
         "routing",
     ]
+
+
+def test_empty_segmented_selection_keeps_current_architecture():
+    st = _SegmentedNavigationStub(selected="unused")
+    st.session_state.ea_architecture_mode = "multi_agent"
+
+    view, architecture = _render_top_navigation(st)
+
+    assert view == "architecture"
+    assert architecture == "multi_agent"
+    assert st.session_state.ea_architecture_mode == "multi_agent"
 
 
 def test_navigation_falls_back_to_horizontal_radio():

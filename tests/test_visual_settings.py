@@ -124,7 +124,8 @@ def test_visual_agent_config_filters_invalid_values(tmp_path):
         json.dumps(
             {
                 "agent": {
-                    "name": 123,
+                    "name": "   ",
+                    "instructions": "",
                     "max_iterations": 99,
                     "selected_tools": "calculate",
                     "custom_tool_files": ["../outside.py", "valid.py", 3],
