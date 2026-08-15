@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Any, Literal
 if TYPE_CHECKING:
     from agentmold import Tool
 
-from agentmold import Agent, EvalCase, LogLevel, evaluate
 from agentmold.visual.agent_config import (
     AUDIT_LOG_PATH as _AUDIT_LOG_PATH,
 )
@@ -117,9 +116,6 @@ from agentmold.visual.renderers import (
 )
 from agentmold.visual.renderers import (
     trace_breadcrumb_html as _trace_breadcrumb_html,
-)
-from agentmold.visual.renderers import (
-    trace_compare_html as _trace_compare_html,
 )
 from agentmold.visual.renderers import (
     trace_metrics_html as _trace_metrics_html,
@@ -345,140 +341,6 @@ def _render_trace_lab(st: Any, *, standalone: bool = False) -> None:
                 ),
                 unsafe_allow_html=True,
             )
-
-        st.markdown("**COMPARE RUNS**")
-        compare_key = "ea_compare_runs"
-        option_signature = tuple(run_ids)
-        if st.session_state.get("ea_compare_run_options") != option_signature:
-            selected = [
-                run_id for run_id in st.session_state.get(compare_key, []) if run_id in run_ids
-            ]
-            for run_id in reversed(run_ids):
-                if len(selected) >= 2:
-                    break
-                if run_id not in selected:
-                    selected.append(run_id)
-            st.session_state[compare_key] = selected[:2] if len(run_ids) >= 2 else []
-            st.session_state.ea_compare_run_options = option_signature
-        compare_ids = st.multiselect(
-            "选择两个运行",
-            options=run_ids,
-            format_func=lambda run_id: labels[run_id],
-            max_selections=2,
-            key=compare_key,
-        )
-        if len(compare_ids) == 2:
-            compare_runs = [
-                next(run for run in runs if run["run_id"] == run_id) for run_id in compare_ids
-            ]
-            st.markdown(
-                _trace_compare_html(
-                    summarize_trace_run(compare_runs[0]),
-                    summarize_trace_run(compare_runs[1]),
-                ),
-                unsafe_allow_html=True,
-            )
-        else:
-            st.caption("选择两个运行后，会并排显示提示词、模型、延迟、token、成本和工具调用。")
-
-
-def _render_evaluation_view(st: Any) -> None:
-    """Render a bounded offline evaluation view without executing user code."""
-    st.markdown("## 对照评测")
-    st.caption(
-        "每行使用 `问题 => 期望片段`。每个 sample 都创建独立 mock Agent；"
-        "本页面只使用内置文本 scorer，不执行用户提供的 Python。"
-    )
-    cases_text = st.text_area(
-        "评测用例",
-        value="hello => hello\nExplain a trace => trace",
-        height=130,
-        key="ea_eval_cases",
-    )
-    repeats = st.number_input(
-        "每个用例重复次数",
-        min_value=1,
-        max_value=20,
-        value=3,
-        step=1,
-        key="ea_eval_repeats",
-    )
-    if st.button("运行离线评测", type="primary", key="ea_run_evaluation"):
-        cases: list[EvalCase] = []
-        errors: list[str] = []
-        for line_number, raw_line in enumerate(cases_text.splitlines(), start=1):
-            line = raw_line.strip()
-            if not line:
-                continue
-            if "=>" not in line:
-                errors.append(f"第 {line_number} 行缺少 `=>`")
-                continue
-            prompt, expected = (part.strip() for part in line.split("=>", 1))
-            if not prompt or not expected:
-                errors.append(f"第 {line_number} 行的问题和期望片段不能为空")
-                continue
-            cases.append(
-                EvalCase(
-                    name=f"case-{line_number}",
-                    input=prompt,
-                    expected=expected,
-                )
-            )
-        if errors:
-            for error in errors:
-                st.error(error)
-        elif not cases:
-            st.error("至少需要一个有效用例。")
-        else:
-            report = evaluate(
-                lambda: Agent(llm="mock", log_level=LogLevel.SILENT),
-                cases,
-                scorer=lambda output, expected: expected.lower() in output.lower(),
-                repeats=int(repeats),
-            )
-            st.session_state.ea_eval_report = report.to_dict()
-
-    payload = st.session_state.get("ea_eval_report")
-    if not isinstance(payload, dict):
-        st.info("运行后会显示 sample 级结果、pass rate、轮次和 usage 覆盖率。")
-        return
-    summary = payload.get("summary", {})
-    metric = summary.get("metrics", {}).get("score", {})
-    columns = st.columns(5)
-    columns[0].metric("SAMPLES", summary.get("sample_count", 0))
-    columns[1].metric(
-        "PASS RATE",
-        f"{float(metric.get('pass_rate', 0.0)) * 100:.1f}%"
-        if metric.get("pass_rate") is not None
-        else "-",
-    )
-    columns[2].metric("MEAN ROUNDS", summary.get("mean_rounds") or "-")
-    columns[3].metric("MEAN TOOLS", summary.get("mean_tool_calls") or 0)
-    columns[4].metric(
-        "TOKEN COVERAGE",
-        f"{float(summary.get('total_tokens_coverage', 0.0)) * 100:.1f}%",
-    )
-    st.download_button(
-        "下载 evaluation-report.json",
-        data=json.dumps(payload, ensure_ascii=False, indent=2),
-        file_name="evaluation-report.json",
-        mime="application/json",
-        key="ea_download_evaluation_report",
-    )
-    rows = []
-    for result in payload.get("results", []):
-        rows.append(
-            {
-                "case": result.get("name"),
-                "sample": result.get("sample_index"),
-                "score": result.get("score"),
-                "runtime": result.get("runtime_status"),
-                "rounds": result.get("rounds"),
-                "tools": result.get("tool_calls"),
-                "error": result.get("error"),
-            }
-        )
-    st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
 def _render_architecture_demo(st: Any) -> None:
@@ -790,7 +652,7 @@ def _render_top_navigation(st: Any) -> tuple[str, str]:
         st.session_state.ea_architecture_mode = architecture_id
     architecture_col, replay_col, eval_col, context_col = st.columns([1, 1, 1, 3])
     if architecture_col.button(
-        "返回架构",
+        "架构实验",
         use_container_width=True,
         type="primary" if current_view == "architecture" else "secondary",
         key="ea_nav_architecture",
@@ -806,14 +668,19 @@ def _render_top_navigation(st: Any) -> tuple[str, str]:
         st.session_state.ea_visual_view = "trace"
         st.rerun()
     if eval_col.button(
-        "对照评测",
+        "对比与评测",
         use_container_width=True,
         type="primary" if current_view == "evaluation" else "secondary",
         key="ea_nav_evaluation",
     ):
         st.session_state.ea_visual_view = "evaluation"
         st.rerun()
-    context_col.caption("架构页提供可运行离线实验；回放和评测只使用已记录事实。")
+    context_messages = {
+        "architecture": "运行五种架构实验，并区分概念示意与真实 Trace。",
+        "trace": "查看一次运行的时间线、配置与父子 Agent family。",
+        "evaluation": "比较 2-4 个 Agent 运行，或执行同一 Agent 的批量回归。",
+    }
+    context_col.caption(context_messages.get(current_view, context_messages["architecture"]))
     return current_view, architecture_id
 
 
@@ -913,7 +780,9 @@ def _run_app() -> None:
         _render_trace_lab(st, standalone=True)
         return
     if visual_view == "evaluation":
-        _render_evaluation_view(st)
+        from agentmold.visual.evaluation_view import render_evaluation_view
+
+        render_evaluation_view(st)
         return
     if architecture_mode != "react":
         from agentmold.visual.teaching_view import render_teaching_view

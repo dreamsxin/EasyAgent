@@ -82,6 +82,8 @@ def test_visual_architecture_lab_documents_runnable_fact_boundary():
         assert mode in capabilities
     assert "概念示意 · 非本次运行" in readme
     assert "TeachingEvent" in readme
+    assert "Agent 运行对比" in readme
+    assert "Coordinator、Researcher 和 Analyst" in readme
     assert "agent-traces.jsonl" in architectures
     assert "General multi-Agent coordinator" in capabilities
 

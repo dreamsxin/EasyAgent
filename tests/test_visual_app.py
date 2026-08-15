@@ -91,19 +91,33 @@ def test_teaching_traces_flow_into_replay_and_evaluation_views() -> None:
     assert app.session_state["ea_visual_view"] == "trace"
     assert any(item.value == "## 运行回放" for item in app.markdown)
 
-    next(button for button in app.button if button.label == "对照评测").click().run()
+    next(button for button in app.button if button.label == "对比与评测").click().run()
     assert not app.exception
     assert app.session_state["ea_visual_view"] == "evaluation"
-    assert any(item.value == "## 对照评测" for item in app.markdown)
+    assert any(item.value == "## 对比与评测" for item in app.markdown)
+    assert [tab.label for tab in app.tabs] == ["Agent 运行对比", "批量回归"]
+    assert len(app.multiselect[0].value) == 3
+    assert len(app.dataframe) == 1
+    assert [download.label for download in app.get("download_button")] == [
+        "下载对比 JSON",
+        "下载所选 Trace JSONL",
+    ]
+    assert any("协调 Agent" in expander.label for expander in app.expander)
+    assert sum("子 Agent" in expander.label for expander in app.expander) == 2
 
-    next(button for button in app.button if button.label == "运行离线评测").click().run()
+    next(button for button in app.button if button.label == "运行批量回归").click().run()
     assert not app.exception
     report = app.session_state["ea_eval_report"]
     assert report["summary"]["sample_count"] == 6
     assert report["summary"]["metrics"]["score"]["pass_rate"] == 1.0
 
-    next(button for button in app.button if button.label == "返回架构").click().run()
+    next(button for button in app.button if button.label == "架构实验").click().run()
     assert not app.exception
     assert app.session_state["ea_visual_view"] == "architecture"
     assert app.session_state["ea_architecture_mode"] == "multi_agent"
+
+    next(button for button in app.button if button.label == "比较这些 Agent").click().run()
+    assert not app.exception
+    assert app.session_state["ea_visual_view"] == "evaluation"
+    assert len(app.multiselect[0].value) == 3
     assert app.session_state["teaching.multi_agent.result"].mode == "multi_agent"

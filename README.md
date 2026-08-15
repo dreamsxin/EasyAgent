@@ -110,8 +110,13 @@ response = agent.run("Hello! What can you do?")
 - **概念示意 · 非本次运行**：解释预期架构和普通 Python 控制流。
 - **实际观测**：展示 `TeachingEvent`、真实 `AgentTrace`、模型轮次、工具调用和父子 run。
 
-顶部的 **运行回放** 提供 Trace family 跳转、bundle 导出与双运行比较；**对照评测** 使用
-内置 scorer 运行重复离线样本，不执行浏览器中粘贴的 Python verifier 源码。
+顶部的 **运行回放** 用于查看单次运行时间线、配置、父子 family 和 bundle；
+**对比与评测** 分成两个任务：
+
+- **Agent 运行对比**：选择 2-4 个已记录运行并排比较。Multi-Agent 实验可同时选择
+  Coordinator、Researcher 和 Analyst；输入不同时只用于观察角色分工，不视为公平 A/B。
+- **批量回归**：用内置 scorer 对同一离线 Agent 运行多组 case 和重复样本，不执行浏览器中
+  粘贴的 Python verifier 源码。
 
 ```bash
 # 1. 安装可视化依赖

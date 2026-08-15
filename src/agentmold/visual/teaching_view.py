@@ -170,6 +170,26 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
     st.markdown("#### Agent Traces")
     _render_experiment_traces(st, experiment)
 
+    st.markdown("#### 下一步")
+    replay_col, compare_col = st.columns(2)
+    if replay_col.button(
+        "查看这些运行",
+        use_container_width=True,
+        key=f"{state_prefix}.open_replay",
+    ):
+        st.session_state.ea_trace_jump_to = experiment.traces[0].run_id
+        st.session_state.ea_visual_view = "trace"
+        st.rerun()
+    if compare_col.button(
+        "比较这些 Agent",
+        type="primary",
+        use_container_width=True,
+        key=f"{state_prefix}.open_comparison",
+    ):
+        st.session_state.ea_pending_comparison_runs = [trace.run_id for trace in experiment.traces]
+        st.session_state.ea_visual_view = "evaluation"
+        st.rerun()
+
     st.markdown("#### 导出")
     json_col, trace_col, source_col = st.columns(3)
     json_col.download_button(
