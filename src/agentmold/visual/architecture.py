@@ -77,15 +77,18 @@ def _edge(
 
 ARCHITECTURE_PRESETS: dict[str, dict[str, Any]] = {
     "ReAct（推理-行动）": {
+        "architecture_id": "react",
+        "sample_input": "RAG 如何减少模型幻觉？",
+        "runner_key": "run_react_experiment",
+        "run_status": "shipped",
         "title": "ReAct: Reason + Act",
         "summary": (
-            "Agent 在每一轮先思考（Thought）、再行动（Action）、观察结果"
-            "（Observation），循环直到给出最终回答。EasyAgent 的默认执行循环"
-            "就是 ReAct。"
+            "Agent 在每一轮根据公开上下文选择行动，观察工具结果后继续，直到给出"
+            "最终回答。EasyAgent 记录模型轮次和工具事件，但不展示隐藏思维链。"
         ),
         "nodes": [
             _node("user", "user", "用户问题"),
-            _node("thought", "llm", "Thought · 推理", detail="我需要什么信息？"),
+            _node("thought", "llm", "模型轮次 · 决策", detail="回答或选择工具"),
             _node("action", "tool", "Action · 调用工具", detail="retrieve / calculate …"),
             _node("observation", "memory", "Observation · 结果", detail="工具返回写入记忆"),
             _node("answer", "answer", "最终回答"),
@@ -97,27 +100,22 @@ ARCHITECTURE_PRESETS: dict[str, dict[str, Any]] = {
             _edge("observation", "thought", label="继续推理", style="loop"),
             _edge("thought", "answer", label="无需更多工具"),
         ],
-        "code": """from agentmold import Agent, tool
+        "code": """from agentmold.visual.teaching import run_react_experiment
 
-@tool
-def retrieve(query: str) -> str:
-    '''检索知识库。'''
-    ...
-
-agent = Agent(
-    name="ReActAgent",
-    instructions="先思考需要什么信息，再调用工具，最后给出回答。",
-    tools=[retrieve],
-    llm="mock",
-)
-answer = agent("道与术的本质是什么？")
+experiment = run_react_experiment("RAG 如何减少模型幻觉？")
+print(experiment.output)
 """,
     },
     "Plan-and-Execute（计划-执行）": {
+        "architecture_id": "plan_execute",
+        "sample_input": "为一个离线知识助手制定三步实施方案",
+        "runner_key": "run_plan_execute_experiment",
+        "run_status": "shipped",
         "title": "Plan-and-Execute",
         "summary": (
             "先用一个 Planner Agent 把任务拆成步骤清单，再逐步执行每个步骤。"
-            "适合多步骤、需要前期规划的任务。"
+            "适合多步骤、需要前期规划的任务。Planner 和 Executor 都是普通 Agent，"
+            "通过 Python for 循环连接。"
         ),
         "nodes": [
             _node("user", "user", "复杂任务"),
@@ -135,23 +133,19 @@ answer = agent("道与术的本质是什么？")
             _edge("memory", "step", label="下一步", style="loop"),
             _edge("memory", "answer", label="全部完成"),
         ],
-        "code": """from agentmold import Agent, tool
+        "code": """from agentmold.visual.teaching import run_plan_execute_experiment
 
-planner = Agent(
-    name="Planner",
-    instructions="把任务拆成 3-5 个可执行步骤，输出编号列表。",
-    llm="mock",
+experiment = run_plan_execute_experiment(
+    "为一个离线知识助手制定三步实施方案"
 )
-plan_text = planner("分析这篇论文的方法")
-
-# Execute each step with a worker agent.
-worker = Agent(name="Executor", tools=[...], llm="mock")
-for step in plan_text.split("\\n"):
-    if step.strip():
-        worker.run(step.strip())
+print(experiment.output)
 """,
     },
     "Reflection（反思）": {
+        "architecture_id": "reflection",
+        "sample_input": "用两句话解释向量检索",
+        "runner_key": "run_reflection_experiment",
+        "run_status": "shipped",
         "title": "Reflection / Self-Critique",
         "summary": (
             "Agent 先生成初稿，再用一个 Critic 角色自我审查，根据反馈修订，"
@@ -171,31 +165,22 @@ for step in plan_text.split("\\n"):
             _edge("revise", "critic", label="再次审查", style="loop"),
             _edge("critic", "answer", label="质量达标"),
         ],
-        "code": """from agentmold import Agent
+        "code": """from agentmold.visual.teaching import run_reflection_experiment
 
-generator = Agent(
-    name="Writer",
-    instructions="写一段简洁的技术说明。",
-    llm="mock",
-)
-critic = Agent(
-    name="Critic",
-    instructions="审查输出，指出不准确或可改进之处。若无问题则回复 DONE。",
-    llm="mock",
-)
-
-draft = generator("解释 RAG 的原理")
-feedback = critic(draft)
-while "DONE" not in feedback:
-    draft = generator(f"根据反馈修订：{feedback}")
-    feedback = critic(draft)
+experiment = run_reflection_experiment("用两句话解释向量检索")
+print(experiment.output)
 """,
     },
     "Multi-Agent（多智能体协作）": {
+        "architecture_id": "multi_agent",
+        "sample_input": "比较关键词检索与向量检索的适用场景",
+        "runner_key": "run_multi_agent_experiment",
+        "run_status": "experimental",
         "title": "Multi-Agent Coordination",
         "summary": (
             "一个协调者 Agent 把子任务分派给多个专家 Agent（每个有独立指令和"
             "工具），汇总结果后回答。用 agent_as_tool 把子 Agent 包装成工具。"
+            "EasyAgent 没有 Coordinator 类，协调者只是另一个 Agent。"
         ),
         "nodes": [
             _node("user", "user", "复杂问题"),
@@ -214,34 +199,25 @@ while "DONE" not in feedback:
             _edge("results", "coordinator", label="整合", style="loop"),
             _edge("coordinator", "answer"),
         ],
-        "code": """from agentmold import Agent
-from agentmold.experimental import agent_as_tool
+        "code": """# experimental agent_as_tool API 可能变化
+from agentmold.visual.teaching import run_multi_agent_experiment
 
-researcher = Agent(
-    name="Researcher",
-    instructions="检索并总结相关信息。",
-    llm="mock",
+experiment = run_multi_agent_experiment(
+    "比较关键词检索与向量检索的适用场景"
 )
-analyst = Agent(
-    name="Analyst",
-    instructions="分析数据并给出结论。",
-    llm="mock",
-)
-
-coordinator = Agent(
-    name="Coordinator",
-    instructions="把问题分派给专家，汇总后回答。",
-    tools=[agent_as_tool(researcher), agent_as_tool(analyst)],
-    llm="mock",
-)
-answer = coordinator("tool: Researcher 检索 RAG")
+print(experiment.output)
 """,
     },
     "Routing（路由分发）": {
+        "architecture_id": "routing",
+        "sample_input": "请用 Python 写一个去重函数",
+        "runner_key": "run_routing_experiment",
+        "run_status": "shipped",
         "title": "Routing / Dispatcher",
         "summary": (
             "根据用户输入的类型，路由到不同的专家 Agent 处理。适合客服、"
-            "多领域问答等需要分流的场景。"
+            "多领域问答等需要分流的场景。路由只是一个 Agent 或一个 if/else，"
+            "没有 Router 基类。"
         ),
         "nodes": [
             _node("user", "user", "用户输入"),
@@ -260,26 +236,10 @@ answer = coordinator("tool: Researcher 检索 RAG")
             _edge("expert2", "answer"),
             _edge("expert3", "answer"),
         ],
-        "code": """from agentmold import Agent
+        "code": """from agentmold.visual.teaching import run_routing_experiment
 
-coder = Agent(name="Coder", instructions="回答编程问题。", llm="mock")
-writer = Agent(name="Writer", instructions="回答写作问题。", llm="mock")
-math_agent = Agent(name="MathAgent", instructions="回答数学问题。", llm="mock")
-
-router = Agent(
-    name="Router",
-    instructions=(
-        "根据问题类型选择专家：编程→Coder，写作→Writer，数学→MathAgent。"
-        "只输出专家名称。"
-    ),
-    llm="mock",
-)
-
-question = "如何反转链表？"
-expert_name = router(question).strip()
-experts = {"Coder": coder, "Writer": writer, "MathAgent": math_agent}
-agent = experts.get(expert_name, coder)
-answer = agent(question)
+experiment = run_routing_experiment("请用 Python 写一个去重函数")
+print(experiment.output)
 """,
     },
 }
@@ -300,7 +260,12 @@ TOOL_CALLING_PRESETS: dict[str, dict[str, Any]] = {
         "nodes": [
             _node("user", "user", "用户问题"),
             _node("llm", "llm", "LLM 推理", detail="API 请求携带 tools 参数"),
-            _node("tool_calls", "tool", "结构化 tool_calls", detail='{"name":"retrieve","arguments":{...}}'),
+            _node(
+                "tool_calls",
+                "tool",
+                "结构化 tool_calls",
+                detail='{"name":"retrieve","arguments":{...}}',
+            ),
             _node("execute", "tool", "Agent 执行工具", detail="registry.call(name, arguments)"),
             _node("result", "memory", "结果写回记忆", detail="role=tool, tool_call_id"),
             _node("answer", "answer", "最终回答"),
@@ -338,7 +303,12 @@ answer = agent("检索道的本质")
         "nodes": [
             _node("user", "user", "用户问题"),
             _node("llm", "llm", "LLM 推理", detail="系统提示含工具定义文本"),
-            _node("text", "tool", "文本输出含调用标记", detail="```tool\\n{\"name\":\"retrieve\",...}\\n```"),
+            _node(
+                "text",
+                "tool",
+                "文本输出含调用标记",
+                detail='```tool\\n{"name":"retrieve",...}\\n```',
+            ),
             _node("parse", "decision", "文本解析", detail="正则/JSON 提取工具调用"),
             _node("execute", "tool", "Agent 执行工具", detail="解析成功才执行"),
             _node("result", "memory", "结果写回记忆", detail="作为纯文本观察"),
@@ -415,10 +385,7 @@ def _render_preset_diagram(preset: dict[str, Any]) -> str:
                 if edge.get("label")
                 else ""
             )
-            connector = (
-                f'<div class="ea-arch-connector {edge_style}">'
-                f'<i></i>{label_badge}</div>'
-            )
+            connector = f'<div class="ea-arch-connector {edge_style}"><i></i>{label_badge}</div>'
         rows.append(
             f'<div class="ea-arch-node-wrap" style="--ea-flow-delay:{delay:.2f}s">'
             f"{connector}"
@@ -426,8 +393,8 @@ def _render_preset_diagram(preset: dict[str, Any]) -> str:
             f'<span class="ea-arch-node-icon">{html.escape(icon)}</span>'
             f'<div class="ea-arch-node-body">'
             f'<div class="ea-arch-node-code">{html.escape(code)}</div>'
-            f'<strong>{html.escape(node["label"])}</strong>'
-            f'<small>{html.escape(detail)}</small>'
+            f"<strong>{html.escape(node['label'])}</strong>"
+            f"<small>{html.escape(detail)}</small>"
             f"</div></div></div>"
         )
 

@@ -524,7 +524,11 @@ def inject_theme(st: Any) -> None:
             margin-right: 0.3rem;
             width: 0.4rem;
         }
-        .ea-map-heading small { color: var(--ea-muted); font-size: 0.58rem; letter-spacing: 0.08em; }
+        .ea-map-heading small {
+            color: var(--ea-muted);
+            font-size: 0.58rem;
+            letter-spacing: 0.08em;
+        }
         .ea-flow-canvas { padding: 0.7rem 0.1rem 0.2rem; }
         .ea-flow-step {
             align-items: start;
@@ -804,8 +808,14 @@ def inject_theme(st: Any) -> None:
         }
         .ea-arch-node-plan .ea-arch-node-icon { color: var(--ea-magenta); border-radius: 5px; }
         .ea-arch-node-reflect .ea-arch-node-icon { color: var(--ea-lime); }
-        .ea-arch-node-answer .ea-arch-node-icon { color: var(--ea-magenta); transform: rotate(45deg); }
-        .ea-arch-node-answer .ea-arch-node-icon span { display: inline-block; transform: rotate(-45deg); }
+        .ea-arch-node-answer .ea-arch-node-icon {
+            color: var(--ea-magenta);
+            transform: rotate(45deg);
+        }
+        .ea-arch-node-answer .ea-arch-node-icon span {
+            display: inline-block;
+            transform: rotate(-45deg);
+        }
         .ea-arch-node-router .ea-arch-node-icon { color: var(--ea-amber); border-radius: 7px; }
         .ea-arch-empty {
             background: var(--ea-surface);
@@ -816,6 +826,85 @@ def inject_theme(st: Any) -> None:
             font-size: 0.78rem;
             padding: 1rem;
             text-align: center;
+        }
+        .ea-teaching-head {
+            align-items: center;
+            border-bottom: 1px solid var(--ea-line);
+            display: flex;
+            justify-content: space-between;
+            margin: 0.25rem 0 0.35rem;
+            padding: 0.35rem 0 0.8rem;
+        }
+        .ea-teaching-head span,
+        .ea-concept-watermark {
+            color: var(--ea-cyan);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+        }
+        .ea-teaching-head h2 {
+            color: var(--ea-text);
+            font-size: 1.55rem;
+            letter-spacing: 0;
+            margin: 0.15rem 0 0;
+        }
+        .ea-teaching-head > strong {
+            border: 1px solid var(--ea-line-strong);
+            border-radius: 6px;
+            color: var(--ea-lime);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.7rem;
+            padding: 0.35rem 0.55rem;
+        }
+        .ea-concept-band {
+            background: var(--ea-surface-2);
+            border-left: 3px solid var(--ea-cyan);
+            padding: 0.75rem;
+        }
+        .ea-concept-watermark {
+            border-bottom: 1px dashed var(--ea-line-strong);
+            color: var(--ea-muted-strong);
+            margin-bottom: 0.65rem;
+            padding-bottom: 0.5rem;
+        }
+        .ea-concept-band .ea-arch-canvas {
+            background: transparent;
+            border: 0;
+            margin: 0;
+        }
+        .ea-teaching-events {
+            border-left: 2px solid var(--ea-line-strong);
+            margin: 0.35rem 0 1rem 0.8rem;
+        }
+        .ea-teaching-event {
+            display: grid;
+            gap: 0.75rem;
+            grid-template-columns: 2.2rem minmax(0, 1fr);
+            padding: 0.55rem 0 0.65rem 0.7rem;
+        }
+        .ea-teaching-event > span {
+            color: var(--ea-muted);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.68rem;
+            padding-top: 0.12rem;
+        }
+        .ea-teaching-event strong {
+            color: var(--ea-cyan);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.68rem;
+            letter-spacing: 0.08em;
+        }
+        .ea-teaching-event b {
+            color: var(--ea-text);
+            font-size: 0.78rem;
+            margin-left: 0.6rem;
+        }
+        .ea-teaching-event p {
+            color: var(--ea-text-soft);
+            font-size: 0.8rem;
+            margin: 0.22rem 0 0;
+            overflow-wrap: anywhere;
         }
         @media (prefers-reduced-motion: reduce) {
             .ea-arch-node-wrap { animation: none; }
@@ -836,7 +925,7 @@ def inject_theme(st: Any) -> None:
             border-radius: 8px;
             display: grid;
             gap: 0.45rem;
-            grid-template-columns: repeat(8, minmax(0, 1fr));
+            grid-template-columns: repeat(9, minmax(0, 1fr));
             margin: 0.75rem 0;
             padding: 0.55rem;
         }
@@ -1033,12 +1122,21 @@ def inject_theme(st: Any) -> None:
         @media (max-width: 1200px) {
             .main .block-container { padding: 1.2rem 1rem 3rem; }
             .ea-title { font-size: 2rem; }
-            .ea-run-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .ea-run-metrics,
+            .ea-trace-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .ea-run-state,
             .ea-run-metric,
-            .ea-run-id { border-right: 0; }
+            .ea-run-id,
+            .ea-trace-metrics > div { border-right: 0; }
         }
         @media (max-width: 900px) {
+            .ea-teaching-head {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 0.55rem;
+            }
+            .ea-teaching-head h2 { font-size: 1.3rem; }
+            .ea-concept-band { padding: 0.55rem; }
             [data-testid="stExpandSidebarButton"] {
                 align-items: center !important;
                 background: var(--ea-surface-3) !important;

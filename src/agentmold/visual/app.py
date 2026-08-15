@@ -14,61 +14,18 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from agentmold import Tool
 
+from agentmold import Agent, EvalCase, LogLevel, evaluate
 from agentmold.visual.agent_config import (
     AGENT_MODE_PRESETS as _AGENT_MODE_PRESETS,
 )
 from agentmold.visual.agent_config import (
     AUDIT_LOG_PATH as _AUDIT_LOG_PATH,
-)
-from agentmold.visual.architecture import (
-    ARCHITECTURE_PRESETS as _ARCHITECTURE_PRESETS,
-)
-from agentmold.visual.architecture import (
-    TOOL_CALLING_PRESETS as _TOOL_CALLING_PRESETS,
-)
-from agentmold.visual.architecture import (
-    architecture_code as _architecture_code,
-)
-from agentmold.visual.architecture import (
-    architecture_description as _architecture_description,
-)
-from agentmold.visual.architecture import (
-    architecture_diagram_html as _architecture_diagram_html,
-)
-from agentmold.visual.architecture import (
-    tool_calling_description as _tool_calling_description,
-)
-from agentmold.visual.architecture import (
-    tool_calling_diagram_html as _tool_calling_diagram_html,
-)
-from agentmold.visual.architecture import (
-    INTENT_PRESETS as _INTENT_PRESETS,
-)
-from agentmold.visual.architecture import (
-    intent_code as _intent_code,
-)
-from agentmold.visual.architecture import (
-    intent_description as _intent_description,
-)
-from agentmold.visual.architecture import (
-    intent_diagram_html as _intent_diagram_html,
-)
-from agentmold.visual.architecture import (
-    RETRIEVAL_PRESETS as _RETRIEVAL_PRESETS,
-)
-from agentmold.visual.architecture import (
-    retrieval_code as _retrieval_code,
-)
-from agentmold.visual.architecture import (
-    retrieval_description as _retrieval_description,
-)
-from agentmold.visual.architecture import (
-    retrieval_diagram_html as _retrieval_diagram_html,
 )
 from agentmold.visual.agent_config import (
     CONNECTION_DEFAULTS as _CONNECTION_DEFAULTS,
@@ -100,6 +57,51 @@ from agentmold.visual.agent_config import (
 from agentmold.visual.agent_config import (
     tool_widget_key as _tool_widget_key,
 )
+from agentmold.visual.architecture import (
+    ARCHITECTURE_PRESETS as _ARCHITECTURE_PRESETS,
+)
+from agentmold.visual.architecture import (
+    INTENT_PRESETS as _INTENT_PRESETS,
+)
+from agentmold.visual.architecture import (
+    RETRIEVAL_PRESETS as _RETRIEVAL_PRESETS,
+)
+from agentmold.visual.architecture import (
+    TOOL_CALLING_PRESETS as _TOOL_CALLING_PRESETS,
+)
+from agentmold.visual.architecture import (
+    architecture_code as _architecture_code,
+)
+from agentmold.visual.architecture import (
+    architecture_description as _architecture_description,
+)
+from agentmold.visual.architecture import (
+    architecture_diagram_html as _architecture_diagram_html,
+)
+from agentmold.visual.architecture import (
+    intent_code as _intent_code,
+)
+from agentmold.visual.architecture import (
+    intent_description as _intent_description,
+)
+from agentmold.visual.architecture import (
+    intent_diagram_html as _intent_diagram_html,
+)
+from agentmold.visual.architecture import (
+    retrieval_code as _retrieval_code,
+)
+from agentmold.visual.architecture import (
+    retrieval_description as _retrieval_description,
+)
+from agentmold.visual.architecture import (
+    retrieval_diagram_html as _retrieval_diagram_html,
+)
+from agentmold.visual.architecture import (
+    tool_calling_description as _tool_calling_description,
+)
+from agentmold.visual.architecture import (
+    tool_calling_diagram_html as _tool_calling_diagram_html,
+)
 from agentmold.visual.codegen import api_key_environment, generate_agent_python
 from agentmold.visual.renderers import (
     apply_trace_usage_to_run_meta as _apply_trace_usage_to_run_meta,
@@ -118,6 +120,9 @@ from agentmold.visual.renderers import (
 )
 from agentmold.visual.renderers import (
     timeline_html as _timeline_html,
+)
+from agentmold.visual.renderers import (
+    trace_breadcrumb_html as _trace_breadcrumb_html,
 )
 from agentmold.visual.renderers import (
     trace_compare_html as _trace_compare_html,
@@ -146,22 +151,27 @@ from agentmold.visual.tool_uploads import (
 )
 from agentmold.visual.traces import (
     DEFAULT_VISUAL_TRACE_LOG,
+    build_trace_forest,
     diagnose_trace_run,
     find_trace_run,
     load_trace_runs,
     merge_trace_runs,
     parse_trace_jsonl,
     summarize_trace_run,
+    trace_family_from_forest,
+    trace_family_order,
     trace_label,
     traces_to_jsonl,
 )
 
 
-def _render_trace_lab(
-    st: Any,
-) -> None:
+def _render_trace_lab(st: Any, *, standalone: bool = False) -> None:
     """Render trace import, scrubbed replay, export, and two-run comparison."""
-    with st.expander("TRACE LAB · 回放与对比", expanded=False):
+    container = st.container() if standalone else st.expander("TRACE LAB · 回放与对比")
+    with container:
+        if standalone:
+            st.markdown("## 运行回放")
+            st.caption("这里只展示已经发生并持久化的执行事实；概念架构节点不会出现在 Trace 中。")
         session_runs = st.session_state.get("trace_runs", [])
         try:
             logged_runs = load_trace_runs()
@@ -184,9 +194,10 @@ def _render_trace_lab(
                 st.error(f"{uploaded_file.name}: {exc}")
 
         runs = merge_trace_runs(logged_runs, session_runs, imported_runs)
+        forest = build_trace_forest(runs)
         if runs:
             export_col.download_button(
-                "导出当前 Trace",
+                "导出全部 Trace",
                 data=traces_to_jsonl(runs),
                 file_name="easyagent-traces.jsonl",
                 mime="application/x-ndjson",
@@ -200,8 +211,20 @@ def _render_trace_lab(
             st.markdown('<div class="ea-empty">暂无可回放 Trace。</div>', unsafe_allow_html=True)
             return
 
-        run_ids = [str(run["run_id"]) for run in runs]
-        labels = {str(run["run_id"]): trace_label(run) for run in runs}
+        display_order = trace_family_order(forest)
+        run_ids = [run_id for run_id, _depth in display_order]
+        if not run_ids:
+            run_ids = [str(run["run_id"]) for run in runs]
+        depth_by_id = dict(display_order)
+        labels = {
+            str(run["run_id"]): (
+                f"{'└─ ' * depth_by_id.get(str(run['run_id']), 0)}{trace_label(run)}"
+            )
+            for run in runs
+        }
+        pending_jump = st.session_state.pop("ea_trace_jump_to", None)
+        if pending_jump in run_ids:
+            st.session_state.ea_replay_run = pending_jump
         lookup_id = st.text_input(
             "按日志 ID 查找",
             placeholder="输入完整 run_id 或唯一前缀",
@@ -225,6 +248,53 @@ def _render_trace_lab(
         )
         replay = next(run for run in runs if run["run_id"] == replay_id)
         summary = summarize_trace_run(replay)
+        all_runs = forest["all_runs"]
+        parent_run = all_runs.get(summary["parent_run_id"])
+        child_runs = forest["children"].get(replay_id, [])
+        parent_summary = summarize_trace_run(parent_run) if parent_run else None
+        child_summaries = [summarize_trace_run(child) for child in child_runs]
+        st.markdown(
+            _trace_breadcrumb_html(summary, parent_summary, child_summaries),
+            unsafe_allow_html=True,
+        )
+        family = trace_family_from_forest(forest, replay_id)
+        family_col, nav_col = st.columns([1, 1])
+        if len(family) > 1:
+            family_col.download_button(
+                "导出协作 Trace bundle",
+                data=traces_to_jsonl(family),
+                file_name=f"easyagent-family-{replay_id[:12]}.jsonl",
+                mime="application/x-ndjson",
+                use_container_width=True,
+                key=f"ea_export_family_{replay_id}",
+            )
+        else:
+            family_col.caption("该运行没有已加载的子运行。")
+        navigation_targets: list[tuple[str, str]] = []
+        if parent_run is not None:
+            navigation_targets.append((str(parent_run["run_id"]), "跳转父运行"))
+        navigation_targets.extend(
+            (str(child["run_id"]), f"子运行 · {str(child.get('agent_name') or 'Agent')}")
+            for child in child_runs
+        )
+        if navigation_targets:
+            target_ids = [target for target, _label in navigation_targets]
+            target_labels = dict(navigation_targets)
+            target = nav_col.selectbox(
+                "Family 导航",
+                options=target_ids,
+                format_func=lambda run_id: target_labels[run_id],
+                key=f"ea_family_nav_{replay_id}",
+            )
+            if nav_col.button(
+                "打开运行",
+                key=f"ea_family_open_{replay_id}",
+                use_container_width=True,
+            ):
+                st.session_state.ea_trace_jump_to = target
+                st.rerun()
+        else:
+            nav_col.caption("无父/子运行可跳转。")
         st.markdown(_trace_metrics_html(summary), unsafe_allow_html=True)
         if summary["error"]:
             st.warning(diagnose_trace_run(replay))
@@ -318,6 +388,105 @@ def _render_trace_lab(
             st.caption("选择两个运行后，会并排显示提示词、模型、延迟、token、成本和工具调用。")
 
 
+def _render_evaluation_view(st: Any) -> None:
+    """Render a bounded offline evaluation view without executing user code."""
+    st.markdown("## 对照评测")
+    st.caption(
+        "每行使用 `问题 => 期望片段`。每个 sample 都创建独立 mock Agent；"
+        "本页面只使用内置文本 scorer，不执行用户提供的 Python。"
+    )
+    cases_text = st.text_area(
+        "评测用例",
+        value="hello => hello\nExplain a trace => trace",
+        height=130,
+        key="ea_eval_cases",
+    )
+    repeats = st.number_input(
+        "每个用例重复次数",
+        min_value=1,
+        max_value=20,
+        value=3,
+        step=1,
+        key="ea_eval_repeats",
+    )
+    if st.button("运行离线评测", type="primary", key="ea_run_evaluation"):
+        cases: list[EvalCase] = []
+        errors: list[str] = []
+        for line_number, raw_line in enumerate(cases_text.splitlines(), start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            if "=>" not in line:
+                errors.append(f"第 {line_number} 行缺少 `=>`")
+                continue
+            prompt, expected = (part.strip() for part in line.split("=>", 1))
+            if not prompt or not expected:
+                errors.append(f"第 {line_number} 行的问题和期望片段不能为空")
+                continue
+            cases.append(
+                EvalCase(
+                    name=f"case-{line_number}",
+                    input=prompt,
+                    expected=expected,
+                )
+            )
+        if errors:
+            for error in errors:
+                st.error(error)
+        elif not cases:
+            st.error("至少需要一个有效用例。")
+        else:
+            report = evaluate(
+                lambda: Agent(llm="mock", log_level=LogLevel.SILENT),
+                cases,
+                scorer=lambda output, expected: expected.lower() in output.lower(),
+                repeats=int(repeats),
+            )
+            st.session_state.ea_eval_report = report.to_dict()
+
+    payload = st.session_state.get("ea_eval_report")
+    if not isinstance(payload, dict):
+        st.info("运行后会显示 sample 级结果、pass rate、轮次和 usage 覆盖率。")
+        return
+    summary = payload.get("summary", {})
+    metric = summary.get("metrics", {}).get("score", {})
+    columns = st.columns(5)
+    columns[0].metric("SAMPLES", summary.get("sample_count", 0))
+    columns[1].metric(
+        "PASS RATE",
+        f"{float(metric.get('pass_rate', 0.0)) * 100:.1f}%"
+        if metric.get("pass_rate") is not None
+        else "-",
+    )
+    columns[2].metric("MEAN ROUNDS", summary.get("mean_rounds") or "-")
+    columns[3].metric("MEAN TOOLS", summary.get("mean_tool_calls") or 0)
+    columns[4].metric(
+        "TOKEN COVERAGE",
+        f"{float(summary.get('total_tokens_coverage', 0.0)) * 100:.1f}%",
+    )
+    st.download_button(
+        "下载 evaluation-report.json",
+        data=json.dumps(payload, ensure_ascii=False, indent=2),
+        file_name="evaluation-report.json",
+        mime="application/json",
+        key="ea_download_evaluation_report",
+    )
+    rows = []
+    for result in payload.get("results", []):
+        rows.append(
+            {
+                "case": result.get("name"),
+                "sample": result.get("sample_index"),
+                "score": result.get("score"),
+                "runtime": result.get("runtime_status"),
+                "rounds": result.get("rounds"),
+                "tools": result.get("tool_calls"),
+                "error": result.get("error"),
+            }
+        )
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
 def _render_architecture_demo(st: Any) -> None:
     """Render an interactive architecture-pattern showcase with a flowchart.
 
@@ -331,6 +500,10 @@ def _render_architecture_demo(st: Any) -> None:
     Injection (the legacy text-parsing approach).
     """
     with st.expander("🧠 AGENT 架构演示", expanded=False):
+        st.caption(
+            "以下模式都是 Agent + @tool + 普通 Python 的组合；"
+            "没有内置编排器、工作流引擎或 Coordinator 类。"
+        )
         arch_options = list(_ARCHITECTURE_PRESETS.keys())
         selected = st.selectbox(
             "选择架构模式",
@@ -362,7 +535,10 @@ def _render_architecture_demo(st: Any) -> None:
             options=tc_options,
             index=0,
             key="ea_tool_calling_mode_demo",
-            help="对比 Function Calling（原生）与 Prompt-based Tool Calling（提示词工具调用）的区别。",
+            help=(
+                "对比 Function Calling（原生）与 Prompt-based Tool Calling"
+                "（提示词工具调用）的区别。"
+            ),
         )
         tc_desc = _tool_calling_description(tc_selected)
         if tc_desc:
@@ -492,8 +668,7 @@ def _render_code_export(
         blocked = [
             tool
             for tool in selected_tools
-            if tool in _NON_EXPORTABLE
-            or origins.get(tool, "").startswith(("上传", "MCP"))
+            if tool in _NON_EXPORTABLE or origins.get(tool, "").startswith(("上传", "MCP"))
         ]
         if blocked:
             st.warning(
@@ -554,11 +729,8 @@ def _render_learning_labs(
     audit_log: bool,
     tool_origins: dict[str, str] | None = None,
 ) -> None:
-    """Render concept, replay, and export labs independently of live Agent state."""
+    """Render ReAct code export independently of live Agent state."""
     st.divider()
-    _render_architecture_demo(st)
-    _render_engineering_demo(st)
-    _render_trace_lab(st)
     if agent_file is None and not model_missing:
         _render_code_export(
             st,
@@ -572,12 +744,83 @@ def _render_learning_labs(
             audit_log=audit_log,
             rag_text=st.session_state.get("ea_rag_text", ""),
             tool_origins=tool_origins,
-            tool_description_overrides=st.session_state.get(
-                "ea_tool_description_overrides", {}
-            ),
+            tool_description_overrides=st.session_state.get("ea_tool_description_overrides", {}),
         )
     elif agent_file is None:
         st.info("填写模型 ID 后可生成并导出 Agent。")
+
+
+_ARCHITECTURE_NAV = {
+    "react": "ReAct",
+    "plan_execute": "Plan-and-Execute",
+    "reflection": "Reflection",
+    "multi_agent": "Multi-Agent",
+    "routing": "Routing",
+}
+
+
+def _render_top_navigation(st: Any) -> tuple[str, str]:
+    """Render architecture-first navigation with Streamlit 1.30 fallback."""
+    current_view = str(st.session_state.get("ea_visual_view", "architecture"))
+    current_architecture = str(st.session_state.get("ea_architecture_mode", "react"))
+    if current_architecture not in _ARCHITECTURE_NAV:
+        current_architecture = "react"
+    labels = list(_ARCHITECTURE_NAV.values())
+    reverse = {label: key for key, label in _ARCHITECTURE_NAV.items()}
+    selected_label = _ARCHITECTURE_NAV[current_architecture]
+    segmented = getattr(st, "segmented_control", None)
+    if callable(segmented):
+        selection = segmented(
+            "Agent 架构",
+            options=labels,
+            default=selected_label,
+            key="ea_architecture_nav",
+            selection_mode="single",
+            label_visibility="collapsed",
+        )
+    else:
+        selection = st.radio(
+            "Agent 架构",
+            options=labels,
+            index=labels.index(selected_label),
+            key="ea_architecture_nav",
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+    architecture_id = reverse.get(str(selection), "react")
+    if architecture_id != current_architecture:
+        st.session_state.ea_architecture_mode = architecture_id
+        st.session_state.ea_visual_view = "architecture"
+        current_view = "architecture"
+    else:
+        st.session_state.ea_architecture_mode = architecture_id
+    architecture_col, replay_col, eval_col, context_col = st.columns([1, 1, 1, 3])
+    if architecture_col.button(
+        "返回架构",
+        use_container_width=True,
+        type="primary" if current_view == "architecture" else "secondary",
+        key="ea_nav_architecture",
+    ):
+        st.session_state.ea_visual_view = "architecture"
+        st.rerun()
+    if replay_col.button(
+        "运行回放",
+        use_container_width=True,
+        type="primary" if current_view == "trace" else "secondary",
+        key="ea_nav_trace",
+    ):
+        st.session_state.ea_visual_view = "trace"
+        st.rerun()
+    if eval_col.button(
+        "对照评测",
+        use_container_width=True,
+        type="primary" if current_view == "evaluation" else "secondary",
+        key="ea_nav_evaluation",
+    ):
+        st.session_state.ea_visual_view = "evaluation"
+        st.rerun()
+    context_col.caption("架构页提供可运行离线实验；回放和评测只使用已记录事实。")
+    return current_view, architecture_id
 
 
 def _profile_setting(
@@ -626,9 +869,7 @@ def _tool_group_summary(
     available_tools: dict[str, Tool],
 ) -> str:
     selected_count = sum(name in selected for name in tool_names)
-    destructive = sum(
-        bool(getattr(available_tools[name], "confirm", False)) for name in tool_names
-    )
+    destructive = sum(bool(getattr(available_tools[name], "confirm", False)) for name in tool_names)
     suffix = f" · ⚠ {destructive}" if destructive else ""
     return f"{group} · {selected_count}/{len(tool_names)} 已选{suffix}"
 
@@ -673,6 +914,18 @@ def _run_app() -> None:
         """,
         unsafe_allow_html=True,
     )
+    visual_view, architecture_mode = _render_top_navigation(st)
+    if visual_view == "trace":
+        _render_trace_lab(st, standalone=True)
+        return
+    if visual_view == "evaluation":
+        _render_evaluation_view(st)
+        return
+    if architecture_mode != "react":
+        from agentmold.visual.teaching_view import render_teaching_view
+
+        render_teaching_view(st, architecture_mode)
+        return
 
     # ------------------------------------------------------------------
     # Sidebar: either load a code-defined agent or configure a small demo.
@@ -695,6 +948,11 @@ def _run_app() -> None:
     selected_tools: list[str]
     tool_signature: tuple[tuple[str, str | None], ...]
     available_tools: dict[str, Tool]
+    tool_origins: dict[str, str]
+    agent_mode = "代码定义"
+    loop_detection_threshold = 3
+    require_approval = False
+    audit_log = False
     if agent_file is not None:
         st.sidebar.header("📄 代码 Agent")
         st.sidebar.code(str(agent_file), language="text")
@@ -750,26 +1008,25 @@ def _run_app() -> None:
         agent_notice = st.session_state.pop("ea_agent_notice", None)
         if agent_notice:
             st.toast(agent_notice, icon="🔄")
-        st.sidebar.subheader("🎯 运行模式")
+        st.sidebar.subheader("🎯 运行与安全策略")
         agent_mode = st.sidebar.selectbox(
-            "模式预设",
+            "策略预设",
             options=list(_AGENT_MODE_PRESETS.keys()),
             key="ea_agent_mode",
-            help="预设一键配置安全门：安全模式开启确认门与审计；调试模式开启审计与详细日志。",
+            help="预设循环检测、破坏性调用拒绝和工具审计；不改变教学架构。",
         )
         mode_is_custom = agent_mode == "自定义"
         _mode_descriptions = {
             "标准模式": (
-                "循环检测开（阈值 3）· 无确认门 · 无审计。\n"
-                "适合快速体验 Agent 基本循环，无额外安全防护。"
+                "循环检测开（阈值 3）· 无破坏性调用策略 · 无审计。\n适合快速体验 Agent 基本循环。"
             ),
             "安全模式": (
-                "循环检测开 · **破坏性工具需确认** · 审计日志开。\n"
-                "破坏性工具（如 write_file）执行前会弹确认门，每次工具调用写入审计日志。"
+                "循环检测开 · **破坏性调用默认拒绝** · 审计日志开。\n"
+                "confirm=True 的工具请求会被拒绝并记录；Visual Lab 不提供交互批准。"
             ),
             "调试模式": (
-                "循环检测开 · 无确认门 · 审计日志开。\n"
-                "审计日志记录每次工具调用；时间线和执行地图显示每一步思考/动作/观察。"
+                "循环检测开 · 无破坏性调用策略 · 审计日志开。\n"
+                "时间线只显示公开执行事件、模型轮次与工具行为，不显示隐藏思考。"
             ),
             "自定义": "手动调整下方安全门开关，自由组合防护策略。",
         }
@@ -787,7 +1044,7 @@ def _run_app() -> None:
         with st.sidebar.expander(
             "运行与安全 · "
             f"loop={effective['loop_detection_threshold']} · "
-            f"HITL{'开' if effective['require_approval'] else '关'} · "
+            f"deny{'开' if effective['require_approval'] else '关'} · "
             f"audit{'开' if effective['audit_log'] else '关'}",
             expanded=mode_is_custom,
         ):
@@ -820,8 +1077,7 @@ def _run_app() -> None:
             )
         name = st.sidebar.text_input("Agent 名称", key="ea_agent_name")
         with st.sidebar.expander(
-            "Agent 指令 · "
-            f"{len(st.session_state.get('ea_agent_instructions', ''))} 字符",
+            f"Agent 指令 · {len(st.session_state.get('ea_agent_instructions', ''))} 字符",
             expanded=st.session_state.get("agent") is None,
         ):
             instructions = st.text_area(
@@ -870,9 +1126,8 @@ def _run_app() -> None:
             st.session_state[f"ea_timeout_{widget_suffix}"] = profile_defaults["timeout"]
             st.session_state[f"ea_max_tokens_{widget_suffix}"] = profile_defaults["max_tokens"]
             st.session_state.ea_active_profile = profile_key
-        interface_expanded = (
-            connection_type == "自定义提供商"
-            or (connection_type != "Mock（离线）" and not saved_profile)
+        interface_expanded = connection_type == "自定义提供商" or (
+            connection_type != "Mock（离线）" and not saved_profile
         )
         with st.sidebar.expander(
             f"接口参数 · {connection_type} / {profile_defaults['model'] or '未设置模型'}",
@@ -1251,13 +1506,10 @@ def _run_app() -> None:
         current_selected = {
             tool_name
             for tool_name in available_tools
-            if st.session_state.get(
-                _tool_widget_key(tool_name), tool_name in restored_tool_names
-            )
+            if st.session_state.get(_tool_widget_key(tool_name), tool_name in restored_tool_names)
         }
         destructive_selected = sum(
-            bool(getattr(available_tools[name], "confirm", False))
-            for name in current_selected
+            bool(getattr(available_tools[name], "confirm", False)) for name in current_selected
         )
         summary = f"已选 {len(current_selected)}/{len(available_tools)}"
         if destructive_selected:
@@ -1539,8 +1791,11 @@ def _run_app() -> None:
                 tool_origins=tool_origins,
             )
             st.session_state.agent_signature = current_sig
-            # Keep existing conversation history - only the agent changed.
             agent = st.session_state.agent
+            st.session_state.messages = []
+            st.session_state.last_steps = []
+            st.session_state.last_user_input = None
+            st.session_state.run_meta = _initial_run_meta()
             auto_rebuilt = True
         except Exception as exc:  # noqa: BLE001
             st.session_state.agent = None

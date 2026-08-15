@@ -99,14 +99,19 @@ response = agent.run("Hello! What can you do?")
 
 切换模型只需修改 `EASYAGENT_MODEL`，Agent、工具和记忆代码不需要变化。
 
-### 可视化实验室（浏览器中配置与运行）
+### 可视化实验室（五种 Agent 架构直达）
 
-不想先写代码？用内置的 Streamlit 可视化实验室：在侧边栏配置 Agent（名称/指令/模型/工具勾选），在聊天框提问，右侧查看本次执行流程。
+安装 Streamlit extra 后，顶部可以直接切换 `ReAct`、`Plan-and-Execute`、`Reflection`、
+`Multi-Agent` 和 `Routing`。ReAct 保留可配置的单 Agent 工作台；其余四种模式是确定性、
+离线可运行的教学实验，不需要 API Key，也不会构建无关的 ReAct Agent。
 
-| Trace 回放与对比 | Function Calling 架构演示 |
-|:--:|:--:|
-| [![Trace Lab 对同一问题的工具描述进行双栏对比](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/trace-lab-compare.png)](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/trace-lab-compare.png) | [![Function Calling 流程图与 EasyAgent 代码示例](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/architecture-lab.png)](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/architecture-lab.png) |
-| 用同一输入回放并比较运行指标、工具 Schema 与有效描述。 | 交互查看原生 Function Calling 流程及对应 Python 实现。 |
+每个教学页把两类信息明确分开：
+
+- **概念示意 · 非本次运行**：解释预期架构和普通 Python 控制流。
+- **实际观测**：展示 `TeachingEvent`、真实 `AgentTrace`、模型轮次、工具调用和父子 run。
+
+顶部的 **运行回放** 提供 Trace family 跳转、bundle 导出与双运行比较；**对照评测** 使用
+内置 scorer 运行重复离线样本，不执行浏览器中粘贴的 Python verifier 源码。
 
 ```bash
 # 1. 安装可视化依赖
@@ -143,9 +148,10 @@ streamlit run src/agentmold/visual/app.py
 回放时节点按事件顺序逐步出现，避免把不可见的“规划”误画成执行事实。
 运行状态面板会持续显示当前阶段、事件数、工具调用数、token、缓存命中率、耗时和 Log ID；
 失败时保留错误摘要。
-展开 **TRACE LAB · 回放与对比** 可导入或导出 JSONL Trace、拖动回放进度，并把两个运行的
-输入、模型、延迟、token、缓存命中率、提供商返回的成本和工具调用并排比较。当前会话中的
-新运行会自动进入 Trace Lab；旧版 JSONL 也可读取。
+顶部进入 **运行回放** 可导入或导出 JSONL Trace、拖动回放进度，并把两个运行的
+输入、模型、延迟、token、缓存命中率、提供商返回的成本和工具调用并排比较。父子 run 会
+按 family 层级排列，可相互跳转并导出多 run bundle。当前会话中的新运行会自动进入回放；
+旧版 JSONL 也可读取。
 可视化运行还会把成功和失败 Trace 追加到本地 `.agentmold/visual_runs.jsonl`；界面显示的
 Log ID 就是 `run_id`，可用来回查一次失败的输入、事件、模型配置、usage 和诊断摘要。
 展开 **PYTHON EXPORT · agent.py** 可预览并下载当前配置对应的 `build_agent()` 文件；
@@ -497,7 +503,7 @@ pip install "agentmold[deepseek]"
 # 带向量记忆支持
 pip install "agentmold[memory]"
 
-# 带可视化编排
+# 带可视化实验室
 pip install "agentmold[visual]"
 
 # 全功能安装
@@ -551,12 +557,14 @@ print(report.mean_score)
 
 ## 🧠 Agent 架构模式
 
-EasyAgent 的默认执行循环就是 ReAct（推理 → 行动 → 观察 → 重复）。其他主流架构
-——计划-执行、反思、多智能体协作、路由分发——都是用 `Agent` + `@tool` + 普通 Python
+EasyAgent 的默认执行循环就是 ReAct（模型轮次 → 行动 → 观察 → 重复）。其他主流架构
+——计划-执行、反思、多智能体协作、路由分发——都是用 `Agent`、`@tool` 和普通 Python
 组合出来的，不需要工作流 DSL 或编排运行时。
 
-在可视化实验室（`easyagent visual`）的 **🧠 AGENT 架构演示** 面板可以交互查看
-每种架构的动态流程图和对应代码。详见 [Agent 架构模式文档](docs/architectures.md)
+在可视化实验室（`easyagent visual`）顶部可以直接进入五种架构。Plan-and-Execute、
+Reflection、Multi-Agent 和 Routing 都提供确定性离线 runner、Python 控制流事件、真实
+Agent traces 以及 JSON、JSONL、`example.py` 导出；Multi-Agent 使用 experimental
+`agent_as_tool`，不是稳定协调器 API。详见 [Agent 架构模式文档](docs/architectures.md)。
 和 [Cookbook 示例](cookbook/09_agent_architectures.py)。
 
 ## 📚 文档

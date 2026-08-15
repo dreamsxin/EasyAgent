@@ -2,12 +2,15 @@
 
 from types import SimpleNamespace
 
+from agentmold import Agent, LogLevel
+from agentmold.experimental import agent_as_tool
 from agentmold.visual.agent_config import (
     CONNECTION_DEFAULTS as _CONNECTION_DEFAULTS,
 )
 from agentmold.visual.agent_config import (
     agent_signature as _agent_signature,
 )
+from agentmold.visual.agent_config import bind_visual_tools, resolve_mode, visual_approval_gate
 from agentmold.visual.agent_config import (
     build_agent as _build_agent,
 )
@@ -20,7 +23,6 @@ from agentmold.visual.agent_config import (
 from agentmold.visual.agent_config import (
     load_visual_tools as _load_visual_tools,
 )
-from agentmold.visual.agent_config import bind_visual_tools, resolve_mode, visual_approval_gate
 from agentmold.visual.app import (
     _description_widget_key,
     _inject_theme,
@@ -36,12 +38,14 @@ from agentmold.visual.renderers import (
 from agentmold.visual.renderers import (
     initial_run_meta as _initial_run_meta,
 )
+from agentmold.visual.renderers import remember_trace as _remember_trace
 from agentmold.visual.renderers import (
     run_metrics_html as _run_metrics_html,
 )
 from agentmold.visual.renderers import (
     timeline_html as _timeline_html,
 )
+from agentmold.visual.renderers import trace_breadcrumb_html as _trace_breadcrumb_html
 
 
 def test_empty_steps_produces_no_nodes():
@@ -154,7 +158,6 @@ def test_visual_mcp_binding_uses_current_safe_mode():
     assert bound[0].confirm is True
     assert remote_lookup.confirm is False
 
-
     before = _agent_signature("A", "prompt", "mock", ["calculate"], 10)
     after = _agent_signature(
         "A",
@@ -165,7 +168,6 @@ def test_visual_mcp_binding_uses_current_safe_mode():
         description_overrides={"calculate": "Use for exact arithmetic."},
     )
     assert before != after
-
 
     before = _agent_signature("A", "old", "mock", ["calculate"], 10)
     after = _agent_signature("A", "new", "mock", ["calculate"], 10)
@@ -240,12 +242,12 @@ def test_tool_group_summary_reports_selected_and_destructive_counts():
         return value
 
     tools = {"safe_tool": safe_tool, "dangerous_tool": dangerous_tool}
-    assert _tool_group_summary(
-        "内置工具", list(tools), {"safe_tool"}, tools
-    ) == "内置工具 · 1/2 已选 · ⚠ 1"
+    assert (
+        _tool_group_summary("内置工具", list(tools), {"safe_tool"}, tools)
+        == "内置工具 · 1/2 已选 · ⚠ 1"
+    )
     assert _description_widget_key("retrieve").startswith("ea_tool_description_")
     assert _description_widget_key("retrieve") == _description_widget_key("retrieve")
-
 
     assert _one_line_description("Read files.\n\nOnly inside workspace.") == (
         "Read files. Only inside workspace."
@@ -295,6 +297,37 @@ def test_visual_tool_loader_rejects_name_conflicts(tmp_path):
     assert "工具名冲突" in errors[0]
 
 
+def test_remember_trace_persists_parent_and_child(monkeypatch, tmp_path):
+    child = Agent(name="Child", llm="mock", log_level=LogLevel.SILENT)
+    parent = Agent(
+        name="Parent",
+        tools=[agent_as_tool(child)],
+        llm="mock",
+        log_level=LogLevel.SILENT,
+    )
+    parent.run("tool: inspect evidence")
+    assert parent.last_trace is not None
+    assert child.last_trace is not None
+
+    written: list[str] = []
+
+    def record(run):
+        written.append(str(run["run_id"]))
+        return tmp_path / "visual_runs.jsonl"
+
+    class SessionState(dict):
+        __getattr__ = dict.__getitem__
+        __setattr__ = dict.__setitem__
+
+    monkeypatch.setattr("agentmold.visual.renderers.append_trace_run", record)
+    st = SimpleNamespace(session_state=SessionState())
+    _remember_trace(st, parent.last_trace)
+
+    assert written == [parent.last_trace.run_id, child.last_trace.run_id]
+    assert [run["run_id"] for run in st.session_state.trace_runs] == written
+    assert st.session_state.ea_logged_trace_ids == sorted(written)
+
+
 def test_timeline_renders_events_and_escapes_content():
     timeline = _timeline_html(
         [
@@ -308,6 +341,19 @@ def test_timeline_renders_events_and_escapes_content():
     assert "ANSWER" in timeline
     assert "&lt;tag&gt;" in timeline
     assert "<tag>" not in timeline
+
+
+def test_trace_breadcrumb_escapes_family_labels():
+    rendered = _trace_breadcrumb_html(
+        {"run_id": "current", "agent_name": "<Current>"},
+        {"run_id": "parent", "agent_name": "Parent & Root"},
+        [{"run_id": "child", "agent_name": "Child > Worker"}],
+    )
+
+    assert "Parent &amp; Root" in rendered
+    assert "&lt;Current&gt;" in rendered
+    assert "Child &gt; Worker" in rendered
+    assert "<Current>" not in rendered
 
 
 def test_timeline_empty_state_is_stable():

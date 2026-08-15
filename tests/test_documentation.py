@@ -71,6 +71,21 @@ def test_general_multi_agent_orchestration_is_not_a_pending_goal():
     assert "explicit non-goals beyond v1.0" in roadmap
 
 
+def test_visual_architecture_lab_documents_runnable_fact_boundary():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    architectures = (ROOT / "docs" / "architectures.md").read_text(encoding="utf-8")
+    capabilities = (ROOT / "docs" / "capabilities.md").read_text(encoding="utf-8")
+
+    for mode in ("ReAct", "Plan-and-Execute", "Reflection", "Multi-Agent", "Routing"):
+        assert mode in readme
+        assert mode in architectures
+        assert mode in capabilities
+    assert "概念示意 · 非本次运行" in readme
+    assert "TeachingEvent" in readme
+    assert "agent-traces.jsonl" in architectures
+    assert "General multi-Agent coordinator" in capabilities
+
+
 def test_function_like_default_is_documented_as_silent():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     api = (ROOT / "docs" / "api.md").read_text(encoding="utf-8")
