@@ -50,7 +50,14 @@ async for event in agent.arun_stream("question"):
 ```
 
 The event types are `text_delta`, `tool_call`, `tool_result`, `answer`,
-`approval_request`, and `loop_detected`. `text_delta` is optional and means a provider
+`approval_request`, and `loop_detected`. Durable Trace v2 events include a one-based model
+`round`. Tool events also include a one-based `call_index` and an internal `execution_id`
+that associates the model request with its result even when the provider call ID is absent.
+`tool_result.status` distinguishes `success`, `error`, and `refused`, with `duration_ms` and
+an optional `error_type`. Existing `id`, `name`, `arguments`, and `content` fields retain their
+original meanings.
+
+`text_delta` is optional and means a provider
 text chunk, not necessarily one token. Delta events are not stored in `AgentTrace`; the
 final `answer` is persisted. OpenAI, DeepSeek, Anthropic, DeepSeek Anthropic, and Ollama
 implement native sync and async text streaming. The offline `mock` provider and extensions
@@ -176,7 +183,10 @@ tools accept `await tool.acall(arguments, timeout=5)`. Native provider streams r
 before the first event is exposed; after visible output begins, an interrupted stream raises
 `LLMError` without replaying already displayed text.
 
-After a run, `agent.last_trace` contains the structured event history. Export it as JSONL
+After a run, `agent.last_trace` contains the structured event history. Trace v2 adds an
+explicit `status` (`completed`, `failed`, `interrupted`, or `cancelled`) and a `model_calls`
+entry for each model round, including provider, model, duration, response kind, and that
+round's available usage. Provider raw responses are not persisted. Export a trace as JSONL
 for later analysis:
 
 ```python
@@ -188,9 +198,10 @@ if trace is not None:
 Trace model configuration is redacted by key name for common credentials. Usage counters
 are best-effort because providers expose different response metadata.
 Trace headers also contain the user input, Agent name, and instructions so the visual lab
-can compare prompt and configuration changes. Open **TRACE LAB · 回放与对比** to import
-one or more JSONL files, scrub through their events, compare two runs, or export the merged
-session. Cost is shown only when the provider includes a numeric cost field in usage data.
+can compare prompt and configuration changes. Open the top-level **运行回放** view to import
+one or more JSONL files, scrub through their events, navigate parent/child run families,
+compare two runs, or export the merged session. Cost is shown only when the provider includes
+a numeric cost field in usage data.
 Common token counters are normalized for display, including `prompt_tokens`,
 `completion_tokens`, `input_tokens`, `output_tokens`, and cache fields such as
 `prompt_cache_hit_tokens`, `prompt_cache_miss_tokens`, nested `cached_tokens`, and
@@ -200,6 +211,38 @@ Nested Agent runs are correlated without changing the execution-event union. A p
 trace lists `child_run_ids`; each child trace stores `parent_run_id` and
 `parent_tool_call_id`. Direct runs leave these fields empty. This currently supports the
 explicitly experimental `agent_as_tool` path and does not imply stable orchestration.
+
+## Evaluation
+
+`evaluate()` and `aevaluate()` create a fresh Agent for every sample. The compatibility
+scorer remains `(output, expected) -> bool | float`. Named `verifiers` receive an
+`EvalContext` with the case, isolated Agent, output, Trace, case index, and sample index.
+They return `bool`, a finite number, `MetricResult`, or `None` for not applicable.
+
+```python
+from agentmold import EvalCase, EvalContext, MetricResult, evaluate
+
+
+def used_only_safe_tools(context: EvalContext) -> MetricResult:
+    selected = [event["name"] for event in context.trace.tool_calls] if context.trace else []
+    forbidden = set(selected) & {"delete_file"}
+    return MetricResult(score=0.0 if forbidden else 1.0, details={"selected": selected})
+
+
+report = evaluate(
+    build_agent,
+    [EvalCase(input="question", expected="answer")],
+    repeats=5,
+    verifiers={"safe_tools": used_only_safe_tools},
+)
+```
+
+`EvalResult.score` and the legacy `scored`, `passed`, and `mean_score` report properties still
+refer to the compatibility scorer. Named metrics are available through
+`result.metrics`, `report.metric_summaries`, and per-case `report.case_summaries`. Summary
+runtime statistics include model rounds, tool calls, token counts, USD cost, and coverage;
+missing provider data remains `None`. Verifiers are trusted in-process Python callables, not
+sandboxed code loaded from a dataset. See [Batch Runs and Evaluation](evaluation.md).
 
 The visual lab automatically appends successful and failed runs to
 `.agentmold/visual_runs.jsonl`. The displayed Log ID is the trace `run_id`, so a user can

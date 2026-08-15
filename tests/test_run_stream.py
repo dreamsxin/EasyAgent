@@ -182,6 +182,79 @@ def test_run_stream_detects_repeated_tool_call_before_iteration_cap():
     assert "LoopDetectedError" in (agent.last_trace.error or "")
 
 
+def test_run_stream_records_refused_tool_intent_and_structured_outcome():
+    class ConfirmingLLM(LLM):
+        def _complete(self, messages, tools=None):
+            if messages[-1].role == "tool":
+                return LlmResponse(content="not executed")
+            return LlmResponse(
+                content="",
+                tool_calls=[{"id": "danger", "name": "erase", "arguments": {}}],
+            )
+
+    @tool(confirm=True)
+    def erase() -> str:
+        """Represent a destructive action without performing one."""
+        return "erased"
+
+    agent = Agent(
+        tools=[erase],
+        llm=ConfirmingLLM(model="confirm"),
+        log_level=LogLevel.SILENT,
+    )
+    events = list(agent.run_stream("go"))
+
+    assert [event["type"] for event in events] == [
+        "tool_call",
+        "approval_request",
+        "tool_result",
+        "answer",
+    ]
+    assert events[0]["execution_id"] == events[1]["execution_id"]
+    assert events[0]["execution_id"] == events[2]["execution_id"]
+    assert events[2]["status"] == "refused"
+    assert agent.last_trace is not None
+    assert [event["type"] for event in agent.last_trace.steps] == [
+        "tool_call",
+        "tool_result",
+        "answer",
+    ]
+
+
+def test_loop_trace_keeps_the_triggering_tool_call():
+    class AlwaysTool(LLM):
+        def _complete(self, messages, tools=None):
+            return LlmResponse(
+                content="",
+                tool_calls=[{"id": "loop", "name": "f", "arguments": {}}],
+            )
+
+    @tool
+    def f() -> str:
+        """A no-op tool."""
+        return "ok"
+
+    agent = Agent(
+        tools=[f],
+        llm=AlwaysTool(model="loop"),
+        log_level=LogLevel.SILENT,
+        loop_detection_threshold=2,
+    )
+    with pytest.raises(LoopDetectedError):
+        list(agent.run_stream("go"))
+
+    assert agent.last_trace is not None
+    assert [step["type"] for step in agent.last_trace.steps] == [
+        "tool_call",
+        "tool_result",
+        "tool_call",
+        "loop_detected",
+    ]
+    trigger_call, loop_event = agent.last_trace.steps[-2:]
+    assert trigger_call["execution_id"] == loop_event["execution_id"]
+    assert agent.last_trace.status == "failed"
+
+
 def test_run_stream_distinct_arguments_do_not_trip_loop_guard():
     """Calls with different arguments count as progress and never trip."""
 

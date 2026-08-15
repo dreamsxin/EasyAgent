@@ -74,7 +74,11 @@ __all__ = [
 ]
 
 
-class AnswerEvent(TypedDict):
+class _RoundEvent(TypedDict, total=False):
+    round: int
+
+
+class AnswerEvent(_RoundEvent):
     type: Literal["answer"]
     content: str
 
@@ -102,16 +106,28 @@ class ToolCallEvent(_ToolCallBase, total=False):
     """
 
     parallel_group: str
+    round: int
+    call_index: int
+    execution_id: str
 
 
-class ToolResultEvent(TypedDict):
+class _ToolResultBase(TypedDict):
     type: Literal["tool_result"]
     id: str | None
     name: str
     content: str
 
 
-class ApprovalRequestEvent(TypedDict):
+class ToolResultEvent(_ToolResultBase, total=False):
+    round: int
+    call_index: int
+    execution_id: str
+    status: Literal["success", "error", "refused", "policy_denied", "timeout", "cancelled"]
+    duration_ms: float
+    error_type: str
+
+
+class _ApprovalRequestBase(TypedDict):
     """Emitted before a confirming tool runs, so the gate is observable.
 
     This event is transient: it describes a pending decision, not a durable
@@ -127,7 +143,13 @@ class ApprovalRequestEvent(TypedDict):
     reason: str
 
 
-class LoopDetectedEvent(TypedDict):
+class ApprovalRequestEvent(_ApprovalRequestBase, total=False):
+    round: int
+    call_index: int
+    execution_id: str
+
+
+class _LoopDetectedBase(TypedDict):
     """Recorded when the agent repeats an identical tool call and stops.
 
     This is a durable trace event: a stuck loop is a diagnostic fact worth
@@ -140,6 +162,12 @@ class LoopDetectedEvent(TypedDict):
     arguments: dict[str, Any]
     occurrences: int
     message: str
+
+
+class LoopDetectedEvent(_LoopDetectedBase, total=False):
+    round: int
+    call_index: int
+    execution_id: str
 
 
 TraceEvent = typing.Union[  # noqa: UP007
@@ -184,6 +212,12 @@ class AgentTrace:
     tool_schemas: list[dict[str, Any]] = field(default_factory=list)
     event_times: list[str] = field(default_factory=list, repr=False)
     _started_monotonic: float = field(default_factory=time.perf_counter, repr=False)
+    trace_version: int = field(default=2, kw_only=True)
+    model_calls: list[dict[str, Any]] = field(default_factory=list, kw_only=True)
+    status: Literal["running", "completed", "failed", "interrupted", "cancelled"] = field(
+        default="running", kw_only=True
+    )
+    _child_traces: list[AgentTrace] = field(default_factory=list, repr=False, kw_only=True)
 
     def add(self, step: TraceEvent) -> None:
         self.steps.append(step)
@@ -195,13 +229,45 @@ class AgentTrace:
         for key, value in usage.items():
             self.usage[key] = self.usage.get(key, 0) + value
 
-    def finish(self, error: str | None = None) -> None:
+    def add_model_call(
+        self,
+        *,
+        round_number: int,
+        provider: str,
+        model: str,
+        status: Literal["completed", "failed", "interrupted", "cancelled"],
+        duration_ms: float,
+        response_kind: Literal["answer", "tool_calls"] | None = None,
+        usage: dict[str, int | float] | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Record one model round without retaining the provider's raw response."""
+        model_call: dict[str, Any] = {
+            "round": round_number,
+            "provider": provider,
+            "model": model,
+            "status": status,
+            "duration_ms": round(duration_ms, 3),
+            "response_kind": response_kind,
+            "usage": dict(usage or {}),
+        }
+        if error is not None:
+            model_call["error"] = error
+        self.model_calls.append(model_call)
+
+    def finish(
+        self,
+        error: str | None = None,
+        *,
+        status: Literal["completed", "failed", "interrupted", "cancelled"] | None = None,
+    ) -> None:
         """Mark the run complete. Calling this method more than once is harmless."""
         if self.ended_at is not None:
             return
         self.ended_at = _utc_now()
         self.duration_ms = round((time.perf_counter() - self._started_monotonic) * 1000, 3)
         self.error = error
+        self.status = status or ("failed" if error is not None else "completed")
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation of the full run."""
@@ -210,6 +276,7 @@ class AgentTrace:
             recorded_at = self.event_times[index] if index < len(self.event_times) else None
             events.append({"recorded_at": recorded_at, **step})
         return {
+            "trace_version": self.trace_version,
             "run_id": self.run_id,
             "parent_run_id": self.parent_run_id,
             "parent_tool_call_id": self.parent_tool_call_id,
@@ -221,10 +288,12 @@ class AgentTrace:
             "model_config": self.model_config,
             "tool_schemas": self.tool_schemas,
             "usage": self.usage,
+            "model_calls": self.model_calls,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "duration_ms": self.duration_ms,
             "error": self.error,
+            "status": self.status,
             "events": events,
             "max_iterations": self.max_iterations,
         }
@@ -249,6 +318,32 @@ class AgentTrace:
                 output.write("\n")
         return output_path
 
+    def export_family(self, path: str | Path, append: bool = False) -> Path:
+        """Write this trace and all child traces to a single JSONL file.
+
+        Child traces are collected by walking ``_child_traces`` (object
+        references registered by ``_start_trace``).  The file is compatible
+        with ``parse_trace_jsonl`` and the Trace Lab importer.
+        """
+        output_path = Path(path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        mode = "a" if append else "w"
+        with output_path.open(mode, encoding="utf-8") as output:
+            for trace in _trace_family(self):
+                run = trace.to_dict()
+                events = run.pop("events")
+                output.write(json.dumps({"record_type": "run", **run}, ensure_ascii=False))
+                output.write("\n")
+                for event in events:
+                    output.write(
+                        json.dumps(
+                            {"record_type": "event", "run_id": trace.run_id, **event},
+                            ensure_ascii=False,
+                        )
+                    )
+                    output.write("\n")
+        return output_path
+
     @property
     def tool_calls(self) -> list[ToolCallEvent]:
         return [step for step in self.steps if step["type"] == "tool_call"]
@@ -261,6 +356,31 @@ _TRACE_PARENT: ContextVar[tuple[AgentTrace, str | None] | None] = ContextVar(
     "agentmold_trace_parent",
     default=None,
 )
+
+
+def _trace_family(root: AgentTrace) -> list[AgentTrace]:
+    """Collect root and all descendant traces in dependency order."""
+    family: list[AgentTrace] = []
+    seen: set[str] = set()
+
+    def walk(trace: AgentTrace) -> None:
+        if trace.run_id in seen:
+            return
+        seen.add(trace.run_id)
+        family.append(trace)
+        for child in trace._child_traces:
+            walk(child)
+
+    walk(root)
+    return family
+
+
+@dataclass(frozen=True)
+class _ToolExecutionResult:
+    content: str
+    status: Literal["success", "error", "refused", "policy_denied", "timeout", "cancelled"]
+    duration_ms: float
+    error_type: str | None = None
 
 
 class _AgentLogger:
@@ -501,11 +621,43 @@ class Agent:
             trace.tool_schemas = json.loads(json.dumps(tool_schemas, ensure_ascii=False))
             for iteration in range(1, self.max_iterations + 1):
                 messages = self.memory.messages()
-                response = yield from self._stream_llm_response(
-                    messages,
-                    tool_schemas or None,
-                )
+                model_started = time.perf_counter()
+                try:
+                    response = yield from self._stream_llm_response(
+                        messages,
+                        tool_schemas or None,
+                    )
+                except GeneratorExit:
+                    trace.add_model_call(
+                        round_number=iteration,
+                        provider=type(self.llm).__name__,
+                        model=self.llm.model,
+                        status="interrupted",
+                        duration_ms=(time.perf_counter() - model_started) * 1000,
+                        error="Model stream interrupted.",
+                    )
+                    raise
+                except Exception as exc:
+                    trace.add_model_call(
+                        round_number=iteration,
+                        provider=type(self.llm).__name__,
+                        model=self.llm.model,
+                        status="failed",
+                        duration_ms=(time.perf_counter() - model_started) * 1000,
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                    raise
+                usage = _extract_usage(response.raw)
                 trace.add_usage(response.raw)
+                trace.add_model_call(
+                    round_number=iteration,
+                    provider=type(self.llm).__name__,
+                    model=self.llm.model,
+                    status="completed",
+                    duration_ms=(time.perf_counter() - model_started) * 1000,
+                    response_kind="tool_calls" if response.tool_calls else "answer",
+                    usage=usage,
+                )
 
                 if not response.tool_calls:
                     self.log.answer(response.content)
@@ -513,6 +665,7 @@ class Agent:
                     answer_event: AnswerEvent = {
                         "type": "answer",
                         "content": response.content,
+                        "round": iteration,
                     }
                     trace.add(answer_event)
                     trace.finish()
@@ -526,24 +679,31 @@ class Agent:
                         tool_calls=response.tool_calls,
                     )
                 )
-                for call in response.tool_calls:
+                calls = self._prepare_tool_calls(list(response.tool_calls), iteration)
+                for call in calls:
                     tool_name = call["name"]
-                    arguments = call.get("arguments", {})
-                    call_id = call.get("id")
+                    arguments = call["arguments"]
                     self.log.thought(
                         f"Iteration {iteration}: calling tool {tool_name}({arguments})"
                     )
                     self.log.action(f"Calling tool: {tool_name}({arguments})")
-                    loop_event = self._record_loop(loop_guard, tool_name, arguments)
+                    call_event = self._tool_call_event(call)
+                    trace.add(call_event)
+                    yield call_event
+                    loop_event = self._record_loop(loop_guard, call)
                     if loop_event is not None:
                         trace.add(loop_event)
                         yield loop_event
                         raise LoopDetectedError(loop_event["message"])
-                    approval = yield from self._request_approval(tool_name, arguments, call_id)
+                    approval_event = self._approval_event(call)
+                    if approval_event is not None:
+                        yield approval_event
+                    approval = (
+                        self._resolve_approval(tool_name, arguments)
+                        if approval_event is not None
+                        else None
+                    )
                     if approval is not None:
-                        # The approval event was emitted and refused; surface a
-                        # refusal as the tool result instead of executing.
-                        self.log.observation(f"{tool_name} -> {approval}")
                         self._audit.record(
                             run_id=trace.run_id,
                             tool=tool_name,
@@ -552,63 +712,23 @@ class Agent:
                             refused=True,
                             duration_ms=0.0,
                         )
-                        refusal_event: ToolResultEvent = {
-                            "type": "tool_result",
-                            "id": call_id,
-                            "name": tool_name,
-                            "content": approval,
-                        }
-                        trace.add(refusal_event)
-                        yield refusal_event
-                        self.memory.add(
-                            Message(
-                                role="tool",
-                                name=tool_name,
-                                tool_call_id=call_id,
-                                content=approval,
-                            )
+                        result = _ToolExecutionResult(
+                            content=approval,
+                            status="refused",
+                            duration_ms=0.0,
                         )
-                        continue
-                    call_event: ToolCallEvent = {
-                        "type": "tool_call",
-                        "id": call_id,
-                        "name": tool_name,
-                        "arguments": arguments,
-                    }
-                    trace.add(call_event)
-                    yield call_event
-                    parent_token = _TRACE_PARENT.set((trace, call_id))
-                    started = time.perf_counter()
-                    try:
-                        result = self.registry.call(tool_name, arguments)
-                    except ToolError as exc:
-                        result = f"Error: {exc}"
-                    finally:
-                        _TRACE_PARENT.reset(parent_token)
-                    duration_ms = (time.perf_counter() - started) * 1000
-                    self._audit.record(
-                        run_id=trace.run_id,
-                        tool=tool_name,
-                        arguments=arguments,
-                        outcome=result,
-                        refused=False,
-                        duration_ms=duration_ms,
-                    )
-                    self.log.observation(f"{tool_name} -> {result}")
-                    result_event: ToolResultEvent = {
-                        "type": "tool_result",
-                        "id": call_id,
-                        "name": tool_name,
-                        "content": result,
-                    }
+                    else:
+                        result = self._call_one_tool_sync(call, trace)
+                    self.log.observation(f"{tool_name} -> {result.content}")
+                    result_event = self._tool_result_event(call, result)
                     trace.add(result_event)
                     yield result_event
                     self.memory.add(
                         Message(
                             role="tool",
                             name=tool_name,
-                            tool_call_id=call_id,
-                            content=result,
+                            tool_call_id=call["id"],
+                            content=result.content,
                         )
                     )
 
@@ -616,12 +736,21 @@ class Agent:
                 f"Agent {self.name!r} exceeded max_iterations={self.max_iterations} "
                 "without producing a final answer. Increase max_iterations or simplify the task."
             )
+        except GeneratorExit:
+            trace.finish(
+                error="Run interrupted before a final answer.",
+                status="interrupted",
+            )
+            raise
         except Exception as exc:
-            trace.finish(error=f"{type(exc).__name__}: {exc}")
+            trace.finish(error=f"{type(exc).__name__}: {exc}", status="failed")
             raise
         finally:
             if trace.ended_at is None:
-                trace.finish(error="Run interrupted before a final answer.")
+                trace.finish(
+                    error="Run interrupted before a final answer.",
+                    status="interrupted",
+                )
 
     async def arun_stream(self, user_input: str) -> AsyncIterator[AgentEvent]:
         """Asynchronously yield the same event contract as :meth:`run_stream`."""
@@ -636,21 +765,63 @@ class Agent:
                 messages = self.memory.messages()
                 response: LlmResponse | None = None
                 streamed_text: list[str] = []
-                async for llm_event in self.llm.astream(messages, tools=tool_schemas or None):
-                    if response is not None:
-                        raise LLMError("LLM stream emitted an event after its final response.")
-                    if llm_event["type"] == "text_delta":
-                        content = llm_event["content"]
-                        if content:
-                            streamed_text.append(content)
-                            yield TextDeltaEvent(type="text_delta", content=content)
-                        continue
-                    if llm_event["type"] == "response":
-                        response = llm_event["response"]
-                        continue
-                    raise LLMError(f"Unsupported LLM stream event: {llm_event!r}")
-                response = _validate_stream_response(response, streamed_text)
+                model_started = time.perf_counter()
+                try:
+                    async for llm_event in self.llm.astream(messages, tools=tool_schemas or None):
+                        if response is not None:
+                            raise LLMError("LLM stream emitted an event after its final response.")
+                        if llm_event["type"] == "text_delta":
+                            content = llm_event["content"]
+                            if content:
+                                streamed_text.append(content)
+                                yield TextDeltaEvent(type="text_delta", content=content)
+                            continue
+                        if llm_event["type"] == "response":
+                            response = llm_event["response"]
+                            continue
+                        raise LLMError(f"Unsupported LLM stream event: {llm_event!r}")
+                    response = _validate_stream_response(response, streamed_text)
+                except asyncio.CancelledError:
+                    trace.add_model_call(
+                        round_number=iteration,
+                        provider=type(self.llm).__name__,
+                        model=self.llm.model,
+                        status="cancelled",
+                        duration_ms=(time.perf_counter() - model_started) * 1000,
+                        error="Model call cancelled.",
+                    )
+                    raise
+                except GeneratorExit:
+                    trace.add_model_call(
+                        round_number=iteration,
+                        provider=type(self.llm).__name__,
+                        model=self.llm.model,
+                        status="interrupted",
+                        duration_ms=(time.perf_counter() - model_started) * 1000,
+                        error="Model stream interrupted.",
+                    )
+                    raise
+                except Exception as exc:
+                    trace.add_model_call(
+                        round_number=iteration,
+                        provider=type(self.llm).__name__,
+                        model=self.llm.model,
+                        status="failed",
+                        duration_ms=(time.perf_counter() - model_started) * 1000,
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                    raise
+                usage = _extract_usage(response.raw)
                 trace.add_usage(response.raw)
+                trace.add_model_call(
+                    round_number=iteration,
+                    provider=type(self.llm).__name__,
+                    model=self.llm.model,
+                    status="completed",
+                    duration_ms=(time.perf_counter() - model_started) * 1000,
+                    response_kind="tool_calls" if response.tool_calls else "answer",
+                    usage=usage,
+                )
 
                 if not response.tool_calls:
                     self.log.answer(response.content)
@@ -658,6 +829,7 @@ class Agent:
                     answer_event: AnswerEvent = {
                         "type": "answer",
                         "content": response.content,
+                        "round": iteration,
                     }
                     trace.add(answer_event)
                     trace.finish()
@@ -671,62 +843,48 @@ class Agent:
                         tool_calls=response.tool_calls,
                     )
                 )
-                calls = list(response.tool_calls)
-                # Loop detection runs first, regardless of execution order.
-                for call in calls:
-                    tool_name = call["name"]
-                    arguments = call.get("arguments", {})
-                    self.log.thought(
-                        f"Iteration {iteration}: calling tool {tool_name}({arguments})"
-                    )
-                    self.log.action(f"Calling tool: {tool_name}({arguments})")
-                    loop_event = self._record_loop(loop_guard, tool_name, arguments)
-                    if loop_event is not None:
-                        trace.add(loop_event)
-                        yield loop_event
-                        raise LoopDetectedError(loop_event["message"])
-
+                calls = self._prepare_tool_calls(list(response.tool_calls), iteration)
                 parallel = self._can_run_parallel(calls)
                 if parallel:
                     self.log.thought(
                         f"Iteration {iteration}: running {len(calls)} independent "
                         "tool calls in parallel."
                     )
-                # Emit every tool_call up front so observers see the model's
-                # full intent before any result arrives. Execution below either
-                # runs the calls concurrently (independent, no confirmation
-                # required) or one at a time (a confirmation gate is present).
                 for call in calls:
-                    call_event: ToolCallEvent = {
-                        "type": "tool_call",
-                        "id": call.get("id"),
-                        "name": call["name"],
-                        "arguments": call.get("arguments", {}),
-                    }
-                    if parallel:
-                        call_event["parallel_group"] = f"{trace.run_id}:{iteration}"
+                    tool_name = call["name"]
+                    arguments = call["arguments"]
+                    self.log.thought(
+                        f"Iteration {iteration}: calling tool {tool_name}({arguments})"
+                    )
+                    self.log.action(f"Calling tool: {tool_name}({arguments})")
+                    call_event = self._tool_call_event(
+                        call,
+                        f"{trace.run_id}:{iteration}" if parallel else None,
+                    )
                     trace.add(call_event)
                     yield call_event
+                    loop_event = self._record_loop(loop_guard, call)
+                    if loop_event is not None:
+                        trace.add(loop_event)
+                        yield loop_event
+                        raise LoopDetectedError(loop_event["message"])
+                    approval_event = self._approval_event(call)
+                    if approval_event is not None:
+                        yield approval_event
 
                 results = await self._execute_tool_calls(calls, parallel, trace)
                 for call, result in zip(calls, results):
                     tool_name = call["name"]
-                    call_id = call.get("id")
-                    self.log.observation(f"{tool_name} -> {result}")
-                    result_event: ToolResultEvent = {
-                        "type": "tool_result",
-                        "id": call_id,
-                        "name": tool_name,
-                        "content": result,
-                    }
+                    self.log.observation(f"{tool_name} -> {result.content}")
+                    result_event = self._tool_result_event(call, result)
                     trace.add(result_event)
                     yield result_event
                     self.memory.add(
                         Message(
                             role="tool",
                             name=tool_name,
-                            tool_call_id=call_id,
-                            content=result,
+                            tool_call_id=call["id"],
+                            content=result.content,
                         )
                     )
 
@@ -734,12 +892,24 @@ class Agent:
                 f"Agent {self.name!r} exceeded max_iterations={self.max_iterations} "
                 "without producing a final answer. Increase max_iterations or simplify the task."
             )
+        except asyncio.CancelledError:
+            trace.finish(error="Run cancelled.", status="cancelled")
+            raise
+        except GeneratorExit:
+            trace.finish(
+                error="Run interrupted before a final answer.",
+                status="interrupted",
+            )
+            raise
         except Exception as exc:
-            trace.finish(error=f"{type(exc).__name__}: {exc}")
+            trace.finish(error=f"{type(exc).__name__}: {exc}", status="failed")
             raise
         finally:
             if trace.ended_at is None:
-                trace.finish(error="Run interrupted before a final answer.")
+                trace.finish(
+                    error="Run interrupted before a final answer.",
+                    status="interrupted",
+                )
 
     def chat(self) -> None:
         """Start an interactive REPL session with the agent.
@@ -776,49 +946,72 @@ class Agent:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-    def _request_approval(
-        self,
-        tool_name: str,
-        arguments: dict[str, Any],
-        call_id: str | None,
-    ) -> typing.Generator[ApprovalRequestEvent, None, str | None]:
-        """Yield an ``approval_request`` event for a confirming tool and resolve it.
+    def _prepare_tool_calls(
+        self, calls: list[dict[str, Any]], round_number: int
+    ) -> list[dict[str, Any]]:
+        prepared: list[dict[str, Any]] = []
+        for call_index, call in enumerate(calls, start=1):
+            arguments = _json_snapshot(call.get("arguments", {}))
+            prepared.append(
+                {
+                    "id": call.get("id"),
+                    "name": call["name"],
+                    "arguments": arguments,
+                    "trace_arguments": _json_snapshot(arguments),
+                    "round": round_number,
+                    "call_index": call_index,
+                    "execution_id": uuid4().hex,
+                }
+            )
+        return prepared
 
-        Returns ``None`` when the call may proceed (the tool does not require
-        confirmation, or the approver allowed it), otherwise a refusal message
-        to surface as the tool result. The event is transient — it lets stream
-        consumers and the visual lab observe the gate before any side effect.
-        """
-        tool = self.registry.get(tool_name)
-        if not tool.confirm:
-            return None
-        event: ApprovalRequestEvent = {
-            "type": "approval_request",
-            "id": call_id,
-            "name": tool_name,
-            "arguments": arguments,
-            "reason": "tool is marked confirm=True",
+    @staticmethod
+    def _tool_call_event(call: dict[str, Any], parallel_group: str | None = None) -> ToolCallEvent:
+        event: ToolCallEvent = {
+            "type": "tool_call",
+            "id": call["id"],
+            "name": call["name"],
+            "arguments": call["trace_arguments"],
+            "round": call["round"],
+            "call_index": call["call_index"],
+            "execution_id": call["execution_id"],
         }
-        yield event
-        return self._resolve_approval(tool_name, arguments)
+        if parallel_group is not None:
+            event["parallel_group"] = parallel_group
+        return event
 
-    async def _arequest_approval(
-        self,
-        tool_name: str,
-        arguments: dict[str, Any],
-        call_id: str | None,
-    ) -> str | None:
-        """Async counterpart of :meth:`_request_approval`.
+    @staticmethod
+    def _tool_result_event(call: dict[str, Any], result: _ToolExecutionResult) -> ToolResultEvent:
+        event: ToolResultEvent = {
+            "type": "tool_result",
+            "id": call["id"],
+            "name": call["name"],
+            "content": result.content,
+            "round": call["round"],
+            "call_index": call["call_index"],
+            "execution_id": call["execution_id"],
+            "status": result.status,
+            "duration_ms": round(result.duration_ms, 3),
+        }
+        if result.error_type is not None:
+            event["error_type"] = result.error_type
+        return event
 
-        The transient ``approval_request`` event is not yielded here because an
-        async generator cannot pause mid-loop to a synchronous caller; the
-        decision log line still records the gate. The refusal/allow outcome is
-        identical to the synchronous path.
-        """
-        tool = self.registry.get(tool_name)
-        if not tool.confirm:
+    def _approval_event(self, call: dict[str, Any]) -> ApprovalRequestEvent | None:
+        if call["name"] not in self.registry:
             return None
-        return self._resolve_approval(tool_name, arguments)
+        if not self.registry.get(call["name"]).confirm:
+            return None
+        return {
+            "type": "approval_request",
+            "id": call["id"],
+            "name": call["name"],
+            "arguments": call["trace_arguments"],
+            "reason": "tool is marked confirm=True",
+            "round": call["round"],
+            "call_index": call["call_index"],
+            "execution_id": call["execution_id"],
+        }
 
     def _resolve_approval(self, tool_name: str, arguments: dict[str, Any]) -> str | None:
         """Decide whether a confirming tool may run; return a refusal or ``None``."""
@@ -846,16 +1039,11 @@ class Agent:
     def _record_loop(
         self,
         guard: _LoopGuard,
-        tool_name: str,
-        arguments: dict[str, Any],
+        call: dict[str, Any],
     ) -> LoopDetectedEvent | None:
-        """Record a tool call and return a ``loop_detected`` event when stuck.
-
-        Returns ``None`` while the run is making progress. When the same call
-        repeats ``loop_detection_threshold`` times in a row, returns an event
-        whose message doubles as the ``LoopDetectedError`` text, with a hint
-        for how to recover.
-        """
+        """Record a tool call and return a loop event when the call is stuck."""
+        tool_name = call["name"]
+        arguments = call["trace_arguments"]
         count = guard.record(tool_name, arguments)
         if not guard.tripped(count):
             return None
@@ -872,7 +1060,41 @@ class Agent:
             "arguments": arguments,
             "occurrences": count,
             "message": message,
+            "round": call["round"],
+            "call_index": call["call_index"],
+            "execution_id": call["execution_id"],
         }
+
+    def _call_one_tool_sync(self, call: dict[str, Any], trace: AgentTrace) -> _ToolExecutionResult:
+        tool_name = call["name"]
+        arguments = call["arguments"]
+        parent_token = _TRACE_PARENT.set((trace, call["id"]))
+        started = time.perf_counter()
+        status: Literal["success", "error"] = "success"
+        error_type: str | None = None
+        try:
+            content = self.registry.call(tool_name, arguments)
+        except ToolError as exc:
+            content = f"Error: {exc}"
+            status = "error"
+            error_type = type(exc).__name__
+        finally:
+            _TRACE_PARENT.reset(parent_token)
+        duration_ms = (time.perf_counter() - started) * 1000
+        self._audit.record(
+            run_id=trace.run_id,
+            tool=tool_name,
+            arguments=arguments,
+            outcome=content,
+            refused=False,
+            duration_ms=duration_ms,
+        )
+        return _ToolExecutionResult(
+            content=content,
+            status=status,
+            duration_ms=duration_ms,
+            error_type=error_type,
+        )
 
     def _can_run_parallel(self, calls: list[dict[str, Any]]) -> bool:
         """Whether this turn's tool calls may run concurrently on the async path.
@@ -884,67 +1106,80 @@ class Agent:
         """
         if len(calls) < 2:
             return False
-        return all(not self.registry.get(call["name"]).confirm for call in calls)
+        return all(
+            call["name"] in self.registry and not self.registry.get(call["name"]).confirm
+            for call in calls
+        )
 
     async def _execute_tool_calls(
         self,
         calls: list[dict[str, Any]],
         parallel: bool,
         trace: AgentTrace,
-    ) -> list[str]:
-        """Execute a turn's tool calls and return their results in call order.
-
-        On the parallel path the calls run with ``asyncio.gather`` (results are
-        still returned in the original order, so the emitted events stay
-        deterministic). On the sequential path each call is awaited in turn and
-        still passes through the confirmation gate.
-        """
+    ) -> list[_ToolExecutionResult]:
+        """Execute a turn's tool calls and return results in original order."""
         if parallel:
             return await asyncio.gather(*(self._call_one_tool(call, trace) for call in calls))
-        results: list[str] = []
+        results: list[_ToolExecutionResult] = []
         for call in calls:
-            results.append(await self._call_one_tool(call, trace, check_approval=True))
+            approval_event = self._approval_event(call)
+            if approval_event is not None:
+                refusal = self._resolve_approval(call["name"], call["arguments"])
+                if refusal is not None:
+                    self._audit.record(
+                        run_id=trace.run_id,
+                        tool=call["name"],
+                        arguments=call["arguments"],
+                        outcome=refusal,
+                        refused=True,
+                        duration_ms=0.0,
+                    )
+                    results.append(
+                        _ToolExecutionResult(
+                            content=refusal,
+                            status="refused",
+                            duration_ms=0.0,
+                        )
+                    )
+                    continue
+            results.append(await self._call_one_tool(call, trace))
         return results
 
     async def _call_one_tool(
         self,
         call: dict[str, Any],
         trace: AgentTrace,
-        check_approval: bool = False,
-    ) -> str:
-        """Run one tool call to a string result, mapping errors to text."""
+    ) -> _ToolExecutionResult:
+        """Run one tool call and preserve its structured outcome."""
         tool_name = call["name"]
-        arguments = call.get("arguments", {})
-        call_id = call.get("id")
-        if check_approval and self.registry.get(tool_name).confirm:
-            refusal = self._resolve_approval(tool_name, arguments)
-            if refusal is not None:
-                self._audit.record(
-                    run_id=trace.run_id,
-                    tool=tool_name,
-                    arguments=arguments,
-                    outcome=refusal,
-                    refused=True,
-                    duration_ms=0.0,
-                )
-                return refusal
-        parent_token = _TRACE_PARENT.set((trace, call_id))
+        arguments = call["arguments"]
+        parent_token = _TRACE_PARENT.set((trace, call["id"]))
         started = time.perf_counter()
+        status: Literal["success", "error"] = "success"
+        error_type: str | None = None
         try:
-            result = await self.registry.acall(tool_name, arguments)
+            content = await self.registry.acall(tool_name, arguments)
         except ToolError as exc:
-            result = f"Error: {exc}"
+            content = f"Error: {exc}"
+            status = "error"
+            error_type = type(exc).__name__
         finally:
             _TRACE_PARENT.reset(parent_token)
+        duration_ms = (time.perf_counter() - started) * 1000
         self._audit.record(
             run_id=trace.run_id,
             tool=tool_name,
             arguments=arguments,
-            outcome=result,
+            outcome=content,
             refused=False,
-            duration_ms=(time.perf_counter() - started) * 1000,
+            duration_ms=duration_ms,
         )
-        return result
+        return _ToolExecutionResult(
+            content=content,
+            status=status,
+            duration_ms=duration_ms,
+            error_type=error_type,
+        )
 
     def _stream_llm_response(
         self,
@@ -1007,6 +1242,7 @@ class Agent:
         )
         if parent_trace is not None and trace.run_id not in parent_trace.child_run_ids:
             parent_trace.child_run_ids.append(trace.run_id)
+            parent_trace._child_traces.append(trace)
         self.last_trace = trace
         return trace
 
@@ -1035,6 +1271,11 @@ def _validate_stream_response(
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _json_snapshot(value: Any) -> Any:
+    """Copy trace data into a stable JSON-safe representation."""
+    return json.loads(json.dumps(value, ensure_ascii=False, default=str))
 
 
 def _interactive_approval(tool_name: str, arguments: dict[str, Any]) -> bool:

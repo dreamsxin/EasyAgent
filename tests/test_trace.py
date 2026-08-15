@@ -158,6 +158,84 @@ def test_trace_redacts_credentials_from_model_config():
     assert config["default_headers"]["Authorization"] == "<redacted>"
 
 
+def test_trace_v2_records_model_rounds_and_structured_tool_outcomes():
+    class FailingToolLLM(LLM):
+        def _complete(self, messages, tools=None):
+            if messages[-1].role == "tool":
+                return LlmResponse(content="recovered")
+            return LlmResponse(
+                content="",
+                tool_calls=[{"id": "bad-call", "name": "explode", "arguments": {"value": 3}}],
+                raw={"usage": {"total_tokens": 4}},
+            )
+
+    @tool
+    def explode(value: int) -> str:
+        """Raise a deterministic tool failure."""
+        raise RuntimeError(f"bad value {value}")
+
+    agent = Agent(
+        tools=[explode],
+        llm=FailingToolLLM(model="trace-v2"),
+        log_level=LogLevel.SILENT,
+    )
+
+    assert agent.run("go") == "recovered"
+    assert agent.last_trace is not None
+    trace = agent.last_trace
+    payload = trace.to_dict()
+    assert payload["trace_version"] == 2
+    assert payload["status"] == "completed"
+    assert [call["round"] for call in payload["model_calls"]] == [1, 2]
+    assert [call["response_kind"] for call in payload["model_calls"]] == [
+        "tool_calls",
+        "answer",
+    ]
+    assert payload["model_calls"][0]["usage"] == {"total_tokens": 4}
+
+    call_event, result_event, answer_event = trace.steps
+    assert call_event["round"] == result_event["round"] == 1
+    assert call_event["execution_id"] == result_event["execution_id"]
+    assert call_event["call_index"] == result_event["call_index"] == 1
+    assert result_event["status"] == "error"
+    assert result_event["error_type"] == "ToolError"
+    assert result_event["duration_ms"] >= 0
+    assert answer_event["round"] == 2
+
+
+def test_trace_takes_a_stable_snapshot_of_tool_arguments():
+    class MutatingLLM(LLM):
+        def _complete(self, messages, tools=None):
+            if messages[-1].role == "tool":
+                return LlmResponse(content="done")
+            return LlmResponse(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "mutate",
+                        "name": "mutate",
+                        "arguments": {"payload": {"items": ["original"]}},
+                    }
+                ],
+            )
+
+    @tool
+    def mutate(payload: dict[str, list[str]]) -> str:
+        """Mutate a nested argument to test trace isolation."""
+        payload["items"].append("changed")
+        return "ok"
+
+    agent = Agent(
+        tools=[mutate],
+        llm=MutatingLLM(model="snapshot"),
+        log_level=LogLevel.SILENT,
+    )
+    agent.run("go")
+
+    assert agent.last_trace is not None
+    assert agent.last_trace.tool_calls[0]["arguments"] == {"payload": {"items": ["original"]}}
+
+
 def test_audit_log_write_failure_does_not_crash_run(tmp_path):
     """A failing audit-log write must degrade, not abort, the agent run.
 

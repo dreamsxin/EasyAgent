@@ -113,6 +113,11 @@ Target: make the implementation understandable without overstating what it can d
 - [x] Add trace correlation for experimental parent/child Agent-as-Tool runs.
 - [x] Render a behavior-first execution map with animated live and replay states;
   visualize observed events without inventing hidden planning steps.
+- [x] Expose ReAct, Plan-and-Execute, Reflection, Multi-Agent, and Routing as top-level
+  visual modes. Default composition lessons to saved real models, keep fixed-response offline
+  runners explicitly separate, and distinguish concepts from observed execution facts.
+- [x] Export each teaching experiment as strict JSON, portable Agent Trace JSONL, and a
+  tested offline Python recipe; preserve real parent/child families only for Agent-as-Tool.
 
 Release gate: the README and teaching recipes contain no unsafe execution shortcuts, every
 offline recipe runs in CI, and streaming claims match conformance tests.
@@ -205,9 +210,9 @@ conversation preserves the original user intent across the boundary.
 Target: make prompt and cost decisions data-driven, and make evaluation statistically
 sound.
 
-- [ ] Extend evaluation: per-case sampling (N runs aggregated to a pass rate),
-  step-level accuracy, mean rounds and token cost, an eval-time temperature override,
-  and bad-case回流 into reusable evaluation sets.
+- [x] Extend evaluation with repeated per-case samples, named trusted-Python metrics,
+  pass-rate aggregation, runtime status, rounds, tool calls, token/cost coverage, and strict
+  JSON export. Eval-time temperature override and bad-case feedback remain future work.
 - [ ] Enable active prompt caching: send `cache_control` on the stable system-prompt and
   tool-schema prefix (Anthropic) and keep that prefix stable (OpenAI), so the existing
   cache-hit metric reflects savings EasyAgent actually requested.

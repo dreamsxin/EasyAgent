@@ -47,6 +47,31 @@ def test_agent_as_tool_is_explicit_and_has_a_normal_tool_schema():
     assert not hasattr(agentmold, "agent_as_tool")
 
 
+def test_parent_trace_exports_complete_family(tmp_path):
+    from agentmold.visual.traces import parse_trace_jsonl
+
+    child = Agent(name="Export Child", llm="mock", log_level=LogLevel.SILENT)
+    parent = Agent(
+        name="Export Parent",
+        tools=[agent_as_tool(child)],
+        llm="mock",
+        log_level=LogLevel.SILENT,
+    )
+    parent.run("tool: inspect evidence")
+
+    assert parent.last_trace is not None
+    assert child.last_trace is not None
+    output = parent.last_trace.export_family(tmp_path / "family.jsonl")
+    runs = parse_trace_jsonl(output.read_text(encoding="utf-8"))
+
+    assert [run["run_id"] for run in runs] == [
+        parent.last_trace.run_id,
+        child.last_trace.run_id,
+    ]
+    assert runs[1]["parent_run_id"] == runs[0]["run_id"]
+    assert runs[0]["child_run_ids"] == [runs[1]["run_id"]]
+
+
 def test_agent_as_tool_delegates_sync_and_preserves_child_trace():
     child = Agent(name="Specialist", llm="mock", log_level=LogLevel.SILENT)
     delegated = agent_as_tool(child, name="consult_specialist")

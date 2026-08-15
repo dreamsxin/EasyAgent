@@ -17,6 +17,7 @@ DEFAULT_VISUAL_TRACE_LOG = Path(".agentmold/visual_runs.jsonl")
 __all__ = [
     "DEFAULT_VISUAL_TRACE_LOG",
     "append_trace_run",
+    "build_trace_forest",
     "diagnose_trace_run",
     "find_trace_run",
     "load_trace_runs",
@@ -24,6 +25,8 @@ __all__ = [
     "parse_trace_jsonl",
     "summarize_usage",
     "summarize_trace_run",
+    "trace_family_from_forest",
+    "trace_family_order",
     "trace_label",
     "traces_to_jsonl",
 ]
@@ -163,6 +166,90 @@ def merge_trace_runs(*collections: list[dict[str, Any]]) -> list[dict[str, Any]]
     return [merged[run_id] for run_id in order]
 
 
+def build_trace_forest(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build a parent-child forest from a list of trace run dicts.
+
+    Returns a dict with:
+    - ``roots``: list of root run dicts (no parent or parent not in list)
+    - ``children``: dict mapping parent run_id to list of child run dicts
+    - ``orphans``: list of run dicts whose parent_run_id points to a missing run
+    - ``all_runs``: dict mapping run_id to run dict for fast lookup
+    """
+    all_runs: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        run_id = run.get("run_id")
+        if isinstance(run_id, str) and run_id.strip():
+            all_runs[run_id] = run
+
+    roots: list[dict[str, Any]] = []
+    children: dict[str, list[dict[str, Any]]] = {}
+    orphans: list[dict[str, Any]] = []
+
+    for run in all_runs.values():
+        parent_id = run.get("parent_run_id")
+        if not parent_id:
+            roots.append(run)
+        elif parent_id in all_runs:
+            children.setdefault(str(parent_id), []).append(run)
+        else:
+            orphans.append(run)
+
+    # Sort children by started_at for deterministic ordering.
+    for child_list in children.values():
+        child_list.sort(key=lambda r: str(r.get("started_at") or ""))
+
+    return {
+        "roots": roots,
+        "children": children,
+        "orphans": orphans,
+        "all_runs": all_runs,
+    }
+
+
+def trace_family_from_forest(forest: dict[str, Any], run_id: str) -> list[dict[str, Any]]:
+    """Collect a run and all its descendants from a forest structure."""
+    family: list[dict[str, Any]] = []
+    all_runs = forest.get("all_runs", {})
+    children_map = forest.get("children", {})
+    seen: set[str] = set()
+
+    def walk(rid: str) -> None:
+        if rid in seen or rid not in all_runs:
+            return
+        seen.add(rid)
+        run = all_runs[rid]
+        family.append(run)
+        for child in children_map.get(rid, []):
+            child_id = child.get("run_id")
+            if isinstance(child_id, str):
+                walk(child_id)
+
+    walk(run_id)
+    return family
+
+
+def trace_family_order(forest: dict[str, Any]) -> list[tuple[str, int]]:
+    """Return run IDs in deterministic parent-before-child display order."""
+    ordered: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    children_map = forest.get("children", {})
+
+    def walk(run: dict[str, Any], depth: int) -> None:
+        run_id = run.get("run_id")
+        if not isinstance(run_id, str) or run_id in seen:
+            return
+        seen.add(run_id)
+        ordered.append((run_id, depth))
+        for child in children_map.get(run_id, []):
+            walk(child, depth + 1)
+
+    for root in forest.get("roots", []):
+        walk(root, 0)
+    for orphan in forest.get("orphans", []):
+        walk(orphan, 0)
+    return ordered
+
+
 def summarize_trace_run(run: dict[str, Any]) -> dict[str, Any]:
     """Return normalized fields used by replay, comparison, and metrics UI."""
     raw_events = run.get("events")
@@ -204,7 +291,14 @@ def summarize_trace_run(run: dict[str, Any]) -> dict[str, Any]:
         if isinstance(raw_child_run_ids, list)
         else []
     )
-    status = "error" if run.get("error") else "complete" if run.get("ended_at") else "unknown"
+    raw_status = run.get("status")
+    status = (
+        str(raw_status)
+        if isinstance(raw_status, str) and raw_status
+        else "error" if run.get("error") else "complete" if run.get("ended_at") else "unknown"
+    )
+    raw_model_calls = run.get("model_calls")
+    rounds = len(raw_model_calls) if isinstance(raw_model_calls, list) else None
     return {
         "run_id": str(run.get("run_id", "")),
         "parent_run_id": str(run.get("parent_run_id") or ""),
@@ -223,6 +317,7 @@ def summarize_trace_run(run: dict[str, Any]) -> dict[str, Any]:
         "duration_ms": _number(run.get("duration_ms")),
         **usage_summary,
         "event_count": len(events),
+        "rounds": rounds,
         "tool_calls": sum(event.get("type") == "tool_call" for event in events),
         "status": status,
         "error": str(run.get("error") or ""),

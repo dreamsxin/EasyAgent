@@ -6,28 +6,30 @@ import pytest
 
 from agentmold.visual.architecture import (
     ARCHITECTURE_PRESETS,
+    INTENT_PRESETS,
+    RETRIEVAL_PRESETS,
     TOOL_CALLING_PRESETS,
     architecture_code,
     architecture_description,
     architecture_diagram_html,
-    tool_calling_description,
-    tool_calling_diagram_html,
-)
-from agentmold.visual.architecture import (
-    INTENT_PRESETS,
-    RETRIEVAL_PRESETS,
     intent_code,
     intent_description,
     intent_diagram_html,
     retrieval_code,
     retrieval_description,
     retrieval_diagram_html,
+    tool_calling_description,
+    tool_calling_diagram_html,
 )
 
 
 @pytest.mark.parametrize("arch_key", list(ARCHITECTURE_PRESETS))
 def test_every_preset_has_required_fields(arch_key):
     preset = ARCHITECTURE_PRESETS[arch_key]
+    assert preset["architecture_id"]
+    assert preset["sample_input"]
+    assert preset["runner_key"]
+    assert preset["run_status"] in {"shipped", "experimental"}
     assert preset["title"]
     assert preset["summary"]
     assert isinstance(preset["nodes"], list) and len(preset["nodes"]) >= 3
@@ -69,6 +71,27 @@ def test_code_snippets_are_importable_python():
     for arch_key in ARCHITECTURE_PRESETS:
         code = architecture_code(arch_key)
         ast.parse(code)  # raises SyntaxError if invalid
+
+
+def test_multi_agent_preset_is_explicitly_experimental():
+    preset = ARCHITECTURE_PRESETS["Multi-Agent（多智能体协作）"]
+    code = architecture_code("Multi-Agent（多智能体协作）")
+    summary = architecture_description("Multi-Agent（多智能体协作）")
+
+    assert preset["run_status"] == "experimental"
+    assert "run_multi_agent_experiment" in code
+    assert "API 可能变化" in code
+    assert "没有 Coordinator 类" in summary
+
+
+def test_architecture_presets_do_not_invent_orchestrator_classes():
+    combined = "\n".join(
+        str(preset["summary"]) + "\n" + str(preset["code"])
+        for preset in ARCHITECTURE_PRESETS.values()
+    )
+    assert "Coordinator(" not in combined
+    assert "Router(" not in combined
+    assert "class Coordinator" not in combined
 
 
 # ---------------------------------------------------------------------------

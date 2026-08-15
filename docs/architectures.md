@@ -5,8 +5,13 @@ everything else as ordinary Python.  This page maps five mainstream agent
 architectures onto that single primitive, so you can recognise a pattern when
 you need it and implement it without a workflow DSL.
 
-> The visual lab includes an interactive **AGENT 架构演示** panel
-> (`easyagent visual`) that renders an animated flowchart for each pattern below.
+> The visual lab (`easyagent visual`) exposes all five patterns in its top navigation.
+> ReAct opens the configurable single-Agent workbench. The other pages default to a saved
+> real provider profile: model responses drive planning, critique, routing, and delegation.
+> A separately labelled deterministic offline mode uses fixed `ScriptedLLM` responses only
+> to teach control flow and Trace structure. Each page labels its architecture diagram as
+> **concept only, not this run**, then shows Python events separately from real `AgentTrace`
+> records. Completed lessons export JSON, Trace JSONL, and `example.py`.
 
 ## Why patterns, not a framework
 
@@ -27,30 +32,22 @@ minimal implementation.
 
 ## ReAct
 
-EasyAgent's default loop **is** ReAct: the model reasons about what it needs,
-calls a tool, observes the result, and repeats until it can answer.  You do
-nothing special -- just give the Agent tools and an instruction that encourages
-step-by-step reasoning.
+EasyAgent's default loop **is** ReAct: the model chooses whether to answer or call a tool,
+observes the result, and repeats until it can answer. You do nothing special: give the Agent
+tools and clear instructions. EasyAgent records public model-round metadata and tool events;
+it does not expose or infer hidden chain-of-thought.
+
+A deterministic offline lesson is also available:
 
 ```python
-from agentmold import Agent, tool
+from agentmold.visual.teaching import run_react_experiment
 
-@tool
-def retrieve(query: str) -> str:
-    """Retrieve relevant chunks from the knowledge base."""
-    ...
-
-agent = Agent(
-    name="ReActAgent",
-    instructions="Think step by step. Use retrieve when you need facts.",
-    tools=[retrieve],
-    llm="mock",
-)
-answer = agent("What is the relationship between Dao and technique?")
+experiment = run_react_experiment("How does RAG reduce hallucination?")
+print(experiment.output)
 ```
 
-The `[THOUGHT] / [ACTION] / [OBSERVATION] / [ANSWER]` trace labels in
-`concepts.md` correspond to the three phases of this loop.
+The returned experiment contains one real Agent trace with a tool call, tool result, and
+answer. The concept diagram's decision node is not inserted into that trace.
 
 ---
 
@@ -61,32 +58,17 @@ steps, then a **Worker** Agent (or the same Agent) executes each step.  This is
 just two `Agent.run()` calls connected by a `for` loop.
 
 ```python
-from agentmold import Agent, tool
+from agentmold.visual.teaching import run_plan_execute_experiment
 
-planner = Agent(
-    name="Planner",
-    instructions="Break the task into 3-5 concrete steps. Output a numbered list.",
-    llm="mock",
-)
-plan_text = planner("Analyse the methodology of this paper")
-
-worker = Agent(
-    name="Worker",
-    instructions="Execute the given step using available tools.",
-    tools=[retrieve],
-    llm="mock",
-)
-
-results = []
-for step in plan_text.strip().split("\n"):
-    step = step.strip()
-    if step:
-        results.append(worker.run(step))
+experiment = run_plan_execute_experiment("Design an offline knowledge assistant")
+print(experiment.output)
 ```
 
-No graph runtime is needed -- the plan is a Python list of strings, and
-execution is a `for` loop.  If a step fails, ordinary `try/except` decides
-whether to retry or skip.
+The teaching runner creates a Planner, a fresh Worker for each of three steps, and a
+Synthesizer. Their five real traces remain independent roots; the outer `for` loop is
+recorded as separate `TeachingEvent` objects rather than fake parent-child trace links.
+No graph runtime is needed: the plan is a Python list of strings, and execution is a
+`for` loop. In application code, ordinary `try/except` decides whether to retry or skip.
 
 ---
 
@@ -97,32 +79,16 @@ the feedback.  Loop until the Critic is satisfied (or a max-revision count is
 hit).
 
 ```python
-from agentmold import Agent
+from agentmold.visual.teaching import run_reflection_experiment
 
-generator = Agent(
-    name="Writer",
-    instructions="Write a concise technical explanation.",
-    llm="mock",
-)
-critic = Agent(
-    name="Critic",
-    instructions=(
-        "Review the text for accuracy and clarity. Point out improvements. "
-        "If nothing needs changing, reply exactly: DONE"
-    ),
-    llm="mock",
-)
-
-draft = generator.run("Explain how RAG works")
-for _ in range(3):  # at most 3 revision rounds
-    feedback = critic.run(draft)
-    if "DONE" in feedback:
-        break
-    draft = generator.run(f"Revise based on this feedback: {feedback}")
+experiment = run_reflection_experiment("Explain vector retrieval in two sentences")
+print(experiment.output)
 ```
 
-The termination signal ("DONE") is an ordinary string check -- no special event
-type or state machine.
+The deterministic lesson performs exactly one feedback round: Generator draft, Critic
+feedback, Generator revision, then Critic `DONE`. A hard revision bound prevents an
+unexpected response from creating an infinite loop. The termination signal is an ordinary
+string check and the feedback/revision control flow is recorded outside Agent traces.
 
 ---
 
@@ -134,32 +100,21 @@ own instructions and tools.  EasyAgent's `agent_as_tool` (in
 coordinator can call it naturally.
 
 ```python
-from agentmold import Agent
-from agentmold.experimental import agent_as_tool
+# The lesson uses experimental agent_as_tool internally; that API may change.
+from agentmold.visual.teaching import run_multi_agent_experiment
 
-researcher = Agent(
-    name="Researcher",
-    instructions="Retrieve and summarise relevant information.",
-    llm="mock",
-)
-analyst = Agent(
-    name="Analyst",
-    instructions="Analyse data and state conclusions with uncertainty.",
-    llm="mock",
-)
-
-coordinator = Agent(
-    name="Coordinator",
-    instructions="Delegate research and analysis, then synthesise a final answer.",
-    tools=[agent_as_tool(researcher), agent_as_tool(analyst)],
-    llm="mock",
-)
-answer = coordinator.run("tool: Researcher what is RAG?")
+experiment = run_multi_agent_experiment("Compare keyword and vector retrieval")
+print(experiment.output)
 ```
 
-There is no coordinator class -- the coordinator is just another `Agent` whose
-tools happen to be other Agents.  See `docs/agent-composition.md` for the full
-API.
+The Coordinator issues two real tool calls in one async model round. Researcher and Analyst
+run as child Agents with the same `parallel_group`, then the Coordinator synthesizes their
+results. There is no coordinator class: it is an ordinary Agent whose tools happen to be
+other Agents. Parent and child runs are linked through `child_run_ids`, `parent_run_id`, and
+`parent_tool_call_id`; the visual replay groups those runs as one family and can export the
+family as a multi-run JSONL bundle. These fields make observed delegation inspectable and
+replayable; they are not an orchestration API. See [Agent composition](agent-composition.md)
+for the experimental API boundary.
 
 ---
 
@@ -170,32 +125,35 @@ plain `if/elif` (or a dict lookup) around multiple Agents -- no router base
 class.
 
 ```python
-from agentmold import Agent
+from agentmold.visual.teaching import run_routing_experiment
 
-coder = Agent(name="Coder", instructions="Answer programming questions.", llm="mock")
-writer = Agent(name="Writer", instructions="Answer writing questions.", llm="mock")
-math_agent = Agent(name="MathAgent", instructions="Answer math questions.", llm="mock")
-
-router = Agent(
-    name="Router",
-    instructions=(
-        "Classify the question into one of: Coder, Writer, MathAgent. "
-        "Output only the name."
-    ),
-    llm="mock",
-)
-
-question = "How do I reverse a linked list?"
-expert_name = router.run(question).strip()
-experts = {"Coder": coder, "Writer": writer, "MathAgent": math_agent}
-chosen = experts.get(expert_name, coder)
-answer = chosen.run(question)
+experiment = run_routing_experiment("Write a Python deduplication function")
+print(experiment.output)
 ```
 
-For a classification that does not need an LLM, replace the router Agent with a
-keyword check or any classifier -- the dispatch logic stays the same.  See
-[工程实践：意图识别与检索策略](engineering.md) for a three-tier intent recognition
-cascade (rules -> DistilBERT -> LLM) that optimizes cost and latency.
+The lesson uses a deterministic rule to select `Coder`, `Writer`, or `Math`, then runs only
+the selected expert. The Router and selected expert produce real traces; unselected branches
+do not. `route_selected` remains a Python control-flow event. If classification does not
+need an LLM, use the same keyword check or another classifier directly. See
+[Engineering practice](engineering.md) for a rules -> DistilBERT -> LLM cascade that
+optimizes cost and latency.
+
+---
+
+## Live and deterministic runners
+
+The visual lab uses two deliberately separate modules:
+
+- `agentmold.visual.live_teaching`: accepts a model factory. Planner text is parsed into the
+  steps that actually run; Critic `DONE` stops Reflection; Router output selects the only
+  expert; Coordinator tool calls create real child runs. Missing or malformed decisions fail
+  or remain visibly incomplete instead of being repaired into a fake successful architecture.
+- `agentmold.visual.teaching`: uses finite, fixed `ScriptedLLM` queues for offline teaching,
+  tests, and reproducible exports. Its traces are real Agent traces, but its model decisions
+  are prescribed and must not be interpreted as task-solving behavior.
+
+Multi-Agent completeness is an observed fact: a run counts as full collaboration only when
+both specialist tool calls and their correlated child traces exist.
 
 ---
 

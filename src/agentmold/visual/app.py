@@ -14,61 +14,14 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from agentmold import Tool
 
 from agentmold.visual.agent_config import (
-    AGENT_MODE_PRESETS as _AGENT_MODE_PRESETS,
-)
-from agentmold.visual.agent_config import (
     AUDIT_LOG_PATH as _AUDIT_LOG_PATH,
-)
-from agentmold.visual.architecture import (
-    ARCHITECTURE_PRESETS as _ARCHITECTURE_PRESETS,
-)
-from agentmold.visual.architecture import (
-    TOOL_CALLING_PRESETS as _TOOL_CALLING_PRESETS,
-)
-from agentmold.visual.architecture import (
-    architecture_code as _architecture_code,
-)
-from agentmold.visual.architecture import (
-    architecture_description as _architecture_description,
-)
-from agentmold.visual.architecture import (
-    architecture_diagram_html as _architecture_diagram_html,
-)
-from agentmold.visual.architecture import (
-    tool_calling_description as _tool_calling_description,
-)
-from agentmold.visual.architecture import (
-    tool_calling_diagram_html as _tool_calling_diagram_html,
-)
-from agentmold.visual.architecture import (
-    INTENT_PRESETS as _INTENT_PRESETS,
-)
-from agentmold.visual.architecture import (
-    intent_code as _intent_code,
-)
-from agentmold.visual.architecture import (
-    intent_description as _intent_description,
-)
-from agentmold.visual.architecture import (
-    intent_diagram_html as _intent_diagram_html,
-)
-from agentmold.visual.architecture import (
-    RETRIEVAL_PRESETS as _RETRIEVAL_PRESETS,
-)
-from agentmold.visual.architecture import (
-    retrieval_code as _retrieval_code,
-)
-from agentmold.visual.architecture import (
-    retrieval_description as _retrieval_description,
-)
-from agentmold.visual.architecture import (
-    retrieval_diagram_html as _retrieval_diagram_html,
 )
 from agentmold.visual.agent_config import (
     CONNECTION_DEFAULTS as _CONNECTION_DEFAULTS,
@@ -95,10 +48,52 @@ from agentmold.visual.agent_config import (
     load_visual_tools as _load_visual_tools,
 )
 from agentmold.visual.agent_config import (
-    resolve_mode as _resolve_mode,
-)
-from agentmold.visual.agent_config import (
     tool_widget_key as _tool_widget_key,
+)
+from agentmold.visual.architecture import (
+    ARCHITECTURE_PRESETS as _ARCHITECTURE_PRESETS,
+)
+from agentmold.visual.architecture import (
+    INTENT_PRESETS as _INTENT_PRESETS,
+)
+from agentmold.visual.architecture import (
+    RETRIEVAL_PRESETS as _RETRIEVAL_PRESETS,
+)
+from agentmold.visual.architecture import (
+    TOOL_CALLING_PRESETS as _TOOL_CALLING_PRESETS,
+)
+from agentmold.visual.architecture import (
+    architecture_code as _architecture_code,
+)
+from agentmold.visual.architecture import (
+    architecture_description as _architecture_description,
+)
+from agentmold.visual.architecture import (
+    architecture_diagram_html as _architecture_diagram_html,
+)
+from agentmold.visual.architecture import (
+    intent_code as _intent_code,
+)
+from agentmold.visual.architecture import (
+    intent_description as _intent_description,
+)
+from agentmold.visual.architecture import (
+    intent_diagram_html as _intent_diagram_html,
+)
+from agentmold.visual.architecture import (
+    retrieval_code as _retrieval_code,
+)
+from agentmold.visual.architecture import (
+    retrieval_description as _retrieval_description,
+)
+from agentmold.visual.architecture import (
+    retrieval_diagram_html as _retrieval_diagram_html,
+)
+from agentmold.visual.architecture import (
+    tool_calling_description as _tool_calling_description,
+)
+from agentmold.visual.architecture import (
+    tool_calling_diagram_html as _tool_calling_diagram_html,
 )
 from agentmold.visual.codegen import api_key_environment, generate_agent_python
 from agentmold.visual.renderers import (
@@ -120,7 +115,7 @@ from agentmold.visual.renderers import (
     timeline_html as _timeline_html,
 )
 from agentmold.visual.renderers import (
-    trace_compare_html as _trace_compare_html,
+    trace_breadcrumb_html as _trace_breadcrumb_html,
 )
 from agentmold.visual.renderers import (
     trace_metrics_html as _trace_metrics_html,
@@ -146,22 +141,27 @@ from agentmold.visual.tool_uploads import (
 )
 from agentmold.visual.traces import (
     DEFAULT_VISUAL_TRACE_LOG,
+    build_trace_forest,
     diagnose_trace_run,
     find_trace_run,
     load_trace_runs,
     merge_trace_runs,
     parse_trace_jsonl,
     summarize_trace_run,
+    trace_family_from_forest,
+    trace_family_order,
     trace_label,
     traces_to_jsonl,
 )
 
 
-def _render_trace_lab(
-    st: Any,
-) -> None:
+def _render_trace_lab(st: Any, *, standalone: bool = False) -> None:
     """Render trace import, scrubbed replay, export, and two-run comparison."""
-    with st.expander("TRACE LAB · 回放与对比", expanded=False):
+    container = st.container() if standalone else st.expander("TRACE LAB · 回放与对比")
+    with container:
+        if standalone:
+            st.markdown("## 运行回放")
+            st.caption("这里只展示已经发生并持久化的执行事实；概念架构节点不会出现在 Trace 中。")
         session_runs = st.session_state.get("trace_runs", [])
         try:
             logged_runs = load_trace_runs()
@@ -184,9 +184,10 @@ def _render_trace_lab(
                 st.error(f"{uploaded_file.name}: {exc}")
 
         runs = merge_trace_runs(logged_runs, session_runs, imported_runs)
+        forest = build_trace_forest(runs)
         if runs:
             export_col.download_button(
-                "导出当前 Trace",
+                "导出全部 Trace",
                 data=traces_to_jsonl(runs),
                 file_name="easyagent-traces.jsonl",
                 mime="application/x-ndjson",
@@ -200,8 +201,20 @@ def _render_trace_lab(
             st.markdown('<div class="ea-empty">暂无可回放 Trace。</div>', unsafe_allow_html=True)
             return
 
-        run_ids = [str(run["run_id"]) for run in runs]
-        labels = {str(run["run_id"]): trace_label(run) for run in runs}
+        display_order = trace_family_order(forest)
+        run_ids = [run_id for run_id, _depth in display_order]
+        if not run_ids:
+            run_ids = [str(run["run_id"]) for run in runs]
+        depth_by_id = dict(display_order)
+        labels = {
+            str(run["run_id"]): (
+                f"{'└─ ' * depth_by_id.get(str(run['run_id']), 0)}{trace_label(run)}"
+            )
+            for run in runs
+        }
+        pending_jump = st.session_state.pop("ea_trace_jump_to", None)
+        if pending_jump in run_ids:
+            st.session_state.ea_replay_run = pending_jump
         lookup_id = st.text_input(
             "按日志 ID 查找",
             placeholder="输入完整 run_id 或唯一前缀",
@@ -225,6 +238,53 @@ def _render_trace_lab(
         )
         replay = next(run for run in runs if run["run_id"] == replay_id)
         summary = summarize_trace_run(replay)
+        all_runs = forest["all_runs"]
+        parent_run = all_runs.get(summary["parent_run_id"])
+        child_runs = forest["children"].get(replay_id, [])
+        parent_summary = summarize_trace_run(parent_run) if parent_run else None
+        child_summaries = [summarize_trace_run(child) for child in child_runs]
+        st.markdown(
+            _trace_breadcrumb_html(summary, parent_summary, child_summaries),
+            unsafe_allow_html=True,
+        )
+        family = trace_family_from_forest(forest, replay_id)
+        family_col, nav_col = st.columns([1, 1])
+        if len(family) > 1:
+            family_col.download_button(
+                "导出协作 Trace bundle",
+                data=traces_to_jsonl(family),
+                file_name=f"easyagent-family-{replay_id[:12]}.jsonl",
+                mime="application/x-ndjson",
+                use_container_width=True,
+                key=f"ea_export_family_{replay_id}",
+            )
+        else:
+            family_col.caption("该运行没有已加载的子运行。")
+        navigation_targets: list[tuple[str, str]] = []
+        if parent_run is not None:
+            navigation_targets.append((str(parent_run["run_id"]), "跳转父运行"))
+        navigation_targets.extend(
+            (str(child["run_id"]), f"子运行 · {str(child.get('agent_name') or 'Agent')}")
+            for child in child_runs
+        )
+        if navigation_targets:
+            target_ids = [target for target, _label in navigation_targets]
+            target_labels = dict(navigation_targets)
+            target = nav_col.selectbox(
+                "Family 导航",
+                options=target_ids,
+                format_func=lambda run_id: target_labels[run_id],
+                key=f"ea_family_nav_{replay_id}",
+            )
+            if nav_col.button(
+                "打开运行",
+                key=f"ea_family_open_{replay_id}",
+                use_container_width=True,
+            ):
+                st.session_state.ea_trace_jump_to = target
+                st.rerun()
+        else:
+            nav_col.caption("无父/子运行可跳转。")
         st.markdown(_trace_metrics_html(summary), unsafe_allow_html=True)
         if summary["error"]:
             st.warning(diagnose_trace_run(replay))
@@ -282,41 +342,6 @@ def _render_trace_lab(
                 unsafe_allow_html=True,
             )
 
-        st.markdown("**COMPARE RUNS**")
-        compare_key = "ea_compare_runs"
-        option_signature = tuple(run_ids)
-        if st.session_state.get("ea_compare_run_options") != option_signature:
-            selected = [
-                run_id for run_id in st.session_state.get(compare_key, []) if run_id in run_ids
-            ]
-            for run_id in reversed(run_ids):
-                if len(selected) >= 2:
-                    break
-                if run_id not in selected:
-                    selected.append(run_id)
-            st.session_state[compare_key] = selected[:2] if len(run_ids) >= 2 else []
-            st.session_state.ea_compare_run_options = option_signature
-        compare_ids = st.multiselect(
-            "选择两个运行",
-            options=run_ids,
-            format_func=lambda run_id: labels[run_id],
-            max_selections=2,
-            key=compare_key,
-        )
-        if len(compare_ids) == 2:
-            compare_runs = [
-                next(run for run in runs if run["run_id"] == run_id) for run_id in compare_ids
-            ]
-            st.markdown(
-                _trace_compare_html(
-                    summarize_trace_run(compare_runs[0]),
-                    summarize_trace_run(compare_runs[1]),
-                ),
-                unsafe_allow_html=True,
-            )
-        else:
-            st.caption("选择两个运行后，会并排显示提示词、模型、延迟、token、成本和工具调用。")
-
 
 def _render_architecture_demo(st: Any) -> None:
     """Render an interactive architecture-pattern showcase with a flowchart.
@@ -331,6 +356,10 @@ def _render_architecture_demo(st: Any) -> None:
     Injection (the legacy text-parsing approach).
     """
     with st.expander("🧠 AGENT 架构演示", expanded=False):
+        st.caption(
+            "以下模式都是 Agent + @tool + 普通 Python 的组合；"
+            "没有内置编排器、工作流引擎或 Coordinator 类。"
+        )
         arch_options = list(_ARCHITECTURE_PRESETS.keys())
         selected = st.selectbox(
             "选择架构模式",
@@ -362,7 +391,10 @@ def _render_architecture_demo(st: Any) -> None:
             options=tc_options,
             index=0,
             key="ea_tool_calling_mode_demo",
-            help="对比 Function Calling（原生）与 Prompt-based Tool Calling（提示词工具调用）的区别。",
+            help=(
+                "对比 Function Calling（原生）与 Prompt-based Tool Calling"
+                "（提示词工具调用）的区别。"
+            ),
         )
         tc_desc = _tool_calling_description(tc_selected)
         if tc_desc:
@@ -492,8 +524,7 @@ def _render_code_export(
         blocked = [
             tool
             for tool in selected_tools
-            if tool in _NON_EXPORTABLE
-            or origins.get(tool, "").startswith(("上传", "MCP"))
+            if tool in _NON_EXPORTABLE or origins.get(tool, "").startswith(("上传", "MCP"))
         ]
         if blocked:
             st.warning(
@@ -554,11 +585,8 @@ def _render_learning_labs(
     audit_log: bool,
     tool_origins: dict[str, str] | None = None,
 ) -> None:
-    """Render concept, replay, and export labs independently of live Agent state."""
+    """Render ReAct code export independently of live Agent state."""
     st.divider()
-    _render_architecture_demo(st)
-    _render_engineering_demo(st)
-    _render_trace_lab(st)
     if agent_file is None and not model_missing:
         _render_code_export(
             st,
@@ -572,12 +600,88 @@ def _render_learning_labs(
             audit_log=audit_log,
             rag_text=st.session_state.get("ea_rag_text", ""),
             tool_origins=tool_origins,
-            tool_description_overrides=st.session_state.get(
-                "ea_tool_description_overrides", {}
-            ),
+            tool_description_overrides=st.session_state.get("ea_tool_description_overrides", {}),
         )
     elif agent_file is None:
         st.info("填写模型 ID 后可生成并导出 Agent。")
+
+
+_ARCHITECTURE_NAV = {
+    "react": "ReAct",
+    "plan_execute": "Plan-and-Execute",
+    "reflection": "Reflection",
+    "multi_agent": "Multi-Agent",
+    "routing": "Routing",
+}
+
+
+def _render_top_navigation(st: Any) -> tuple[str, str]:
+    """Render architecture-first navigation with Streamlit 1.30 fallback."""
+    current_view = str(st.session_state.get("ea_visual_view", "architecture"))
+    current_architecture = str(st.session_state.get("ea_architecture_mode", "react"))
+    if current_architecture not in _ARCHITECTURE_NAV:
+        current_architecture = "react"
+    labels = list(_ARCHITECTURE_NAV.values())
+    reverse = {label: key for key, label in _ARCHITECTURE_NAV.items()}
+    selected_label = _ARCHITECTURE_NAV[current_architecture]
+    segmented = getattr(st, "segmented_control", None)
+    if callable(segmented):
+        selection = segmented(
+            "Agent 架构",
+            options=labels,
+            default=selected_label,
+            key="ea_architecture_nav",
+            selection_mode="single",
+            label_visibility="collapsed",
+        )
+    else:
+        selection = st.radio(
+            "Agent 架构",
+            options=labels,
+            index=labels.index(selected_label),
+            key="ea_architecture_nav",
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+    architecture_id = reverse.get(str(selection), current_architecture)
+    if architecture_id != current_architecture:
+        st.session_state.ea_architecture_mode = architecture_id
+        st.session_state.ea_visual_view = "architecture"
+        current_view = "architecture"
+    else:
+        st.session_state.ea_architecture_mode = architecture_id
+    architecture_col, replay_col, eval_col, context_col = st.columns([1, 1, 1, 3])
+    if architecture_col.button(
+        "架构实验",
+        use_container_width=True,
+        type="primary" if current_view == "architecture" else "secondary",
+        key="ea_nav_architecture",
+    ):
+        st.session_state.ea_visual_view = "architecture"
+        st.rerun()
+    if replay_col.button(
+        "运行回放",
+        use_container_width=True,
+        type="primary" if current_view == "trace" else "secondary",
+        key="ea_nav_trace",
+    ):
+        st.session_state.ea_visual_view = "trace"
+        st.rerun()
+    if eval_col.button(
+        "对比与评测",
+        use_container_width=True,
+        type="primary" if current_view == "evaluation" else "secondary",
+        key="ea_nav_evaluation",
+    ):
+        st.session_state.ea_visual_view = "evaluation"
+        st.rerun()
+    context_messages = {
+        "architecture": "运行五种架构实验，并区分概念示意与真实 Trace。",
+        "trace": "查看一次运行的时间线、配置与父子 Agent family。",
+        "evaluation": "比较 2-4 个 Agent 运行，或执行同一 Agent 的批量回归。",
+    }
+    context_col.caption(context_messages.get(current_view, context_messages["architecture"]))
+    return current_view, architecture_id
 
 
 def _profile_setting(
@@ -626,9 +730,7 @@ def _tool_group_summary(
     available_tools: dict[str, Tool],
 ) -> str:
     selected_count = sum(name in selected for name in tool_names)
-    destructive = sum(
-        bool(getattr(available_tools[name], "confirm", False)) for name in tool_names
-    )
+    destructive = sum(bool(getattr(available_tools[name], "confirm", False)) for name in tool_names)
     suffix = f" · ⚠ {destructive}" if destructive else ""
     return f"{group} · {selected_count}/{len(tool_names)} 已选{suffix}"
 
@@ -673,6 +775,20 @@ def _run_app() -> None:
         """,
         unsafe_allow_html=True,
     )
+    visual_view, architecture_mode = _render_top_navigation(st)
+    if visual_view == "trace":
+        _render_trace_lab(st, standalone=True)
+        return
+    if visual_view == "evaluation":
+        from agentmold.visual.evaluation_view import render_evaluation_view
+
+        render_evaluation_view(st)
+        return
+    if architecture_mode != "react":
+        from agentmold.visual.teaching_view import render_teaching_view
+
+        render_teaching_view(st, architecture_mode)
+        return
 
     # ------------------------------------------------------------------
     # Sidebar: either load a code-defined agent or configure a small demo.
@@ -695,6 +811,10 @@ def _run_app() -> None:
     selected_tools: list[str]
     tool_signature: tuple[tuple[str, str | None], ...]
     available_tools: dict[str, Tool]
+    tool_origins: dict[str, str]
+    loop_detection_threshold = 3
+    require_approval = False
+    audit_log = False
     if agent_file is not None:
         st.sidebar.header("📄 代码 Agent")
         st.sidebar.code(str(agent_file), language="text")
@@ -733,7 +853,6 @@ def _run_app() -> None:
             st.session_state.ea_restored_tool_names = saved_agent_config.get(
                 "selected_tools", ["calculate"]
             )
-            st.session_state.ea_agent_mode = saved_agent_config.get("agent_mode", "标准模式")
             st.session_state.ea_loop_detection_threshold = saved_agent_config.get(
                 "loop_detection_threshold", 3
             )
@@ -750,52 +869,18 @@ def _run_app() -> None:
         agent_notice = st.session_state.pop("ea_agent_notice", None)
         if agent_notice:
             st.toast(agent_notice, icon="🔄")
-        st.sidebar.subheader("🎯 运行模式")
-        agent_mode = st.sidebar.selectbox(
-            "模式预设",
-            options=list(_AGENT_MODE_PRESETS.keys()),
-            key="ea_agent_mode",
-            help="预设一键配置安全门：安全模式开启确认门与审计；调试模式开启审计与详细日志。",
-        )
-        mode_is_custom = agent_mode == "自定义"
-        _mode_descriptions = {
-            "标准模式": (
-                "循环检测开（阈值 3）· 无确认门 · 无审计。\n"
-                "适合快速体验 Agent 基本循环，无额外安全防护。"
-            ),
-            "安全模式": (
-                "循环检测开 · **破坏性工具需确认** · 审计日志开。\n"
-                "破坏性工具（如 write_file）执行前会弹确认门，每次工具调用写入审计日志。"
-            ),
-            "调试模式": (
-                "循环检测开 · 无确认门 · 审计日志开。\n"
-                "审计日志记录每次工具调用；时间线和执行地图显示每一步思考/动作/观察。"
-            ),
-            "自定义": "手动调整下方安全门开关，自由组合防护策略。",
-        }
-        st.sidebar.caption(_mode_descriptions.get(agent_mode, ""))
-        effective = _resolve_mode(
-            agent_mode,
-            st.session_state.get("ea_loop_detection_threshold", 3),
-            st.session_state.get("ea_require_approval", False),
-            st.session_state.get("ea_audit_log", False),
-        )
-        if not mode_is_custom:
-            st.session_state.ea_loop_detection_threshold = effective["loop_detection_threshold"]
-            st.session_state.ea_require_approval = effective["require_approval"]
-            st.session_state.ea_audit_log = effective["audit_log"]
+        st.sidebar.caption("主要配置")
+        name = st.sidebar.text_input("Agent 名称", key="ea_agent_name")
         with st.sidebar.expander(
-            "运行与安全 · "
-            f"loop={effective['loop_detection_threshold']} · "
-            f"HITL{'开' if effective['require_approval'] else '关'} · "
-            f"audit{'开' if effective['audit_log'] else '关'}",
-            expanded=mode_is_custom,
+            "运行限制与安全（高级）",
+            expanded=False,
         ):
             max_iterations = st.slider(
                 "最大迭代次数",
                 min_value=1,
                 max_value=20,
                 key="ea_max_iterations",
+                help="一次运行允许的最大模型轮次。",
             )
             loop_detection_threshold = st.number_input(
                 "重复调用检测阈值",
@@ -803,25 +888,28 @@ def _run_app() -> None:
                 max_value=20,
                 step=1,
                 key="ea_loop_detection_threshold",
-                disabled=not mode_is_custom,
-                help="同一工具相同参数连续调用 N 次即判定为死循环；设为 1 也可。",
+                help="同一工具与参数连续调用 N 次时停止，避免无效循环。",
             )
             require_approval = st.checkbox(
-                "破坏性工具需确认（HITL）",
+                "拒绝需要确认的工具",
                 key="ea_require_approval",
-                disabled=not mode_is_custom,
-                help="开启后，@tool(confirm=True) 的工具执行前会触发确认门。",
+                help=(
+                    "开启后，@tool(confirm=True) 和已标记的 MCP 工具会记录确认事件并拒绝执行。"
+                    "当前 Visual Lab 不提供运行中批准。"
+                ),
             )
             audit_log = st.checkbox(
                 "记录工具调用审计日志",
                 key="ea_audit_log",
-                disabled=not mode_is_custom,
-                help="每次工具调用写入 .agentmold/audit.jsonl，可回放。",
+                help="每次工具调用写入 .agentmold/audit.jsonl。",
             )
-        name = st.sidebar.text_input("Agent 名称", key="ea_agent_name")
+            st.caption(
+                f"当前：loop={int(loop_detection_threshold)} · "
+                f"deny={'开' if require_approval else '关'} · "
+                f"audit={'开' if audit_log else '关'}"
+            )
         with st.sidebar.expander(
-            "Agent 指令 · "
-            f"{len(st.session_state.get('ea_agent_instructions', ''))} 字符",
+            f"Agent 指令 · {len(st.session_state.get('ea_agent_instructions', ''))} 字符",
             expanded=st.session_state.get("agent") is None,
         ):
             instructions = st.text_area(
@@ -870,9 +958,8 @@ def _run_app() -> None:
             st.session_state[f"ea_timeout_{widget_suffix}"] = profile_defaults["timeout"]
             st.session_state[f"ea_max_tokens_{widget_suffix}"] = profile_defaults["max_tokens"]
             st.session_state.ea_active_profile = profile_key
-        interface_expanded = (
-            connection_type == "自定义提供商"
-            or (connection_type != "Mock（离线）" and not saved_profile)
+        interface_expanded = connection_type == "自定义提供商" or (
+            connection_type != "Mock（离线）" and not saved_profile
         )
         with st.sidebar.expander(
             f"接口参数 · {connection_type} / {profile_defaults['model'] or '未设置模型'}",
@@ -1251,13 +1338,10 @@ def _run_app() -> None:
         current_selected = {
             tool_name
             for tool_name in available_tools
-            if st.session_state.get(
-                _tool_widget_key(tool_name), tool_name in restored_tool_names
-            )
+            if st.session_state.get(_tool_widget_key(tool_name), tool_name in restored_tool_names)
         }
         destructive_selected = sum(
-            bool(getattr(available_tools[name], "confirm", False))
-            for name in current_selected
+            bool(getattr(available_tools[name], "confirm", False)) for name in current_selected
         )
         summary = f"已选 {len(current_selected)}/{len(available_tools)}"
         if destructive_selected:
@@ -1284,7 +1368,7 @@ def _run_app() -> None:
                     )
                     help_text = effective_description or "未提供工具说明"
                     if getattr(visual_tool, "confirm", False):
-                        help_text += "（标记为破坏性：安全模式下执行前需确认）"
+                        help_text += "（需要确认；开启高级拒绝开关后不会执行）"
                     if st.checkbox(label, key=widget_key, help=help_text):
                         selected_tools.append(tool_name)
 
@@ -1356,7 +1440,6 @@ def _run_app() -> None:
             "custom_tool_files": custom_tool_files,
             "mcp_url": st.session_state.get("ea_mcp_url", ""),
             "rag_text": st.session_state.get("ea_rag_text", ""),
-            "agent_mode": agent_mode,
             "loop_detection_threshold": int(loop_detection_threshold),
             "require_approval": bool(require_approval),
             "audit_log": bool(audit_log),
@@ -1400,7 +1483,6 @@ def _run_app() -> None:
                             "ea_max_iterations",
                             "ea_restored_tool_names",
                             "ea_visual_config_initialized",
-                            "ea_agent_mode",
                             "ea_loop_detection_threshold",
                             "ea_require_approval",
                             "ea_audit_log",
@@ -1448,7 +1530,6 @@ def _run_app() -> None:
             selected_tools,
             max_iterations,
             tool_signature,
-            mode=agent_mode,
             loop_detection_threshold=loop_detection_threshold,
             require_approval=require_approval,
             audit_log=audit_log,
@@ -1539,8 +1620,11 @@ def _run_app() -> None:
                 tool_origins=tool_origins,
             )
             st.session_state.agent_signature = current_sig
-            # Keep existing conversation history - only the agent changed.
             agent = st.session_state.agent
+            st.session_state.messages = []
+            st.session_state.last_steps = []
+            st.session_state.last_user_input = None
+            st.session_state.run_meta = _initial_run_meta()
             auto_rebuilt = True
         except Exception as exc:  # noqa: BLE001
             st.session_state.agent = None
@@ -1590,10 +1674,9 @@ def _run_app() -> None:
             st.markdown(f"- **LLM:** `{agent.llm.model}`")
             st.markdown(f"- **工具:** {tool_list}")
             st.markdown(f"- **最大迭代:** {agent.max_iterations}")
-            st.markdown(f"- **模式:** {agent_mode}")
             gate_summary = []
             if require_approval:
-                gate_summary.append("✅ 确认门")
+                gate_summary.append("需确认工具=拒绝")
             if audit_log:
                 gate_summary.append("✅ 审计日志")
             gate_summary.append(f"循环检测={loop_detection_threshold}")
@@ -1749,13 +1832,12 @@ def _run_app() -> None:
                             run_meta["phase"] = "确认门"
                             try:
                                 st.warning(
-                                    f"⚠ **确认门 (HITL):** 破坏性工具 "
-                                    f"`{step['name']}({step['arguments']})` "
-                                    "已被安全模式拦截。"
+                                    f"⚠ **工具执行已拒绝:** 需要确认的工具 "
+                                    f"`{step['name']}({step['arguments']})` 未执行。"
                                 )
                                 st.caption(
-                                    "这是人机协作（HITL）安全门教学事件：当前同步运行默认拒绝，"
-                                    "以避免脚本重跑时产生未绑定到本次调用的批准。"
+                                    "Visual Lab 当前不提供运行中批准；"
+                                    "该确认请求和拒绝结果已写入 Trace。"
                                 )
                             except OSError:
                                 pass

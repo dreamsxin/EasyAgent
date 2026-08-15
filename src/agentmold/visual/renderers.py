@@ -31,6 +31,7 @@ __all__ = [
     "run_metrics_html",
     "trace_metrics_html",
     "trace_compare_html",
+    "trace_breadcrumb_html",
     "trace_support_payload",
     "format_token_count",
     "format_percent",
@@ -238,21 +239,26 @@ def apply_trace_usage_to_run_meta(meta: dict[str, Any], trace: AgentTrace | None
 
 
 def remember_trace(st: Any, trace: AgentTrace) -> None:
-    """Keep completed traces in the current session for replay and export."""
-    run = trace.to_dict()
+    """Keep completed traces (including children) in session for replay/export."""
+    from agentmold.agent import _trace_family
+
+    family = _trace_family(trace)
     runs = st.session_state.get("trace_runs", [])
-    st.session_state.trace_runs = merge_trace_runs(runs, [run])[-50:]
+    new_runs = [t.to_dict() for t in family]
+    st.session_state.trace_runs = merge_trace_runs(runs, new_runs)[-50:]
     logged_ids = set(st.session_state.get("ea_logged_trace_ids", []))
-    if trace.run_id in logged_ids:
-        return
-    try:
-        path = append_trace_run(run)
-    except OSError as exc:
-        st.session_state.ea_trace_log_error = str(exc)
-        return
-    logged_ids.add(trace.run_id)
-    st.session_state.ea_logged_trace_ids = sorted(logged_ids)
-    st.session_state.ea_trace_log_path = str(path)
+    for t in family:
+        if t.run_id in logged_ids:
+            continue
+        run = t.to_dict()
+        try:
+            path = append_trace_run(run)
+        except OSError as exc:
+            st.session_state.ea_trace_log_error = str(exc)
+            return
+        logged_ids.add(t.run_id)
+        st.session_state.ea_logged_trace_ids = sorted(logged_ids)
+        st.session_state.ea_trace_log_path = str(path)
 
 
 def trace_support_payload(run: dict[str, Any]) -> dict[str, Any]:
@@ -301,6 +307,31 @@ def format_percent(value: Any) -> str:
     return f"{value * 100:.1f}%"
 
 
+def trace_breadcrumb_html(
+    current: dict[str, Any],
+    parent: dict[str, Any] | None = None,
+    children: list[dict[str, Any]] | None = None,
+) -> str:
+    """Render an escaped parent/current/children trace family breadcrumb."""
+
+    def label(summary: dict[str, Any]) -> str:
+        agent_name = str(summary.get("agent_name") or "Agent")
+        run_id = str(summary.get("run_id") or "")[:12] or "unknown"
+        return f"{agent_name} · {run_id}"
+
+    parts: list[str] = []
+    if parent is not None:
+        parts.append(f"<span class='ea-trace-parent'>{html.escape(label(parent))}</span>")
+        parts.append("<span class='ea-trace-separator'>↔</span>")
+    parts.append(f"<strong class='ea-trace-current'>{html.escape(label(current))}</strong>")
+    child_summaries = children or []
+    if child_summaries:
+        parts.append("<span class='ea-trace-separator'>↔</span>")
+        child_labels = ", ".join(label(child) for child in child_summaries)
+        parts.append(f"<span class='ea-trace-children'>{html.escape(child_labels)}</span>")
+    return "<div class='ea-trace-breadcrumb'>" + "".join(parts) + "</div>"
+
+
 def trace_metrics_html(summary: dict[str, Any]) -> str:
     """Render the compact metrics strip used by the trace replay panel."""
     duration = summary.get("duration_ms")
@@ -316,6 +347,7 @@ def trace_metrics_html(summary: dict[str, Any]) -> str:
         f"<div><span>STATUS</span><strong>{status_text}</strong></div>"
         f"<div><span>MODEL</span><strong>{model_text}</strong></div>"
         f"<div><span>EVENTS</span><strong>{int(summary.get('event_count', 0))}</strong></div>"
+        f"<div><span>ROUNDS</span><strong>{html.escape(format_token_count(summary.get('rounds')))}</strong></div>"
         f"<div><span>TOOLS</span><strong>{int(summary.get('tool_calls', 0))}</strong></div>"
         f"<div><span>TOKENS</span><strong>{html.escape(token_text)}</strong></div>"
         f"<div><span>CACHE HIT</span><strong>{html.escape(cache_hit_text)}</strong></div>"
@@ -371,6 +403,7 @@ def trace_compare_html(left: dict[str, Any], right: dict[str, Any]) -> str:
             + metric("TOKENS", format_token_count(summary.get("total_tokens")))
             + metric("CACHE HIT", format_percent(summary.get("cache_hit_rate")))
             + metric("COST USD", value(summary, "cost", lambda item: f"${float(item):.6f}"))
+            + metric("ROUNDS", format_token_count(summary.get("rounds")))
             + metric("TOOLS", str(summary.get("tool_calls", 0)))
             + metric("SCHEMA", str(summary.get("tool_schema_fingerprint") or "-"))
             + metric("STATUS", str(summary.get("status", "unknown")).upper())

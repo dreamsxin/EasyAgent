@@ -118,17 +118,18 @@ def test_visual_agent_config_drops_invalid_override_container(tmp_path):
     assert "tool_description_overrides" not in load_visual_agent_config(path)
 
 
-
 def test_visual_agent_config_filters_invalid_values(tmp_path):
     path = tmp_path / "agent.json"
     path.write_text(
         json.dumps(
             {
                 "agent": {
-                    "name": 123,
+                    "name": "   ",
+                    "instructions": "",
                     "max_iterations": 99,
                     "selected_tools": "calculate",
                     "custom_tool_files": ["../outside.py", "valid.py", 3],
+                    "agent_mode": "安全模式",
                 }
             }
         ),

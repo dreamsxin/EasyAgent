@@ -22,8 +22,9 @@ framework than the package provides.
 | Built-in providers | Shipped | OpenAI, DeepSeek, Anthropic, DeepSeek Anthropic, and Ollama use explicit provider and model fields through optional extras. |
 | Provider text streaming | Shipped | Built-in network providers expose native sync/async chunks; `mock` and extensions may use the complete-response fallback. |
 | Memory | Shipped | Short-term `Memory` is core; named `VectorMemory` collections are an optional dependency. |
-| Trace and evaluation | Shipped | JSONL traces, usage metadata, batch evaluation, and isolated regression cases are public APIs. |
-| Visual research lab | Shipped | Streamlit configures or loads one code-defined Agent and visualizes observed events without adding a workflow DSL. |
+| Trace and evaluation | Shipped | Trace v2 records status, model rounds, structured tool results, usage, and parent/child correlation; Eval v2 supports repeated samples and named trusted-Python metrics. |
+| Visual research lab | Shipped | Streamlit exposes ReAct, Plan-and-Execute, Reflection, Multi-Agent, and Routing; the four composition lessons default to saved real models, keep fixed-response offline demos explicitly separate, and provide replay, comparison, evaluation, and export. |
+| Architecture teaching runners | Shipped | Live runners let model output drive Python control flow; deterministic runners remain for offline teaching. Both create real Agent traces plus separate TeachingEvents without inventing missing branches or child runs. |
 | Python provider/tool extensions | Shipped | Standard entry points provide explicit discovery; extension loading errors are not hidden. |
 | Agent as a tool | Experimental | `agentmold.experimental.agent_as_tool` supports bounded parent/child experiments and correlated traces. |
 | Shared provider conformance matrix | Shipped | Every built-in adapter runs through one offline final-chat and tool-round-trip contract suite. |
