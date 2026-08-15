@@ -23,8 +23,8 @@ framework than the package provides.
 | Provider text streaming | Shipped | Built-in network providers expose native sync/async chunks; `mock` and extensions may use the complete-response fallback. |
 | Memory | Shipped | Short-term `Memory` is core; named `VectorMemory` collections are an optional dependency. |
 | Trace and evaluation | Shipped | Trace v2 records status, model rounds, structured tool results, usage, and parent/child correlation; Eval v2 supports repeated samples and named trusted-Python metrics. |
-| Visual research lab | Shipped | Streamlit exposes ReAct, Plan-and-Execute, Reflection, Multi-Agent, and Routing at the top level, with deterministic offline lessons, concept/observation separation, replay, evaluation, and export. |
-| Architecture teaching runners | Shipped | Pure-Python runners create real Agent traces plus separate TeachingEvents; Plan, Reflection, and Routing do not invent parent/child links. |
+| Visual research lab | Shipped | Streamlit exposes ReAct, Plan-and-Execute, Reflection, Multi-Agent, and Routing; the four composition lessons default to saved real models, keep fixed-response offline demos explicitly separate, and provide replay, comparison, evaluation, and export. |
+| Architecture teaching runners | Shipped | Live runners let model output drive Python control flow; deterministic runners remain for offline teaching. Both create real Agent traces plus separate TeachingEvents without inventing missing branches or child runs. |
 | Python provider/tool extensions | Shipped | Standard entry points provide explicit discovery; extension loading errors are not hidden. |
 | Agent as a tool | Experimental | `agentmold.experimental.agent_as_tool` supports bounded parent/child experiments and correlated traces. |
 | Shared provider conformance matrix | Shipped | Every built-in adapter runs through one offline final-chat and tool-round-trip contract suite. |

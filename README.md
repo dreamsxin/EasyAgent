@@ -102,8 +102,13 @@ response = agent.run("Hello! What can you do?")
 ### 可视化实验室（五种 Agent 架构直达）
 
 安装 Streamlit extra 后，顶部可以直接切换 `ReAct`、`Plan-and-Execute`、`Reflection`、
-`Multi-Agent` 和 `Routing`。ReAct 保留可配置的单 Agent 工作台；其余四种模式是确定性、
-离线可运行的教学实验，不需要 API Key，也不会构建无关的 ReAct Agent。
+`Multi-Agent` 和 `Routing`。ReAct 保留可配置的单 Agent 工作台；其余四种架构默认使用
+已保存的真实模型执行：Planner 的输出决定步骤，Critic 的反馈决定修订，Router 的输出决定
+唯一专家，Coordinator 的真实 tool calls 才会产生 Researcher/Analyst child traces。
+
+教学页也可显式切到 **确定性离线演示**。它不需要 API Key，使用固定 `ScriptedLLM` 响应，
+只适合观察 Python 控制流和 Trace 结构，不代表 Agent 对任意输入做了真实决策。页面、结果
+metadata 和导出文件都会标明执行方式，不会把离线脚本混称为真实架构执行。
 
 每个教学页把两类信息明确分开：
 
@@ -567,10 +572,10 @@ EasyAgent 的默认执行循环就是 ReAct（模型轮次 → 行动 → 观察
 组合出来的，不需要工作流 DSL 或编排运行时。
 
 在可视化实验室（`easyagent visual`）顶部可以直接进入五种架构。Plan-and-Execute、
-Reflection、Multi-Agent 和 Routing 都提供确定性离线 runner、Python 控制流事件、真实
-Agent traces 以及 JSON、JSONL、`example.py` 导出；Multi-Agent 使用 experimental
-`agent_as_tool`，不是稳定协调器 API。详见 [Agent 架构模式文档](docs/architectures.md)。
-和 [Cookbook 示例](cookbook/09_agent_architectures.py)。
+Reflection、Multi-Agent 和 Routing 默认由保存的真实模型驱动，并保留明确分开的确定性离线
+runner。两种执行方式都导出 Python 控制流事件、Agent traces、JSON、JSONL 和 `example.py`；
+Multi-Agent 使用 experimental `agent_as_tool`，不是稳定协调器 API。详见
+[Agent 架构模式文档](docs/architectures.md)和 [Cookbook 示例](cookbook/09_agent_architectures.py)。
 
 ## 📚 文档
 

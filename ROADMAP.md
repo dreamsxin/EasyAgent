@@ -114,7 +114,8 @@ Target: make the implementation understandable without overstating what it can d
 - [x] Render a behavior-first execution map with animated live and replay states;
   visualize observed events without inventing hidden planning steps.
 - [x] Expose ReAct, Plan-and-Execute, Reflection, Multi-Agent, and Routing as top-level
-  visual modes with deterministic offline runners and separate concept/observation views.
+  visual modes. Default composition lessons to saved real models, keep fixed-response offline
+  runners explicitly separate, and distinguish concepts from observed execution facts.
 - [x] Export each teaching experiment as strict JSON, portable Agent Trace JSONL, and a
   tested offline Python recipe; preserve real parent/child families only for Agent-as-Tool.
 

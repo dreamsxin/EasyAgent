@@ -6,11 +6,12 @@ architectures onto that single primitive, so you can recognise a pattern when
 you need it and implement it without a workflow DSL.
 
 > The visual lab (`easyagent visual`) exposes all five patterns in its top navigation.
-> ReAct opens the configurable single-Agent workbench; the other pages run deterministic
-> offline experiments. Each page labels the architecture diagram as **concept only, not this
-> run**, then shows Python control-flow events separately from real `AgentTrace` records.
-> Completed lessons export `teaching-experiment.json`, `agent-traces.jsonl`, and an offline
-> `example.py`.
+> ReAct opens the configurable single-Agent workbench. The other pages default to a saved
+> real provider profile: model responses drive planning, critique, routing, and delegation.
+> A separately labelled deterministic offline mode uses fixed `ScriptedLLM` responses only
+> to teach control flow and Trace structure. Each page labels its architecture diagram as
+> **concept only, not this run**, then shows Python events separately from real `AgentTrace`
+> records. Completed lessons export JSON, Trace JSONL, and `example.py`.
 
 ## Why patterns, not a framework
 
@@ -136,6 +137,23 @@ do not. `route_selected` remains a Python control-flow event. If classification 
 need an LLM, use the same keyword check or another classifier directly. See
 [Engineering practice](engineering.md) for a rules -> DistilBERT -> LLM cascade that
 optimizes cost and latency.
+
+---
+
+## Live and deterministic runners
+
+The visual lab uses two deliberately separate modules:
+
+- `agentmold.visual.live_teaching`: accepts a model factory. Planner text is parsed into the
+  steps that actually run; Critic `DONE` stops Reflection; Router output selects the only
+  expert; Coordinator tool calls create real child runs. Missing or malformed decisions fail
+  or remain visibly incomplete instead of being repaired into a fake successful architecture.
+- `agentmold.visual.teaching`: uses finite, fixed `ScriptedLLM` queues for offline teaching,
+  tests, and reproducible exports. Its traces are real Agent traces, but its model decisions
+  are prescribed and must not be interpreted as task-solving behavior.
+
+Multi-Agent completeness is an observed fact: a run counts as full collaboration only when
+both specialist tool calls and their correlated child traces exist.
 
 ---
 

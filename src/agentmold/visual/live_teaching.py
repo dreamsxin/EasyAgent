@@ -28,6 +28,7 @@ __all__ = [
     "run_live_reflection_experiment",
     "run_live_routing_experiment",
     "run_live_teaching_experiment",
+    "live_source_code",
 ]
 
 
@@ -86,7 +87,7 @@ def run_live_plan_execute_experiment(
         output=output,
         events=events,
         traces=traces,
-        source_code=_live_source_code("plan_execute", prompt),
+        source_code=live_source_code("plan_execute", prompt),
         metadata={
             "execution_mode": "live",
             "plan": steps,
@@ -174,7 +175,7 @@ def run_live_reflection_experiment(
         output=output,
         events=events,
         traces=traces,
-        source_code=_live_source_code("reflection", prompt),
+        source_code=live_source_code("reflection", prompt),
         metadata={
             "execution_mode": "live",
             "feedback_rounds": feedback_rounds,
@@ -223,7 +224,7 @@ def run_live_routing_experiment(
         output=output,
         events=events,
         traces=[router_trace, expert_trace],
-        source_code=_live_source_code("routing", prompt),
+        source_code=live_source_code("routing", prompt),
         metadata={
             "execution_mode": "live",
             "route_selected": route,
@@ -300,7 +301,7 @@ async def arun_live_multi_agent_experiment(
         output=output,
         events=events,
         traces=traces,
-        source_code=_live_source_code("multi_agent", prompt),
+        source_code=live_source_code("multi_agent", prompt),
         metadata={
             "execution_mode": "live",
             "delegated_tools": delegated_tools,
@@ -434,7 +435,7 @@ def _trace_family(root: AgentTrace) -> list[AgentTrace]:
     return family
 
 
-def _live_source_code(mode: str, user_input: str) -> str:
+def live_source_code(mode: str, user_input: str) -> str:
     runner_names = {
         "plan_execute": "run_live_plan_execute_experiment",
         "reflection": "run_live_reflection_experiment",

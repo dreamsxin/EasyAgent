@@ -4,8 +4,74 @@ from __future__ import annotations
 
 import pytest
 
+from agentmold.visual.teaching import run_teaching_experiment
+from agentmold.visual.teaching_models import LiveTeachingModel
+
 streamlit_testing = pytest.importorskip("streamlit.testing.v1")
 AppTest = streamlit_testing.AppTest
+
+
+def _select_offline_mode(app) -> None:
+    execution = next(item for item in app.radio if item.label == "执行方式")
+    execution.set_value("确定性离线演示").run()
+
+
+def test_live_mode_does_not_fall_back_to_scripted_execution(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "agentmold.visual.teaching_view.load_live_teaching_models",
+        lambda: ([], []),
+    )
+    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+
+    app.run()
+    app.segmented_control[0].select("Multi-Agent").run()
+
+    execution = next(item for item in app.radio if item.label == "执行方式")
+    live_button = next(button for button in app.button if button.label == "运行真实架构")
+    assert execution.value == "真实模型执行"
+    assert live_button.disabled is True
+    assert any(button.label == "去 ReAct 配置模型" for button in app.button)
+    assert "teaching.multi_agent.live.result" not in app.session_state
+
+
+def test_live_mode_passes_saved_model_to_live_runner(monkeypatch) -> None:
+    model = LiveTeachingModel(
+        key="OpenAI 兼容",
+        label="OpenAI 兼容 · openai / test-model",
+        config={"provider": "openai", "model": "test-model", "api_key": "secret"},
+    )
+    captured: dict[str, object] = {}
+
+    def fake_live_runner(mode, user_input, build_llm):
+        captured.update(mode=mode, user_input=user_input, llm=build_llm())
+        experiment = run_teaching_experiment(mode, user_input)
+        experiment.metadata["execution_mode"] = "live"
+        return experiment
+
+    monkeypatch.setattr(
+        "agentmold.visual.teaching_view.load_live_teaching_models",
+        lambda: ([model], []),
+    )
+    monkeypatch.setattr(
+        "agentmold.visual.teaching_view.run_live_teaching_experiment",
+        fake_live_runner,
+    )
+    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+
+    app.run()
+    app.segmented_control[0].select("Routing").run()
+    next(button for button in app.button if button.label == "运行真实架构").click().run()
+
+    assert not app.exception
+    assert captured == {
+        "mode": "routing",
+        "user_input": "请用 Python 写一个去重函数",
+        "llm": {"provider": "openai", "model": "test-model", "api_key": "secret"},
+    }
+    experiment = app.session_state["teaching.routing.live.result"]
+    assert experiment.metadata["execution_mode"] == "live"
+    assert experiment.metadata["model_profile"] == "OpenAI 兼容"
+    assert "secret" not in experiment.metadata["model_label"]
 
 
 def test_react_sidebar_has_direct_advanced_safety_controls() -> None:
@@ -49,11 +115,14 @@ def test_offline_teaching_modes_run_without_a_react_agent(
     navigation.select(label).run()
     assert not app.exception
     assert app.session_state["ea_architecture_mode"] == mode
-    assert [button.label for button in app.button][-2:] == ["运行实验", "重置"]
+    assert next(item for item in app.radio if item.label == "执行方式").value == "真实模型执行"
 
-    next(button for button in app.button if button.label == "运行实验").click().run()
+    _select_offline_mode(app)
+    assert [button.label for button in app.button][-2:] == ["运行离线演示", "重置"]
+
+    next(button for button in app.button if button.label == "运行离线演示").click().run()
     assert not app.exception
-    experiment = app.session_state[f"teaching.{mode}.result"]
+    experiment = app.session_state[f"teaching.{mode}.offline.result"]
     assert experiment.mode == mode
     assert len(experiment.traces) == trace_count
     assert len(app.get("download_button")) == 3
@@ -65,16 +134,17 @@ def test_switching_architectures_preserves_each_experiment_state() -> None:
 
     app.run()
     app.segmented_control[0].select("Plan-and-Execute").run()
+    _select_offline_mode(app)
     app.text_area[0].set_value(custom_input)
-    next(button for button in app.button if button.label == "运行实验").click().run()
-    plan_result = app.session_state["teaching.plan_execute.result"]
+    next(button for button in app.button if button.label == "运行离线演示").click().run()
+    plan_result = app.session_state["teaching.plan_execute.offline.result"]
 
     app.segmented_control[0].select("Reflection").run()
     assert app.text_area[0].value != custom_input
     app.segmented_control[0].select("Plan-and-Execute").run()
 
     assert app.text_area[0].value == custom_input
-    assert app.session_state["teaching.plan_execute.result"] is plan_result
+    assert app.session_state["teaching.plan_execute.offline.result"] is plan_result
     assert len(app.expander) == 5
 
 
@@ -83,7 +153,8 @@ def test_teaching_traces_flow_into_replay_and_evaluation_views() -> None:
 
     app.run()
     app.segmented_control[0].select("Multi-Agent").run()
-    next(button for button in app.button if button.label == "运行实验").click().run()
+    _select_offline_mode(app)
+    next(button for button in app.button if button.label == "运行离线演示").click().run()
     assert len(app.session_state["trace_runs"]) == 3
 
     next(button for button in app.button if button.label == "运行回放").click().run()
@@ -120,4 +191,4 @@ def test_teaching_traces_flow_into_replay_and_evaluation_views() -> None:
     assert not app.exception
     assert app.session_state["ea_visual_view"] == "evaluation"
     assert len(app.multiselect[0].value) == 3
-    assert app.session_state["teaching.multi_agent.result"].mode == "multi_agent"
+    assert app.session_state["teaching.multi_agent.offline.result"].mode == "multi_agent"

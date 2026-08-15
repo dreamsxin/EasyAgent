@@ -84,7 +84,10 @@ def test_visual_architecture_lab_documents_runnable_fact_boundary():
     assert "TeachingEvent" in readme
     assert "Agent 运行对比" in readme
     assert "Coordinator、Researcher 和 Analyst" in readme
-    assert "agent-traces.jsonl" in architectures
+    assert "默认使用" in readme and "真实模型执行" in readme
+    assert "确定性离线演示" in readme
+    assert "ScriptedLLM" in architectures
+    assert "both specialist tool calls" in architectures
     assert "General multi-Agent coordinator" in capabilities
 
 
