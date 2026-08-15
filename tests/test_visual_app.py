@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from agentmold.visual.live_teaching import ProgressEvent
 from agentmold.visual.teaching import run_teaching_experiment
 from agentmold.visual.teaching_models import LiveTeachingModel
 
@@ -42,8 +43,18 @@ def test_live_mode_passes_saved_model_to_live_runner(monkeypatch) -> None:
     )
     captured: dict[str, object] = {}
 
-    def fake_live_runner(mode, user_input, build_llm):
+    def fake_live_runner(mode, user_input, build_llm, *, on_progress=None):
         captured.update(mode=mode, user_input=user_input, llm=build_llm())
+        assert on_progress is not None
+        on_progress(ProgressEvent("routing", "Router", "正在判断任务类型"))
+        on_progress(
+            ProgressEvent(
+                "completed",
+                "Coder",
+                "Coder 已生成最终回答",
+                "completed",
+            )
+        )
         experiment = run_teaching_experiment(mode, user_input)
         experiment.metadata["execution_mode"] = "live"
         return experiment
@@ -72,6 +83,47 @@ def test_live_mode_passes_saved_model_to_live_runner(monkeypatch) -> None:
     assert experiment.metadata["execution_mode"] == "live"
     assert experiment.metadata["model_profile"] == "OpenAI 兼容"
     assert "secret" not in experiment.metadata["model_label"]
+    assert [event["stage"] for event in experiment.metadata["progress"]] == [
+        "routing",
+        "completed",
+    ]
+    progress_html = "\n".join(item.value for item in app.markdown)
+    assert "实时运行过程" in progress_html
+    assert "正在判断任务类型" in progress_html
+    assert "Coder 已生成最终回答" in progress_html
+
+
+def test_live_mode_surfaces_progress_when_runner_fails(monkeypatch) -> None:
+    model = LiveTeachingModel(
+        key="OpenAI 兼容",
+        label="OpenAI 兼容 · openai / test-model",
+        config={"provider": "openai", "model": "test-model"},
+    )
+
+    def failing_runner(mode, user_input, build_llm, *, on_progress=None):
+        assert on_progress is not None
+        on_progress(ProgressEvent("planning", "Planner", "正在生成可执行计划"))
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(
+        "agentmold.visual.teaching_view.load_live_teaching_models",
+        lambda: ([model], []),
+    )
+    monkeypatch.setattr(
+        "agentmold.visual.teaching_view.run_live_teaching_experiment",
+        failing_runner,
+    )
+    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+
+    app.run()
+    app.segmented_control[0].select("Plan-and-Execute").run()
+    next(button for button in app.button if button.label == "运行真实架构").click().run()
+
+    assert not app.exception
+    progress_html = "\n".join(item.value for item in app.markdown)
+    assert "执行失败" in progress_html
+    assert "provider unavailable" in progress_html
+    assert "teaching.plan_execute.live.result" not in app.session_state
 
 
 def test_react_sidebar_has_direct_advanced_safety_controls() -> None:

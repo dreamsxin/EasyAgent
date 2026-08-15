@@ -9,6 +9,7 @@ import pytest
 
 from agentmold.llm import LlmResponse
 from agentmold.visual.live_teaching import (
+    ProgressEvent,
     run_live_multi_agent_experiment,
     run_live_plan_execute_experiment,
     run_live_reflection_experiment,
@@ -42,9 +43,23 @@ def test_live_plan_output_drives_worker_runs_and_synthesis() -> None:
         ]
     )
 
-    experiment = run_live_plan_execute_experiment("Evaluate retrieval", factory)
+    progress: list[ProgressEvent] = []
+    experiment = run_live_plan_execute_experiment(
+        "Evaluate retrieval",
+        factory,
+        on_progress=progress.append,
+    )
 
-    assert experiment.metadata["execution_mode"] == "live"
+    assert [event.stage for event in progress] == [
+        "planning",
+        "plan_created",
+        "step_started",
+        "step_completed",
+        "step_started",
+        "step_completed",
+        "synthesis",
+        "completed",
+    ]
     assert experiment.metadata["plan"] == [
         "Inspect the corpus",
         "Measure retrieval quality",
@@ -83,9 +98,23 @@ def test_live_reflection_feedback_and_done_drive_bounded_loop() -> None:
         ]
     )
 
-    experiment = run_live_reflection_experiment("Explain vector retrieval", factory)
+    progress: list[ProgressEvent] = []
+    experiment = run_live_reflection_experiment(
+        "Explain vector retrieval",
+        factory,
+        on_progress=progress.append,
+    )
 
-    assert experiment.output.startswith("Embeddings map text")
+    assert [event.stage for event in progress] == [
+        "generation",
+        "draft_created",
+        "critique",
+        "feedback_received",
+        "revision",
+        "revision_created",
+        "critique",
+        "reflection_done",
+    ]
     assert experiment.metadata == {
         "execution_mode": "live",
         "feedback_rounds": 1,
@@ -137,9 +166,19 @@ def test_live_router_output_selects_only_one_expert(
         ]
     )
 
-    experiment = run_live_routing_experiment("Handle this task", factory)
+    progress: list[ProgressEvent] = []
+    experiment = run_live_routing_experiment(
+        "Handle this task",
+        factory,
+        on_progress=progress.append,
+    )
 
-    assert [trace.agent_name for trace in experiment.traces] == ["Router", expected_expert]
+    assert [event.stage for event in progress] == [
+        "routing",
+        "route_selected",
+        "expert_started",
+        "completed",
+    ]
     assert experiment.metadata["route_selected"] == expected_expert
     assert experiment.output == f"Handled by {expected_expert}"
     assert not factory.scripts
@@ -178,10 +217,22 @@ def test_live_multi_agent_requires_real_tool_delegations_for_child_traces() -> N
         ]
     )
 
-    experiment = run_live_multi_agent_experiment("Compare retrieval methods", factory)
+    progress: list[ProgressEvent] = []
+    experiment = run_live_multi_agent_experiment(
+        "Compare retrieval methods",
+        factory,
+        on_progress=progress.append,
+    )
     parent, researcher, analyst = experiment.traces
 
-    assert experiment.output == "Combine keyword precision with vector recall."
+    assert [event.stage for event in progress] == [
+        "coordination",
+        "delegation_started",
+        "delegation_started",
+        "delegation_completed",
+        "delegation_completed",
+        "completed",
+    ]
     assert experiment.metadata == {
         "execution_mode": "live",
         "delegated_tools": ["consult_researcher", "consult_analyst"],

@@ -86,6 +86,8 @@ def test_visual_architecture_lab_documents_runnable_fact_boundary():
     assert "Coordinator、Researcher 和 Analyst" in readme
     assert "默认使用" in readme and "真实模型执行" in readme
     assert "确定性离线演示" in readme
+    assert "真实运行期间页面持续显示阶段进度" in readme
+    assert "Coordinator 委派、专家返回和最终综合" in readme
     assert "ScriptedLLM" in architectures
     assert "both specialist tool calls" in architectures
     assert "General multi-Agent coordinator" in capabilities

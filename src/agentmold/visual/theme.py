@@ -911,6 +911,45 @@ def inject_theme(st: Any) -> None:
             margin: 0.22rem 0 0;
             overflow-wrap: anywhere;
         }
+        .ea-live-progress {
+            background: var(--ea-surface);
+            border: 1px solid var(--ea-line-strong);
+            border-left: 3px solid var(--ea-cyan);
+            margin: 0.5rem 0 1rem;
+            padding: 0.75rem;
+        }
+        .ea-live-progress-head {
+            align-items: center;
+            border-bottom: 1px solid var(--ea-line);
+            display: flex;
+            justify-content: space-between;
+            padding-bottom: 0.55rem;
+        }
+        .ea-live-progress-head strong,
+        .ea-live-progress-head span,
+        .ea-live-progress-row > span {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+        .ea-live-progress-head strong { color: var(--ea-cyan); font-size: 0.78rem; }
+        .ea-live-progress-head span { color: var(--ea-muted); font-size: 0.62rem; }
+        .ea-live-progress-row {
+            display: grid;
+            gap: 0.7rem;
+            grid-template-columns: 2rem minmax(0, 1fr);
+            padding: 0.55rem 0 0.15rem;
+        }
+        .ea-live-progress-row > span { color: var(--ea-muted); font-size: 0.65rem; }
+        .ea-live-progress-row strong { color: var(--ea-text); font-size: 0.78rem; }
+        .ea-live-progress-row p {
+            color: var(--ea-text-soft);
+            font-size: 0.78rem;
+            margin: 0.1rem 0 0;
+            overflow-wrap: anywhere;
+        }
+        .ea-live-progress-completed strong { color: var(--ea-lime); }
+        .ea-live-progress-warning strong { color: var(--ea-amber); }
+        .ea-live-progress-failed { border-left: 2px solid #ff8c8c; padding-left: 0.55rem; }
+        .ea-live-progress-failed strong { color: #ff8c8c; }
         @media (prefers-reduced-motion: reduce) {
             .ea-arch-node-wrap { animation: none; }
         }

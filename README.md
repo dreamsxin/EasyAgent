@@ -110,6 +110,10 @@ response = agent.run("Hello! What can you do?")
 只适合观察 Python 控制流和 Trace 结构，不代表 Agent 对任意输入做了真实决策。页面、结果
 metadata 和导出文件都会标明执行方式，不会把离线脚本混称为真实架构执行。
 
+真实运行期间页面持续显示阶段进度：Plan 的规划/逐步执行/综合，Reflection 的生成/审查/修订，
+Routing 的分类/专家处理，以及 Multi-Agent 的 Coordinator 委派、专家返回和最终综合。失败会
+保留已发生的进度与错误；运行完成后进度也进入实验 JSON metadata。
+
 每个教学页把两类信息明确分开：
 
 - **概念示意 · 非本次运行**：解释预期架构和普通 Python 控制流。

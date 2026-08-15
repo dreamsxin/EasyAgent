@@ -12,6 +12,7 @@ import json
 import re
 from collections.abc import Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from typing import Any, Literal, TypeAlias, TypeVar
 
 from agentmold import Agent, LogLevel
@@ -22,6 +23,7 @@ from agentmold.visual.teaching import TeachingEvent, TeachingExperiment
 
 __all__ = [
     "BuildTeachingLLM",
+    "ProgressEvent",
     "arun_live_multi_agent_experiment",
     "run_live_multi_agent_experiment",
     "run_live_plan_execute_experiment",
@@ -36,9 +38,38 @@ LLMSpec: TypeAlias = Literal["mock"] | LLM | dict[str, Any]
 BuildTeachingLLM: TypeAlias = Callable[[], LLMSpec]
 
 
+@dataclass(frozen=True)
+class ProgressEvent:
+    """One live execution update emitted before or after observable work."""
+
+    stage: str
+    actor: str
+    message: str
+    status: str = "running"
+    data: dict[str, Any] = field(default_factory=dict)
+
+
+ProgressCallback: TypeAlias = Callable[[ProgressEvent], None]
+
+
+def _emit(
+    callback: ProgressCallback | None,
+    stage: str,
+    actor: str,
+    message: str,
+    *,
+    status: str = "running",
+    data: dict[str, Any] | None = None,
+) -> None:
+    if callback is not None:
+        callback(ProgressEvent(stage, actor, message, status, data or {}))
+
+
 def run_live_plan_execute_experiment(
     user_input: str,
     build_llm: BuildTeachingLLM,
+    *,
+    on_progress: ProgressCallback | None = None,
 ) -> TeachingExperiment:
     """Let a live Planner define steps, execute them, and synthesize the result."""
     prompt = _validate_input(user_input)
@@ -48,9 +79,18 @@ def run_live_plan_execute_experiment(
         "Create a concrete plan with 2-5 ordered steps. Return only a numbered list.",
     )
     events = [TeachingEvent("planning_started", "Planner", prompt)]
+    _emit(on_progress, "planning", "Planner", "正在生成可执行计划")
     plan_text = planner.run(prompt)
     traces = [_require_trace(planner)]
     steps = _parse_plan(plan_text)
+    _emit(
+        on_progress,
+        "plan_created",
+        "Planner",
+        f"计划已生成：{len(steps)} 个步骤",
+        status="completed",
+        data={"steps": steps},
+    )
     events.append(TeachingEvent("plan_created", "Planner", plan_text, {"steps": steps}))
 
     results: list[str] = []
@@ -62,9 +102,24 @@ def run_live_plan_execute_experiment(
             "Execute only the assigned step. Return concrete findings for the synthesizer.",
         )
         events.append(TeachingEvent("step_started", worker_name, step, {"step_index": index}))
+        _emit(
+            on_progress,
+            "step_started",
+            worker_name,
+            f"正在执行第 {index}/{len(steps)} 步：{step}",
+            data={"step_index": index, "step_count": len(steps)},
+        )
         result = worker.run(step)
         traces.append(_require_trace(worker))
         results.append(result)
+        _emit(
+            on_progress,
+            "step_completed",
+            worker_name,
+            f"第 {index}/{len(steps)} 步已完成",
+            status="completed",
+            data={"step_index": index, "step_count": len(steps)},
+        )
         events.append(TeachingEvent("step_completed", worker_name, result, {"step_index": index}))
 
     synthesizer = _build_agent(
@@ -75,12 +130,14 @@ def run_live_plan_execute_experiment(
     events.append(
         TeachingEvent("synthesis_started", "Synthesizer", data={"result_count": len(results)})
     )
+    _emit(on_progress, "synthesis", "Synthesizer", "正在综合所有步骤结果")
     output = synthesizer.run(
         f"Original task:\n{prompt}\n\nCompleted step results:\n"
         + "\n\n".join(f"{index}. {result}" for index, result in enumerate(results, start=1))
     )
     traces.append(_require_trace(synthesizer))
     events.append(TeachingEvent("synthesis_completed", "Synthesizer", output))
+    _emit(on_progress, "completed", "Plan-and-Execute", "最终回答已生成", status="completed")
     return TeachingExperiment(
         mode="plan_execute",
         input=prompt,
@@ -101,6 +158,7 @@ def run_live_reflection_experiment(
     build_llm: BuildTeachingLLM,
     *,
     max_revisions: int = 2,
+    on_progress: ProgressCallback | None = None,
 ) -> TeachingExperiment:
     """Run a live Generator/Critic loop with a hard revision bound."""
     prompt = _validate_input(user_input)
@@ -118,17 +176,34 @@ def run_live_reflection_experiment(
         "otherwise return only concrete revision feedback.",
     )
     events = [TeachingEvent("generation_started", "Generator", prompt)]
+    _emit(on_progress, "generation", "Generator", "正在生成初稿")
     output = generator.run(prompt)
     traces = [_require_trace(generator)]
     events.append(TeachingEvent("draft_created", "Generator", output))
+    _emit(on_progress, "draft_created", "Generator", "初稿已生成", status="completed")
 
     feedback_rounds = 0
     critic_status = "revision_limit"
     for revision_index in range(1, max_revisions + 1):
+        _emit(
+            on_progress,
+            "critique",
+            "Critic",
+            f"正在进行第 {revision_index} 次质量审查",
+            data={"revision_index": revision_index},
+        )
         review = critic.run(output)
         traces.append(_require_trace(critic))
         if _critic_is_done(review):
             critic_status = "DONE"
+            _emit(
+                on_progress,
+                "reflection_done",
+                "Critic",
+                "审查通过，Reflection 结束",
+                status="completed",
+                data={"feedback_rounds": feedback_rounds},
+            )
             events.append(
                 TeachingEvent(
                     "reflection_done",
@@ -139,6 +214,14 @@ def run_live_reflection_experiment(
             )
             break
         feedback_rounds += 1
+        _emit(
+            on_progress,
+            "feedback_received",
+            "Critic",
+            f"收到第 {feedback_rounds} 轮修改意见",
+            status="completed",
+            data={"feedback_round": feedback_rounds, "feedback": review},
+        )
         events.append(
             TeachingEvent(
                 "feedback_received",
@@ -147,11 +230,26 @@ def run_live_reflection_experiment(
                 {"feedback_round": feedback_rounds},
             )
         )
+        _emit(
+            on_progress,
+            "revision",
+            "Generator",
+            f"正在根据第 {feedback_rounds} 轮意见修订",
+            data={"feedback_round": feedback_rounds},
+        )
         output = generator.run(
             f"Original task:\n{prompt}\n\nCurrent answer:\n{output}\n\n"
             f"Critic feedback:\n{review}\n\nReturn the revised answer only."
         )
         traces.append(_require_trace(generator))
+        _emit(
+            on_progress,
+            "revision_created",
+            "Generator",
+            f"第 {feedback_rounds} 轮修订已完成",
+            status="completed",
+            data={"feedback_round": feedback_rounds},
+        )
         events.append(
             TeachingEvent(
                 "revision_created",
@@ -161,6 +259,14 @@ def run_live_reflection_experiment(
             )
         )
     else:
+        _emit(
+            on_progress,
+            "reflection_limit_reached",
+            "Python loop",
+            f"达到最大修订次数 {max_revisions}，返回最近版本",
+            status="warning",
+            data={"max_revisions": max_revisions},
+        )
         events.append(
             TeachingEvent(
                 "reflection_limit_reached",
@@ -188,6 +294,8 @@ def run_live_reflection_experiment(
 def run_live_routing_experiment(
     user_input: str,
     build_llm: BuildTeachingLLM,
+    *,
+    on_progress: ProgressCallback | None = None,
 ) -> TeachingExperiment:
     """Let a live Router select and run exactly one specialist Agent."""
     prompt = _validate_input(user_input)
@@ -197,8 +305,17 @@ def run_live_routing_experiment(
         "Classify the request as exactly one of Coder, Writer, or Math. "
         "Return only that expert name.",
     )
+    _emit(on_progress, "routing", "Router", "正在判断任务类型")
     route_text = router.run(prompt)
     route = _parse_route(route_text)
+    _emit(
+        on_progress,
+        "route_selected",
+        "Router",
+        f"已选择专家：{route}",
+        status="completed",
+        data={"expert": route},
+    )
     router_trace = _require_trace(router)
     expert_instructions = {
         "Coder": "Solve the programming request with correct, usable code and concise explanation.",
@@ -215,9 +332,11 @@ def run_live_routing_experiment(
         ),
         TeachingEvent("expert_started", route, prompt),
     ]
+    _emit(on_progress, "expert_started", route, f"{route} 正在处理任务")
     output = expert.run(prompt)
     expert_trace = _require_trace(expert)
     events.append(TeachingEvent("expert_completed", route, output, {"run_id": expert_trace.run_id}))
+    _emit(on_progress, "completed", route, f"{route} 已生成最终回答", status="completed")
     return TeachingExperiment(
         mode="routing",
         input=prompt,
@@ -236,6 +355,8 @@ def run_live_routing_experiment(
 async def arun_live_multi_agent_experiment(
     user_input: str,
     build_llm: BuildTeachingLLM,
+    *,
+    on_progress: ProgressCallback | None = None,
 ) -> TeachingExperiment:
     """Let a live Coordinator delegate to real child Agents through tools."""
     prompt = _validate_input(user_input)
@@ -274,7 +395,35 @@ async def arun_live_multi_agent_experiment(
         log_level=LogLevel.SILENT,
     )
     events = [TeachingEvent("coordination_started", "Coordinator", prompt)]
-    output = await coordinator.arun(prompt)
+    _emit(on_progress, "coordination", "Coordinator", "正在分析任务并决定专家委派")
+    output = ""
+    async for step in coordinator.arun_stream(prompt):
+        if step["type"] == "tool_call":
+            _emit(
+                on_progress,
+                "delegation_started",
+                "Coordinator",
+                f"正在委派：{step['name']}",
+                data={"tool": step["name"], "arguments": step["arguments"]},
+            )
+        elif step["type"] == "tool_result":
+            _emit(
+                on_progress,
+                "delegation_completed",
+                str(step["name"]),
+                f"专家已返回：{step['name']}",
+                status=str(step.get("status") or "completed"),
+                data={"tool": step["name"]},
+            )
+        elif step["type"] == "answer":
+            output = step["content"]
+            _emit(
+                on_progress,
+                "completed",
+                "Coordinator",
+                "专家结果已综合为最终回答",
+                status="completed",
+            )
     parent_trace = _require_trace(coordinator)
     traces = _trace_family(parent_trace)
     delegated_tools = [
@@ -316,31 +465,53 @@ async def arun_live_multi_agent_experiment(
 def run_live_multi_agent_experiment(
     user_input: str,
     build_llm: BuildTeachingLLM,
+    *,
+    on_progress: ProgressCallback | None = None,
 ) -> TeachingExperiment:
     """Synchronously run live async delegation, including inside an event loop."""
-    return _run_async_safely(lambda: arun_live_multi_agent_experiment(user_input, build_llm))
+    return _run_async_safely(
+        lambda: arun_live_multi_agent_experiment(
+            user_input,
+            build_llm,
+            on_progress=on_progress,
+        )
+    )
 
 
 def run_live_teaching_experiment(
     mode: str,
     user_input: str,
     build_llm: BuildTeachingLLM,
+    *,
+    on_progress: ProgressCallback | None = None,
 ) -> TeachingExperiment:
     """Run one live-model architecture by stable mode key."""
-    runners: dict[str, Callable[[str, BuildTeachingLLM], TeachingExperiment]] = {
-        "plan_execute": run_live_plan_execute_experiment,
-        "reflection": run_live_reflection_experiment,
-        "multi_agent": run_live_multi_agent_experiment,
-        "routing": run_live_routing_experiment,
-    }
-    try:
-        runner = runners[mode]
-    except KeyError as exc:
-        available = ", ".join(runners)
-        raise ValueError(
-            f"Live execution is unavailable for {mode!r}. Available: {available}."
-        ) from exc
-    return runner(user_input, build_llm)
+    if mode == "plan_execute":
+        return run_live_plan_execute_experiment(
+            user_input,
+            build_llm,
+            on_progress=on_progress,
+        )
+    if mode == "reflection":
+        return run_live_reflection_experiment(
+            user_input,
+            build_llm,
+            on_progress=on_progress,
+        )
+    if mode == "multi_agent":
+        return run_live_multi_agent_experiment(
+            user_input,
+            build_llm,
+            on_progress=on_progress,
+        )
+    if mode == "routing":
+        return run_live_routing_experiment(
+            user_input,
+            build_llm,
+            on_progress=on_progress,
+        )
+    available = "plan_execute, reflection, multi_agent, routing"
+    raise ValueError(f"Live execution is unavailable for {mode!r}. Available: {available}.")
 
 
 def _build_agent(

@@ -9,7 +9,11 @@ from agentmold.visual.architecture import (
     architecture_description,
     architecture_diagram_html,
 )
-from agentmold.visual.live_teaching import live_source_code, run_live_teaching_experiment
+from agentmold.visual.live_teaching import (
+    ProgressEvent,
+    live_source_code,
+    run_live_teaching_experiment,
+)
 from agentmold.visual.renderers import (
     execution_map_html,
     timeline_html,
@@ -161,8 +165,31 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
             on_click=reset_experiment,
         )
 
+    progress_key = f"{state_prefix}.{execution_mode}.progress"
+    progress_placeholder = st.empty()
+    previous_progress = st.session_state.get(progress_key, [])
+    if isinstance(previous_progress, list) and previous_progress:
+        progress_placeholder.markdown(
+            _progress_html(previous_progress),
+            unsafe_allow_html=True,
+        )
+
     if run_clicked:
         st.session_state[input_key] = st.session_state[input_widget_key]
+        st.session_state.pop(result_key, None)
+        st.session_state.pop(error_key, None)
+        st.session_state[progress_key] = []
+        progress_placeholder.empty()
+        progress_events: list[ProgressEvent] = []
+
+        def show_progress(event: ProgressEvent) -> None:
+            progress_events.append(event)
+            st.session_state[progress_key] = list(progress_events)
+            progress_placeholder.markdown(
+                _progress_html(progress_events),
+                unsafe_allow_html=True,
+            )
+
         try:
             if execution_mode == "live":
                 if selected_model is None:
@@ -172,6 +199,7 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
                     architecture_id,
                     str(st.session_state[input_key]),
                     lambda: dict(model_config),
+                    on_progress=show_progress,
                 )
                 experiment.metadata["model_profile"] = selected_model.key
                 experiment.metadata["model_label"] = selected_model.label
@@ -182,9 +210,31 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
                 )
                 experiment.metadata["execution_mode"] = "offline_scripted"
         except Exception as exc:  # noqa: BLE001 - surface provider and orchestration failures
+            failure = ProgressEvent(
+                "failed",
+                guidance["title"],
+                f"执行失败：{type(exc).__name__}: {exc}",
+                "failed",
+            )
+            progress_events.append(failure)
+            st.session_state[progress_key] = list(progress_events)
+            progress_placeholder.markdown(
+                _progress_html(progress_events),
+                unsafe_allow_html=True,
+            )
             st.session_state.pop(result_key, None)
             st.session_state[error_key] = f"{type(exc).__name__}: {exc}"
         else:
+            experiment.metadata["progress"] = [
+                {
+                    "stage": event.stage,
+                    "actor": event.actor,
+                    "message": event.message,
+                    "status": event.status,
+                    "data": event.data,
+                }
+                for event in progress_events
+            ]
             st.session_state[result_key] = experiment
             st.session_state.pop(error_key, None)
             _remember_experiment_traces(st, experiment)
@@ -319,6 +369,25 @@ def _render_live_model_controls(
     for error in errors:
         st.caption(f"忽略无效配置：{error}")
     return selected
+
+
+def _progress_html(events: list[ProgressEvent]) -> str:
+    rows: list[str] = []
+    for index, event in enumerate(events, start=1):
+        status_class = html.escape(event.status)
+        rows.append(
+            f"<div class='ea-live-progress-row ea-live-progress-{status_class}'>"
+            f"<span>{index:02d}</span>"
+            f"<div><strong>{html.escape(event.actor)}</strong>"
+            f"<p>{html.escape(event.message)}</p></div></div>"
+        )
+    latest = events[-1]
+    heading = "执行失败" if latest.status == "failed" else "实时运行过程"
+    return (
+        "<section class='ea-live-progress'>"
+        f"<div class='ea-live-progress-head'><strong>{heading}</strong>"
+        f"<span>{len(events)} EVENTS</span></div>" + "".join(rows) + "</section>"
+    )
 
 
 def _preview_source(
