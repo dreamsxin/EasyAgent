@@ -75,11 +75,42 @@ def test_live_plan_output_drives_worker_runs_and_synthesis() -> None:
     assert not factory.scripts
 
 
-def test_live_plan_rejects_unusable_model_plan() -> None:
+def test_live_plan_preserves_planner_trace_when_plan_is_unusable() -> None:
     factory = LLMFactory([[LlmResponse(content="I might think about it later")]])
 
-    with pytest.raises(RuntimeError, match="Planner must return 2-5 steps"):
-        run_live_plan_execute_experiment("Evaluate retrieval", factory)
+    experiment = run_live_plan_execute_experiment("Evaluate retrieval", factory)
+
+    assert experiment.status == "partial"
+    assert experiment.error is not None
+    assert "Planner must return 2-5 steps" in experiment.error
+    assert [trace.agent_name for trace in experiment.traces] == ["Planner"]
+    assert experiment.traces[0].status == "completed"
+    assert experiment.events[-1].type == "experiment_failed"
+
+
+def test_live_plan_preserves_completed_and_failed_worker_traces() -> None:
+    factory = LLMFactory(
+        [
+            [LlmResponse(content="1. Inspect corpus\n2. Measure quality")],
+            [LlmResponse(content="Corpus inspected")],
+            [],
+        ]
+    )
+
+    experiment = run_live_plan_execute_experiment("Evaluate retrieval", factory)
+
+    assert experiment.status == "partial"
+    assert [trace.agent_name for trace in experiment.traces] == [
+        "Planner",
+        "Worker 1",
+        "Worker 2",
+    ]
+    assert [trace.status for trace in experiment.traces] == [
+        "completed",
+        "completed",
+        "failed",
+    ]
+    assert experiment.metadata["step_results"] == ["Corpus inspected"]
 
 
 def test_live_reflection_feedback_and_done_drive_bounded_loop() -> None:
@@ -184,11 +215,16 @@ def test_live_router_output_selects_only_one_expert(
     assert not factory.scripts
 
 
-def test_live_router_rejects_ambiguous_selection() -> None:
+def test_live_router_preserves_trace_for_ambiguous_selection() -> None:
     factory = LLMFactory([[LlmResponse(content="Coder or Writer")]])
 
-    with pytest.raises(RuntimeError, match="exactly one"):
-        run_live_routing_experiment("Handle this task", factory)
+    experiment = run_live_routing_experiment("Handle this task", factory)
+
+    assert experiment.status == "partial"
+    assert experiment.error is not None
+    assert "exactly one" in experiment.error
+    assert [trace.agent_name for trace in experiment.traces] == ["Router"]
+    assert experiment.metadata["route_selected"] is None
 
 
 def test_live_multi_agent_requires_real_tool_delegations_for_child_traces() -> None:
@@ -233,13 +269,17 @@ def test_live_multi_agent_requires_real_tool_delegations_for_child_traces() -> N
         "delegation_completed",
         "completed",
     ]
-    assert experiment.metadata == {
-        "execution_mode": "live",
-        "delegated_tools": ["consult_researcher", "consult_analyst"],
-        "delegation_count": 2,
-        "child_run_count": 2,
-        "used_both_specialists": True,
-    }
+    assert experiment.metadata["execution_mode"] == "live"
+    assert experiment.metadata["delegated_tools"] == [
+        "consult_researcher",
+        "consult_analyst",
+    ]
+    assert experiment.metadata["delegation_count"] == 2
+    assert experiment.metadata["child_run_ids"] == [researcher.run_id, analyst.run_id]
+    assert experiment.metadata["child_run_count"] == 2
+    assert experiment.metadata["used_both_specialists"] is True
+    assert experiment.metadata["collaboration_status"] == "completed"
+    assert all(result["succeeded"] for result in experiment.metadata["specialist_results"].values())
     assert [trace.agent_name for trace in experiment.traces] == [
         "Coordinator",
         "Researcher",
@@ -269,6 +309,61 @@ def test_live_multi_agent_observes_missing_delegation_instead_of_faking_children
     assert experiment.metadata["delegation_count"] == 0
     assert experiment.metadata["child_run_count"] == 0
     assert experiment.metadata["used_both_specialists"] is False
+    assert experiment.status == "partial"
+    assert experiment.metadata["collaboration_status"] == "partial"
+
+
+def test_live_multi_agent_requires_successful_specialist_results() -> None:
+    factory = LLMFactory(
+        [
+            [],
+            [LlmResponse(content="Analysis completed")],
+            [
+                LlmResponse(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "failed-research",
+                            "name": "consult_researcher",
+                            "arguments": {"request": "Find evidence"},
+                        },
+                        {
+                            "id": "successful-analysis",
+                            "name": "consult_analyst",
+                            "arguments": {"request": "Analyze trade-offs"},
+                        },
+                    ],
+                ),
+                LlmResponse(content="Coordinator answered despite one failed specialist"),
+            ],
+        ]
+    )
+
+    progress: list[ProgressEvent] = []
+    experiment = run_live_multi_agent_experiment(
+        "Compare retrieval methods",
+        factory,
+        on_progress=progress.append,
+    )
+
+    assert experiment.status == "partial"
+    assert experiment.metadata["used_both_specialists"] is False
+    results = experiment.metadata["specialist_results"]
+    assert results["consult_researcher"] == {
+        "tool_call_id": "failed-research",
+        "tool_status": "error",
+        "child_run_id": experiment.traces[1].run_id,
+        "child_status": "failed",
+        "succeeded": False,
+    }
+    assert results["consult_analyst"]["succeeded"] is True
+    assert [trace.status for trace in experiment.traces] == [
+        "completed",
+        "failed",
+        "completed",
+    ]
+    assert progress[-1].stage == "collaboration_incomplete"
+    assert progress[-1].status == "failed"
 
 
 def test_live_dispatch_and_export_source_are_explicit() -> None:
