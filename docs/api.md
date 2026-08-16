@@ -53,9 +53,10 @@ The event types are `text_delta`, `tool_call`, `tool_result`, `answer`,
 `approval_request`, and `loop_detected`. Durable Trace v2 events include a one-based model
 `round`. Tool events also include a one-based `call_index` and an internal `execution_id`
 that associates the model request with its result even when the provider call ID is absent.
-`tool_result.status` distinguishes `success`, `error`, and `refused`, with `duration_ms` and
-an optional `error_type`. Existing `id`, `name`, `arguments`, and `content` fields retain their
-original meanings.
+`tool_result.status` currently emits `success`, `error`, or `refused`, with `duration_ms` and
+an optional `error_type`. The public type reserves `policy_denied`, `timeout`, and `cancelled`
+for adapters that can report those outcomes; the core Agent does not currently produce them.
+Existing `id`, `name`, `arguments`, and `content` fields retain their original meanings.
 
 `text_delta` is optional and means a provider
 text chunk, not necessarily one token. Delta events are not stored in `AgentTrace`; the
@@ -193,9 +194,13 @@ for later analysis:
 trace = agent.last_trace
 if trace is not None:
     trace.to_jsonl("runs/experiment.jsonl")
+    trace.export_family("runs/family.jsonl")
 ```
 
-Trace model configuration is redacted by key name for common credentials. Usage counters
+`export_family()` writes the selected parent and all observed descendant traces in parent-first
+order. The JSONL remains compatible with the visual importer; direct runs simply export one run.
+Trace model configuration and export payloads are recursively sanitized for credential keys,
+URL credentials, authorization values, and known secret echoes. Usage counters
 are best-effort because providers expose different response metadata.
 Trace headers also contain the user input, Agent name, and instructions so the visual lab
 can compare prompt and configuration changes. Open the top-level **运行回放** view to import

@@ -131,9 +131,7 @@ class OpenAILLM(LLM):
         thinking_active = (
             isinstance(thinking, dict) and thinking.get("type") == "enabled"
         ) or self.model.startswith(("deepseek-reasoner", "deepseek-r1"))
-        native_reasoner = self.model.startswith(
-            ("o1", "o3", "deepseek-reasoner", "deepseek-r1")
-        )
+        native_reasoner = self.model.startswith(("o1", "o3", "deepseek-reasoner", "deepseek-r1"))
         if self.temperature is not None and not native_reasoner and not thinking_active:
             kwargs["temperature"] = self.temperature
         if stream:

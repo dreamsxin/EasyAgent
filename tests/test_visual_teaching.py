@@ -231,6 +231,31 @@ def test_teaching_event_rejects_non_json_values(
         event.to_json()
 
 
+def test_teaching_export_sanitizes_trace_secrets_across_the_payload() -> None:
+    secret = "teaching-export-secret"
+    trace = AgentTrace(
+        model_config={"nested": {"client_secret": secret}},
+        error=f"provider repeated {secret}",
+        status="failed",
+    )
+    experiment = TeachingExperiment(
+        mode="test",
+        input="input",
+        output=f"failed with {secret}",
+        events=[TeachingEvent("failed", "Agent", f"error {secret}")],
+        traces=[trace],
+        source_code="print('safe')",
+        metadata={"diagnostic": f"credential={secret}"},
+    )
+
+    exported = experiment.to_json()
+    trace_jsonl = experiment.traces_to_jsonl()
+
+    assert secret not in exported
+    assert secret not in trace_jsonl
+    assert exported.count("<redacted>") >= 5
+
+
 def test_experiment_rejects_non_json_metadata() -> None:
     experiment = run_teaching_experiment("react")
     experiment.metadata["unsupported"] = object()

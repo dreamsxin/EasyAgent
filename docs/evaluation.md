@@ -96,7 +96,8 @@ use no-side-effect canary tools when evaluating unsafe tool intent.
 ## Repeated samples and metrics
 
 `repeats=N` builds a fresh Agent for each sample. Results use case-major, sample-minor order,
-with zero-based `case_index` and `sample_index`. `report.results` contains every sample;
+with zero-based `case_index` and `sample_index`. `report.total` and `report.sample_count` count
+samples, so they can exceed `case_count` when `repeats > 1`. `report.results` contains every sample;
 `report.case_summaries` aggregates repeated samples per case, and
 `report.metric_summaries` aggregates each named metric across the dataset.
 

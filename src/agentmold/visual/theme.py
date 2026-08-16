@@ -66,10 +66,7 @@ def inject_theme(st: Any) -> None:
         f"            --ea-{name}: {value};" for name, value in palettes[theme_type].items()
     )
     st.markdown(
-        "<style>\n        :root {\n"
-        + variables
-        + "\n        }\n"
-        + """
+        "<style>\n        :root {\n" + variables + "\n        }\n" + """
         .stApp,
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"],

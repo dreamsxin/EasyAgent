@@ -10,9 +10,9 @@
 
 **EasyAgent** 是一个面向研究人员和学生的极简 AI Agent 脚手架。我们相信构建 AI 代理应该像写一个普通函数一样简单——不需要学习新的领域语言，不需要理解复杂的抽象层。
 
-[![EasyAgent 可视化实验室：Agent 配置、对话与实时执行地图](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/visual-lab-overview.png)](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/visual-lab-overview.png)
+[![EasyAgent 可视化实验室：五种 Agent 架构直达、运行回放与评测](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/visual-lab-overview.png)](https://raw.githubusercontent.com/dreamsxin/EasyAgent/main/docs/assets/screenshots/visual-lab-overview.png)
 
-*在同一工作台配置 Agent、对话并查看实时执行地图。*
+*顶部直达五种 Agent 架构；ReAct 工作台保留配置、对话与实时执行地图。*
 
 ## ✨ 特性
 
@@ -199,10 +199,12 @@ Agent 名称、指令、接口类型、最大迭代次数、工具选择和上�
 >         print(f"调用工具: {step['name']}")
 > ```
 
-这里的“流”是 `text_delta`（可选）、`tool_call`、`tool_result`、`answer` 组成的**执行事件流**。
-`text_delta` 表示文本片段，不保证等于一个 token，也不会写入 Trace。OpenAI、DeepSeek、
-Anthropic、DeepSeek Anthropic 和 Ollama 适配器支持同步与异步原生文本流；`mock` 以及未实现
-流式接口的扩展 Provider 仍只产生完整响应。工具调用轮次可能没有可见文本片段。
+这里的“流”是 `text_delta`（可选）、`tool_call`、`tool_result`、`answer`、
+`approval_request` 和 `loop_detected` 组成的**执行事件流**。`approval_request` 是运行时确认请求，
+不会持久化；`text_delta` 也是瞬态显示片段，不保证等于一个 token。其余事件会进入 Trace，
+`loop_detected` 记录后会抛出 `LoopDetectedError`。OpenAI、DeepSeek、Anthropic、
+DeepSeek Anthropic 和 Ollama 支持同步与异步原生文本流；`mock` 以及未实现流式接口的扩展
+Provider 仍只产生完整响应。工具调用轮次可能没有可见文本片段。
 
 `easyagent visual --file agent.py` 会调用文件中的 `build_agent()`，并在文件修改后重新加载；
 这样可视化层观察的就是代码里实际运行的 Agent。命令行运行也使用同一个加载器：
@@ -246,8 +248,8 @@ easyagent init citation-lab --template citation-aware
 
 ### 精选 Cookbook
 
-[Cookbook](cookbook/README.md) 提供六个经过测试的渐进配方，包括内部循环讲解、研究 Trace、
-离线 RAG、批量评测、受限工作区和实验性 Agent 组合。它们都是可直接运行的普通 Python 脚本：
+[Cookbook](cookbook/README.md) 提供十个经过测试的渐进配方，包括内部循环、Trace、离线 RAG、
+批量评测、安全门、MCP、可复现检索和五种 Agent 架构。它们都是可直接运行的普通 Python 脚本：
 
 ```bash
 python cookbook/00_understand_the_agent_loop.py
@@ -514,7 +516,7 @@ pip install "agentmold[openai]"
 # 带 DeepSeek OpenAI 兼容支持
 pip install "agentmold[deepseek]"
 
-# 带向量记忆支持
+# 带向量记忆支持（默认 embedding 路径调用 OpenAI，也可注入自定义 embedder）
 pip install "agentmold[memory]"
 
 # 带可视化实验室
@@ -577,8 +579,10 @@ EasyAgent 的默认执行循环就是 ReAct（模型轮次 → 行动 → 观察
 
 在可视化实验室（`easyagent visual`）顶部可以直接进入五种架构。Plan-and-Execute、
 Reflection、Multi-Agent 和 Routing 默认由保存的真实模型驱动，并保留明确分开的确定性离线
-runner。两种执行方式都导出 Python 控制流事件、Agent traces、JSON、JSONL 和 `example.py`；
-Multi-Agent 使用 experimental `agent_as_tool`，不是稳定协调器 API。详见
+runner。两种执行方式都导出 Python 控制流事件、Agent traces、JSON、JSONL 和 `example.py`。
+离线 `example.py` 可直接运行；live 版本需要先把 provider/model/credential JSON 放入受保护的
+`EASYAGENT_LLM_CONFIG` 环境变量，并安装对应 provider extra。Multi-Agent 使用 experimental
+`agent_as_tool`，不是稳定协调器 API。详见
 [Agent 架构模式文档](docs/architectures.md)和 [Cookbook 示例](cookbook/09_agent_architectures.py)。
 
 ## 📚 文档

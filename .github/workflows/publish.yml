@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,9 +36,16 @@ jobs:
           python-version: "3.10"
 
       - name: Install validation and build tools
-        run: pip install -e ".[dev,memory]" build twine
+        run: pip install -e ".[dev,memory,mcp,visual]" build twine
 
-      - name: Verify tag matches package version
+      - name: Verify release commit is on main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Verify tag matches a finalized package version
         shell: bash
         run: |
           set -euo pipefail
@@ -45,7 +54,10 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match package version $package_version" >&2
             exit 1
           fi
-          grep -q "^## $package_version" CHANGELOG.md
+          if ! grep -Eq "^## $package_version - [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md; then
+            echo "CHANGELOG entry for $package_version must contain a release date" >&2
+            exit 1
+          fi
 
       - name: Run release checks
         run: |
@@ -59,6 +71,26 @@ jobs:
 
       - name: Check distribution metadata
         run: python -m twine check dist/*
+
+      - name: Smoke-test the built artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          sdist="$(realpath dist/*.tar.gz)"
+
+          sdist_env="$RUNNER_TEMP/agentmold-release-sdist"
+          python -m venv "$sdist_env"
+          "$sdist_env/bin/python" -m pip install "$sdist"
+          "$sdist_env/bin/easyagent" --version
+
+          extras_env="$RUNNER_TEMP/agentmold-release-extras"
+          python -m venv "$extras_env"
+          "$extras_env/bin/python" -m pip install "${wheel}[visual,mcp,openai]"
+          "$extras_env/bin/python" -c \
+            "import agentmold.mcp, agentmold.visual.teaching; import streamlit"
+          "$extras_env/bin/python" -c \
+            "from agentmold.visual.teaching import run_teaching_experiment; run_teaching_experiment('multi_agent')"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

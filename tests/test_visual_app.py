@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from agentmold.visual.live_teaching import ProgressEvent
@@ -124,6 +126,65 @@ def test_live_mode_surfaces_progress_when_runner_fails(monkeypatch) -> None:
     assert "执行失败" in progress_html
     assert "provider unavailable" in progress_html
     assert "teaching.plan_execute.live.result" not in app.session_state
+
+
+def test_live_mode_keeps_previous_success_and_exposes_partial_attempt(monkeypatch) -> None:
+    model = LiveTeachingModel(
+        key="OpenAI 兼容",
+        label="OpenAI 兼容 · openai / test-model",
+        config={"provider": "openai", "model": "test-model"},
+    )
+    attempts = [run_teaching_experiment("routing", "first")]
+    attempts[0].metadata["execution_mode"] = "live"
+    partial_result = run_teaching_experiment("routing", "second")
+    partial_result.metadata["execution_mode"] = "live"
+    partial = replace(
+        partial_result,
+        status="partial",
+        error="RuntimeError: expert unavailable",
+    )
+    attempts.append(partial)
+    persisted: list[str] = []
+
+    def fake_runner(mode, user_input, build_llm, *, on_progress=None):
+        experiment = attempts.pop(0)
+        if experiment.status != "completed" and on_progress is not None:
+            on_progress(ProgressEvent("failed", "Routing", experiment.error or "failed", "failed"))
+        return experiment
+
+    def fake_remember(st, trace):
+        persisted.append(trace.run_id)
+        runs = st.session_state.get("trace_runs", [])
+        st.session_state.trace_runs = [*runs, trace.to_dict()]
+
+    monkeypatch.setattr(
+        "agentmold.visual.teaching_view.load_live_teaching_models",
+        lambda: ([model], []),
+    )
+    monkeypatch.setattr(
+        "agentmold.visual.teaching_view.run_live_teaching_experiment",
+        fake_runner,
+    )
+    monkeypatch.setattr("agentmold.visual.teaching_view.remember_trace", fake_remember)
+    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+
+    app.run()
+    app.segmented_control[0].select("Routing").run()
+    run_button = next(button for button in app.button if button.label == "运行真实架构")
+    run_button.click().run()
+    successful = app.session_state["teaching.routing.live.result"]
+    app.text_area[0].set_value("second").run()
+    next(button for button in app.button if button.label == "运行真实架构").click().run()
+
+    assert app.session_state["teaching.routing.live.result"] is successful
+    attempt = app.session_state["teaching.routing.live.attempt"]
+    assert attempt is partial
+    assert attempt.status == "partial"
+    assert len(app.session_state["trace_runs"]) == 4
+    assert len(persisted) == 4
+    assert any("部分完成" in item.value for item in app.warning)
+    assert any("expert unavailable" in item.value for item in app.markdown)
+    assert len(app.get("download_button")) == 3
 
 
 def test_react_sidebar_has_direct_advanced_safety_controls() -> None:

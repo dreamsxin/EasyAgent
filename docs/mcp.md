@@ -16,7 +16,11 @@ MCP 是一个标准化协议，让 AI Agent 能发现和调用任意工具服务
 ## 安装
 
 ```bash
+# MCP transport only; use this when the Agent uses mock or an already installed provider.
 pip install "agentmold[mcp]"
+
+# The quickstart below uses the OpenAI provider, so install both extras.
+pip install "agentmold[mcp,openai]"
 ```
 
 ## 快速上手

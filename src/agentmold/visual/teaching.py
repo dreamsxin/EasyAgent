@@ -15,10 +15,10 @@ from collections import deque
 from collections.abc import Callable, Coroutine, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Final, TypeAlias, TypedDict, TypeVar
+from typing import Any, Final, Literal, TypeAlias, TypedDict, TypeVar
 
 from agentmold import Agent, LogLevel, tool
-from agentmold.agent import AgentTrace
+from agentmold.agent import AgentTrace, sanitize_trace_data
 from agentmold.exceptions import LLMError
 from agentmold.experimental import agent_as_tool
 from agentmold.llm import LLM, LlmResponse, Message
@@ -132,20 +132,31 @@ class TeachingExperiment:
     traces: list[AgentTrace]
     source_code: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    status: Literal["completed", "partial", "failed"] = "completed"
+    error: str | None = None
+    experiment_version: int = field(default=1, kw_only=True)
 
     def to_dict(self) -> JSONObject:
         """Return a detached, strict JSON representation of the experiment."""
-
+        sensitive_values = {
+            value for trace in self.traces for value in trace._known_sensitive_values()
+        }
         return _strict_json_object(
-            {
-                "mode": self.mode,
-                "input": self.input,
-                "output": self.output,
-                "events": [event.to_dict() for event in self.events],
-                "traces": [trace.to_dict() for trace in self.traces],
-                "source_code": self.source_code,
-                "metadata": self.metadata,
-            }
+            sanitize_trace_data(
+                {
+                    "experiment_version": self.experiment_version,
+                    "mode": self.mode,
+                    "input": self.input,
+                    "output": self.output,
+                    "status": self.status,
+                    "error": self.error,
+                    "events": [event.to_dict() for event in self.events],
+                    "traces": [trace.to_dict() for trace in self.traces],
+                    "source_code": self.source_code,
+                    "metadata": self.metadata,
+                },
+                sensitive_values=sensitive_values,
+            )
         )
 
     def to_json(self) -> str:
@@ -210,7 +221,7 @@ def traces_to_jsonl(traces: Iterable[AgentTrace]) -> str:
 
     lines: list[str] = []
     for trace in traces:
-        run = _strict_json_object(trace.to_dict())
+        run = _strict_json_object(sanitize_trace_data(trace.to_dict()))
         raw_events = run.pop("events", [])
         if not isinstance(raw_events, list):
             raise TypeError(f"Trace {trace.run_id!r} events must be a JSON array.")

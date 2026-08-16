@@ -37,7 +37,7 @@ deepseek = ["openai>=1.0"]
 deepseek-anthropic = ["anthropic>=0.18"]
 anthropic = ["anthropic>=0.18"]
 ollama = ["ollama>=0.1"]
-memory = ["chromadb>=0.4", "numpy>=1.24"]
+memory = ["chromadb>=0.4", "numpy>=1.24", "openai>=1.0"]
 mcp = ["mcp>=2.0"]
 visual = ["streamlit>=1.30", "streamlit-agraph>=0.0.45"]
 all = [
@@ -53,6 +53,7 @@ all = [
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23",
+    "pytest-cov>=4.0",
     "black>=23.0",
     "ruff>=0.1",
     "mypy>=1.0,<2.0",

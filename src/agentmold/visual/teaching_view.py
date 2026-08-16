@@ -16,6 +16,7 @@ from agentmold.visual.live_teaching import (
 )
 from agentmold.visual.renderers import (
     execution_map_html,
+    remember_trace,
     timeline_html,
     trace_breadcrumb_html,
     trace_metrics_html,
@@ -115,6 +116,7 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
     )
     execution_mode = str(st.session_state[execution_key])
     result_key = f"{state_prefix}.{execution_mode}.result"
+    attempt_key = f"{state_prefix}.{execution_mode}.attempt"
     error_key = f"{state_prefix}.{execution_mode}.error"
 
     live_models, model_errors = load_live_teaching_models()
@@ -135,7 +137,9 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
         st.session_state[input_key] = sample_input
         st.session_state[input_widget_key] = sample_input
         st.session_state.pop(result_key, None)
+        st.session_state.pop(attempt_key, None)
         st.session_state.pop(error_key, None)
+        st.session_state.pop(progress_key, None)
 
     input_col, action_col = st.columns([5, 1])
     input_col.text_area(
@@ -176,7 +180,7 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
 
     if run_clicked:
         st.session_state[input_key] = st.session_state[input_widget_key]
-        st.session_state.pop(result_key, None)
+        st.session_state.pop(attempt_key, None)
         st.session_state.pop(error_key, None)
         st.session_state[progress_key] = []
         progress_placeholder.empty()
@@ -222,7 +226,6 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
                 _progress_html(progress_events),
                 unsafe_allow_html=True,
             )
-            st.session_state.pop(result_key, None)
             st.session_state[error_key] = f"{type(exc).__name__}: {exc}"
         else:
             experiment.metadata["progress"] = [
@@ -235,14 +238,18 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
                 }
                 for event in progress_events
             ]
-            st.session_state[result_key] = experiment
-            st.session_state.pop(error_key, None)
+            st.session_state[attempt_key] = experiment
+            if experiment.status == "completed":
+                st.session_state[result_key] = experiment
+                st.session_state.pop(error_key, None)
+            else:
+                st.session_state[error_key] = experiment.error or "实验未完整完成"
             _remember_experiment_traces(st, experiment)
 
     error = st.session_state.get(error_key)
     if error:
         st.error(f"实验执行失败: {error}")
-    experiment = st.session_state.get(result_key)
+    experiment = st.session_state.get(attempt_key) or st.session_state.get(result_key)
 
     st.divider()
     st.markdown("### 概念示意")
@@ -290,25 +297,29 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
     st.markdown("#### Agent Traces")
     _render_experiment_traces(st, experiment)
 
-    st.markdown("#### 下一步")
-    replay_col, compare_col = st.columns(2)
-    if replay_col.button(
-        "查看这些运行",
-        use_container_width=True,
-        key=f"{state_prefix}.{execution_mode}.open_replay",
-    ):
-        st.session_state.ea_trace_jump_to = experiment.traces[0].run_id
-        st.session_state.ea_visual_view = "trace"
-        st.rerun()
-    if compare_col.button(
-        "比较这些 Agent",
-        type="primary",
-        use_container_width=True,
-        key=f"{state_prefix}.{execution_mode}.open_comparison",
-    ):
-        st.session_state.ea_pending_comparison_runs = [trace.run_id for trace in experiment.traces]
-        st.session_state.ea_visual_view = "evaluation"
-        st.rerun()
+    if experiment.traces:
+        st.markdown("#### 下一步")
+        replay_col, compare_col = st.columns(2)
+        if replay_col.button(
+            "查看这些运行",
+            use_container_width=True,
+            key=f"{state_prefix}.{execution_mode}.open_replay",
+        ):
+            st.session_state.ea_trace_jump_to = experiment.traces[0].run_id
+            st.session_state.ea_visual_view = "trace"
+            st.rerun()
+        if compare_col.button(
+            "比较这些 Agent",
+            type="primary",
+            use_container_width=True,
+            disabled=len(experiment.traces) < 2,
+            key=f"{state_prefix}.{execution_mode}.open_comparison",
+        ):
+            st.session_state.ea_pending_comparison_runs = [
+                trace.run_id for trace in experiment.traces
+            ]
+            st.session_state.ea_visual_view = "evaluation"
+            st.rerun()
 
     st.markdown("#### 导出")
     json_col, trace_col, source_col = st.columns(3)
@@ -406,20 +417,31 @@ def _preview_source(
 def _render_execution_truth(st: Any, experiment: TeachingExperiment) -> None:
     execution_mode = experiment.metadata.get("execution_mode")
     if execution_mode == "live":
-        st.success(
-            f"真实模型已执行 · {experiment.metadata.get('model_label', '已保存模型')} · "
-            f"{len(experiment.traces)} 个 Agent run"
-        )
+        model_label = experiment.metadata.get("model_label", "已保存模型")
+        if experiment.status == "completed":
+            st.success(f"真实模型已执行 · {model_label} · {len(experiment.traces)} 个 Agent run")
+        elif experiment.status == "partial":
+            st.warning(
+                f"真实模型运行部分完成 · {model_label} · 已保留 "
+                f"{len(experiment.traces)} 个 Agent run"
+            )
+        else:
+            st.error(f"真实模型运行失败 · {model_label} · 未产生可用 Agent run")
+        if experiment.error:
+            st.code(experiment.error, language="text")
         if experiment.mode == "multi_agent":
             delegation_count = int(experiment.metadata.get("delegation_count", 0))
             child_count = int(experiment.metadata.get("child_run_count", 0))
             if experiment.metadata.get("used_both_specialists"):
-                st.success(f"Coordinator 实际委派 2 个专家，记录 {child_count} 个 child traces。")
+                st.success(
+                    f"Coordinator 实际委派 2 个专家，且 {child_count} 个 child traces "
+                    "均成功完成。"
+                )
             else:
                 st.warning(
                     f"Coordinator 实际委派 {delegation_count} 次，记录 "
                     f"{child_count} 个 child traces；"
-                    "模型没有按要求调用两个专家，本次结果不能视为完整 Multi-Agent 协作。"
+                    "专家调用缺失或失败，本次结果不能视为完整 Multi-Agent 协作。"
                 )
     else:
         st.warning("固定响应离线演示：AgentTrace 真实，但模型决策由教学脚本预置。")
@@ -476,12 +498,5 @@ def _render_experiment_traces(st: Any, experiment: TeachingExperiment) -> None:
 
 
 def _remember_experiment_traces(st: Any, experiment: TeachingExperiment) -> None:
-    existing = st.session_state.get("trace_runs", [])
-    by_id = {
-        str(run.get("run_id")): run
-        for run in existing
-        if isinstance(run, dict) and run.get("run_id")
-    }
     for trace in experiment.traces:
-        by_id[trace.run_id] = trace.to_dict()
-    st.session_state.trace_runs = list(by_id.values())[-50:]
+        remember_trace(st, trace)

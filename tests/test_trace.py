@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from agentmold import Agent, LogLevel, tool
-from agentmold.exceptions import MaxIterationsError
+from agentmold.exceptions import LLMError, MaxIterationsError
 from agentmold.llm import LLM, LlmResponse
 
 
@@ -156,6 +156,49 @@ def test_trace_redacts_credentials_from_model_config():
     config = agent.last_trace.model_config
     assert config["api_key"] == "<redacted>"
     assert config["default_headers"]["Authorization"] == "<redacted>"
+
+
+def test_trace_redacts_url_credentials_and_error_text_at_export(tmp_path):
+    secrets = {
+        "url-user",
+        "url-password",
+        "query-token",
+        "nested-cookie",
+        "client-secret",
+    }
+
+    class SecretFailureLLM(LLM):
+        def __init__(self) -> None:
+            super().__init__(
+                model="secret-failure",
+                api_key="client-secret",
+                nested={"cookies": {"session_cookie": "nested-cookie"}},
+            )
+            self.base_url = (
+                "https://url-user:url-password@example.com/v1" "?access_token=query-token&region=us"
+            )
+
+        def _complete(self, messages, tools=None):
+            raise RuntimeError(
+                "request failed at "
+                f"{self.base_url}; Authorization: Bearer client-secret; "
+                "session_cookie=nested-cookie"
+            )
+
+    agent = Agent(llm=SecretFailureLLM(), log_level=LogLevel.SILENT)
+    with pytest.raises(LLMError, match="request failed"):
+        agent.run("go")
+
+    assert agent.last_trace is not None
+    trace = agent.last_trace
+    serialized = json.dumps(trace.to_dict(), ensure_ascii=False)
+    assert secrets.isdisjoint(serialized)
+    assert "region=us" in serialized
+    assert trace.error is not None
+    assert trace.model_calls[0]["error"].count("<redacted>") >= 3
+
+    output = trace.to_jsonl(tmp_path / "safe-trace.jsonl")
+    assert secrets.isdisjoint(output.read_text(encoding="utf-8"))
 
 
 def test_trace_v2_records_model_rounds_and_structured_tool_outcomes():

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from agentmold.exceptions import ConfigurationError
 from agentmold.llm import LLM, Message, create_llm
@@ -935,9 +936,7 @@ def test_anthropic_stream_strips_thinking_tags_split_across_text_deltas():
             "ing>\n\nVisible answer",
         )
     ]
-    final_message = SimpleNamespace(
-        content=[SimpleNamespace(type="text", text="Visible answer")]
-    )
+    final_message = SimpleNamespace(content=[SimpleNamespace(type="text", text="Visible answer")])
     recorder = _StreamRecorder(_StreamManager(events, final_message))
     llm = AnthropicLLM.__new__(AnthropicLLM)
     LLM.__init__(llm, model="test-model")
