@@ -1,5 +1,9 @@
 # Long-Term Memory Collections
 
+Install `agentmold[memory]` for ChromaDB, NumPy, and the default OpenAI embedding client. The
+OpenAI path requires a valid API key and model ID; inject `embedder=` for a custom or offline
+embedding function instead of making a provider call.
+
 Long-term memory requires an explicit collection name so experiments cannot silently share
 one vector store:
 

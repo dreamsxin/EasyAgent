@@ -57,8 +57,14 @@ unless the tool or deployment environment imposes a stricter boundary.
 |---|---|
 | `text_delta` | A streaming provider emits a non-empty piece of visible assistant text |
 | `tool_call` | A complete provider response has requested a tool |
-| `tool_result` | The Python tool call has completed or returned a handled `ToolError` |
+| `tool_result` | The Python tool call completed, failed, or was refused |
 | `answer` | A complete provider response contains the final answer |
+| `approval_request` | A confirming tool is waiting for the caller's approval decision |
+| `loop_detected` | Repeated identical calls reached the configured guard threshold |
+
+`text_delta` and `approval_request` are transient and are not stored in `AgentTrace`.
+`tool_call`, `tool_result`, `answer`, and `loop_detected` are durable. A `loop_detected` event is
+recorded before `LoopDetectedError` is raised.
 
 `text_delta` means a provider chunk, not necessarily one tokenizer token. It is transient:
 the Agent yields it for display but does not add it to `AgentTrace`; the final `answer` remains

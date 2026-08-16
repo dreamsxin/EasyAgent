@@ -54,8 +54,9 @@ answer. The concept diagram's decision node is not inserted into that trace.
 ## Plan-and-Execute
 
 Split the work into two phases: a **Planner** Agent produces an ordered list of
-steps, then a **Worker** Agent (or the same Agent) executes each step.  This is
-just two `Agent.run()` calls connected by a `for` loop.
+steps, then fresh **Worker** Agents execute each step and a **Synthesizer** combines their
+results. The teaching runner uses five `Agent.run()` calls for its fixed three-step plan,
+connected by an ordinary `for` loop.
 
 ```python
 from agentmold.visual.teaching import run_plan_execute_experiment
@@ -153,7 +154,23 @@ The visual lab uses two deliberately separate modules:
   are prescribed and must not be interpreted as task-solving behavior.
 
 Multi-Agent completeness is an observed fact: a run counts as full collaboration only when
-both specialist tool calls and their correlated child traces exist.
+both specialist tool calls have successful `tool_result` events and both correlated child traces
+finish with `status="completed"`. Missing or failed specialists produce a `partial` experiment.
+
+`TeachingExperiment` JSON uses `experiment_version=1` and records `status` as `completed`,
+`partial`, or `failed`, plus an optional `error`. Live runner functions and `ProgressEvent` remain
+experimental Python APIs even though the visual teaching workflow is shipped and tested.
+
+A downloaded live `example.py` reads the full model configuration from
+`EASYAGENT_LLM_CONFIG`. For example, after installing `agentmold[openai]`:
+
+```bash
+export EASYAGENT_LLM_CONFIG='{"provider":"openai","model":"MODEL_ID","api_key":"..."}'
+python example.py
+```
+
+Keep that environment variable out of shell history and source control. The deterministic export
+needs no provider extra, credential, or network call.
 
 ---
 

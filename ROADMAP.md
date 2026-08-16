@@ -179,13 +179,13 @@ centralized marketplace.
   `list_tools` / `call_tool` surface as ordinary `Tool` objects over Streamable HTTP.
 - [x] Reuse the `http_tools` SSRF and private-network guards on the MCP transport so
   remote tool servers are subject to the same network policy as built-in HTTP tools.
-- [x] Defend tool poisoning and rug-pull: a tool-source allowlist plus description-change
-  detection (a version fingerprint per tool) flags untrusted or silently changed tools
-  instead of executing them.
+- [x] Surface tool poisoning and rug-pull risk: a tool allowlist limits exposure, while a
+  version fingerprint warns when a known tool description changes. Fingerprint warnings are
+  diagnostic and do not block execution; use the allowlist and confirmation gate to enforce policy.
 
-Release gate: a code-defined Agent can call tools from an external MCP server; an
-untrusted source or a changed tool description is flagged, not silently executed; and the
-run is recorded in the trace like any local tool call.
+Release gate: a code-defined Agent can call tools from an external MCP server; an untrusted
+source can be excluded by allowlist, changed descriptions emit a warning, and the run is recorded
+in the trace like any local tool call.
 
 ## v1.3 - Reproducible retrieval
 

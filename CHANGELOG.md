@@ -44,14 +44,17 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
 
 - Exported Python never embeds API keys. Live teaching exports read model configuration from
   `EASYAGENT_LLM_CONFIG`; credentials must be supplied through a protected environment variable.
+- Trace and teaching exports recursively sanitize credential keys, URL userinfo/query secrets,
+  authorization values, and known secret echoes, including imported traces before re-export.
 - `agent_as_tool` and the live teaching runners remain experimental surfaces. Multi-Agent is
-  complete only when both specialist calls and successful child traces are observed.
+  complete only when both specialist results and correlated child traces finish successfully.
 
 ### Known limitations
 
 - Live composition lessons require a saved non-Mock provider profile and may incur provider
   cost, latency, rate limits, or provider-specific failures. Use deterministic offline mode for
-  reproducible, credential-free demonstrations.
+  reproducible, credential-free demonstrations. Failed live runs preserve observed progress and
+  partial traces, but cannot recover work that never started.
 - No general coordinator runtime, workflow DSL, or hosted orchestration service is introduced.
 
 ## 0.6.0 - 2026-07-22
