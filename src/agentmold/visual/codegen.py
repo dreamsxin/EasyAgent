@@ -150,9 +150,7 @@ def generate_agent_python(
         names = sorted(t for t in tools if _TOOL_IMPORTS.get(t) == module)
         lines.append(f"from {module} import {', '.join(names)}")
     # Factory tools (retrieve, read_file, list_directory).
-    factory_imports = sorted(
-        {_TOOL_FACTORIES[t]["import"] for t in tools if t in _TOOL_FACTORIES}
-    )
+    factory_imports = sorted({_TOOL_FACTORIES[t]["import"] for t in tools if t in _TOOL_FACTORIES})
     for imp in factory_imports:
         lines.append(imp)
     lines.extend(["", "", "def build_agent() -> Agent:"])
@@ -185,9 +183,7 @@ def generate_agent_python(
         lines.append("    workspace_root.mkdir(parents=True, exist_ok=True)")
         lines.append("    _workspace_tools = workspace_tools(workspace_root)")
         for wt in workspace_tools_selected:
-            lines.append(
-                f"    {wt} = next(t for t in _workspace_tools if t.name == '{wt}')"
-            )
+            lines.append(f"    {wt} = next(t for t in _workspace_tools if t.name == '{wt}')")
 
     # Build the tools list expression.
     tool_exprs = []

@@ -201,9 +201,11 @@ def _render_regression(st: Any) -> None:
     columns[0].metric("SAMPLES", summary.get("sample_count", 0))
     columns[1].metric(
         "PASS RATE",
-        f"{float(metric.get('pass_rate', 0.0)) * 100:.1f}%"
-        if metric.get("pass_rate") is not None
-        else "-",
+        (
+            f"{float(metric.get('pass_rate', 0.0)) * 100:.1f}%"
+            if metric.get("pass_rate") is not None
+            else "-"
+        ),
     )
     columns[2].metric("MEAN ROUNDS", summary.get("mean_rounds") or "-")
     columns[3].metric("MEAN TOOLS", summary.get("mean_tool_calls") or 0)

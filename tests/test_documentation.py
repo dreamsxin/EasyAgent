@@ -114,14 +114,19 @@ def test_release_version_and_changelog_have_one_source_of_truth():
     )
     assert not re.search(r'^version\s*=\s*"', pyproject, re.M)
     assert f'__version__ = "{__version__}"' in version_module
-    assert f"## {__version__} - Unreleased" in changelog
+    assert re.search(
+        rf"^## {re.escape(__version__)} - (?:Unreleased|\d{{4}}-\d{{2}}-\d{{2}})$",
+        changelog,
+        re.M,
+    )
     assert "include CHANGELOG.md" in manifest
 
 
 def test_publish_workflow_blocks_unvalidated_or_mismatched_tags():
     workflow = (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
     assert '"$GITHUB_REF_NAME" != "v$package_version"' in workflow
-    assert 'grep -q "^## $package_version" CHANGELOG.md' in workflow
+    assert 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main' in workflow
+    assert 'grep -Eq "^## $package_version - [0-9]{4}-[0-9]{2}-[0-9]{2}$"' in workflow
     assert 'pip install -e ".[dev,memory]" build twine' in workflow
     assert "pytest -q" in workflow
     assert "python -m twine check dist/*" in workflow

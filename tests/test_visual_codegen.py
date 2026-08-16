@@ -52,13 +52,10 @@ def test_generated_agent_applies_tool_description_override_without_mutating_sour
 
     agent = load_agent(path)
 
-    assert agent.tools[0].description == (
-        "Use this whenever the user needs exact arithmetic."
-    )
+    assert agent.tools[0].description == ("Use this whenever the user needs exact arithmetic.")
     assert agent.tools[0] is not calculate
     assert calculate.description == original
     assert "description_overrides" in source
-
 
     source = generate_agent_python(
         name="Study Bot",

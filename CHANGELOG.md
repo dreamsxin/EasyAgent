@@ -3,7 +3,58 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
-## 0.6.0 - Unreleased
+## 0.7.0 - Unreleased
+
+### Added
+
+- Trace v2 records explicit run status, model rounds, structured tool outcomes, execution IDs,
+  call indexes, usage coverage, and parent/child Agent correlation.
+- Eval v2 adds repeated samples, trusted-Python `EvalContext` verifiers, metric results,
+  case/sample aggregation, runtime status, rounds, tool counts, and token/cost coverage.
+- The visual lab now opens with five architecture modes: ReAct, Plan-and-Execute, Reflection,
+  Multi-Agent, and Routing, plus dedicated replay and evaluation views.
+- Plan, Reflection, Routing, and Multi-Agent teaching pages can run against saved real model
+  profiles; deterministic offline demonstrations remain available for credential-free teaching.
+- Live architecture runs expose progress events, observed Python control flow, real Agent traces,
+  and Multi-Agent parent/child trace families. Completed experiments export strict JSON, Trace
+  JSONL, and an offline Python recipe.
+
+### Changed
+
+- The visual lab no longer hides architecture lessons below the single-Agent workbench. ReAct
+  remains the configurable workbench; composition lessons are separate top-level experiments.
+- Live model output now drives plan parsing, reflection feedback, routing selection, and actual
+  Agent-as-Tool delegation. Missing delegation is displayed as incomplete collaboration rather
+  than being repaired into a fabricated result.
+- The evaluation surface separates observed Agent-run comparison from repeated offline regression.
+- Trace and evaluation exports remain additive and continue to accept older Trace JSONL files.
+
+### Migration
+
+- Visual-only `AGENT_MODE_PRESETS`, `resolve_mode`, and the old visual Agent `mode` argument were
+  removed. Existing persisted `agent_mode` values are ignored. Configure behavior directly with
+  `loop_detection_threshold`, `require_approval`, and `audit_log`.
+- Eval reports with `repeats > 1` contain sample-level results. `total` counts samples, while
+  `case_count`, `case_index`, `sample_index`, `case_summaries`, and metric summaries identify
+  case-level aggregates.
+- Trace consumers should tolerate optional v2 fields such as `status`, `model_calls`, `round`,
+  `call_index`, `execution_id`, `duration_ms`, and `error_type`; older traces remain importable.
+
+### Security
+
+- Exported Python never embeds API keys. Live teaching exports read model configuration from
+  `EASYAGENT_LLM_CONFIG`; credentials must be supplied through a protected environment variable.
+- `agent_as_tool` and the live teaching runners remain experimental surfaces. Multi-Agent is
+  complete only when both specialist calls and successful child traces are observed.
+
+### Known limitations
+
+- Live composition lessons require a saved non-Mock provider profile and may incur provider
+  cost, latency, rate limits, or provider-specific failures. Use deterministic offline mode for
+  reproducible, credential-free demonstrations.
+- No general coordinator runtime, workflow DSL, or hosted orchestration service is introduced.
+
+## 0.6.0 - 2026-07-22
 
 ### Added
 
