@@ -3,7 +3,7 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
-## 0.7.0 - Unreleased
+## 0.7.0 - 2026-08-16
 
 ### Added
 
