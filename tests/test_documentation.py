@@ -127,18 +127,24 @@ def test_publish_workflow_blocks_unvalidated_or_mismatched_tags():
     assert '"$GITHUB_REF_NAME" != "v$package_version"' in workflow
     assert 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main' in workflow
     assert 'grep -Eq "^## $package_version - [0-9]{4}-[0-9]{2}-[0-9]{2}$"' in workflow
-    assert 'pip install -e ".[dev,memory]" build twine' in workflow
+    assert 'pip install -e ".[dev,memory,mcp,visual]" build twine' in workflow
     assert "pytest -q" in workflow
     assert "python -m twine check dist/*" in workflow
+    assert '"${wheel}[visual,mcp,openai]"' in workflow
+    assert "run_teaching_experiment('multi_agent')" in workflow
 
 
 def test_ci_enforces_documented_credential_free_launches():
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert 'pip install -e ".[dev,memory,mcp,visual]"' in workflow
     assert "printf 'exit\\n' | easyagent run --chat" in workflow
     assert "--provider deepseek --model MODEL_ID_FROM_PROVIDER" in workflow
     assert 'launch_visual 8501 "$workspace/visual-editor.log"' in workflow
     assert 'launch_visual 8502 "$workspace/visual-agent.log"' in workflow
     assert '--file "$workspace/visual-agent/agent.py"' in workflow
+    assert "python -m twine check dist/*" in workflow
+    assert '"${wheel}[visual,mcp,openai]"' in workflow
+    assert "STREAMLIT_SERVER_PORT=8503" in workflow
     assert 'timeout 300 bash "$smoke_script"' in workflow
 
 
