@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from agentmold import Agent, EvalCase, LogLevel, evaluate
+from agentmold.agent import sanitize_trace_data
 from agentmold.visual.renderers import trace_compare_html
 from agentmold.visual.traces import (
     build_trace_forest,
@@ -118,11 +119,13 @@ def _render_run_comparison(st: Any) -> None:
         st.markdown("#### 双运行详细差异")
         st.markdown(trace_compare_html(summaries[0], summaries[1]), unsafe_allow_html=True)
 
-    comparison_payload = {
-        "comparison_type": "observed_agent_runs",
-        "same_input": len(inputs) == 1,
-        "runs": selected,
-    }
+    comparison_payload = sanitize_trace_data(
+        {
+            "comparison_type": "observed_agent_runs",
+            "same_input": len(inputs) == 1,
+            "runs": selected,
+        }
+    )
     json_col, traces_col = st.columns(2)
     json_col.download_button(
         "下载对比 JSON",

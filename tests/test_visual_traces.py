@@ -40,6 +40,28 @@ def test_parse_multiple_runs_and_round_trip():
     assert restored == runs
 
 
+def test_imported_trace_credentials_are_sanitized_before_reexport():
+    source = "\n".join(
+        [
+            '{"record_type":"run","run_id":"unsafe","model_config":'
+            '{"api_key":"raw-api-key","base_url":'
+            '"https://url-user:url-password@example.com/v1?access_token=query-token"},'
+            '"error":"provider returned raw-api-key and query-token"}',
+            '{"record_type":"event","run_id":"unsafe","type":"answer",'
+            '"content":"debug raw-api-key url-password query-token"}',
+        ]
+    )
+    secrets = {"raw-api-key", "url-user", "url-password", "query-token"}
+
+    runs = parse_trace_jsonl(source)
+    exported = traces_to_jsonl(runs)
+
+    assert secrets.isdisjoint(exported)
+    assert runs[0]["model_config"]["api_key"] == "<redacted>"
+    assert "<redacted>" in runs[0]["error"]
+    assert "<redacted>" in runs[0]["events"][0]["content"]
+
+
 def test_summary_normalizes_metrics_and_label():
     run = {
         "run_id": "abcdef123456789",

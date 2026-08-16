@@ -12,15 +12,17 @@ import asyncio
 import enum
 import json
 import logging
+import re
 import time
 import typing
 from collections import deque
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, TypedDict
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 from agentmold.exceptions import (
@@ -71,6 +73,7 @@ __all__ = [
     "TextDeltaEvent",
     "ToolCallEvent",
     "ToolResultEvent",
+    "sanitize_trace_data",
 ]
 
 
@@ -218,6 +221,10 @@ class AgentTrace:
         default="running", kw_only=True
     )
     _child_traces: list[AgentTrace] = field(default_factory=list, repr=False, kw_only=True)
+    _sensitive_values: set[str] = field(default_factory=set, repr=False, kw_only=True)
+
+    def _known_sensitive_values(self) -> set[str]:
+        return self._sensitive_values | _collect_sensitive_values(self.model_config)
 
     def add(self, step: TraceEvent) -> None:
         self.steps.append(step)
@@ -252,7 +259,7 @@ class AgentTrace:
             "usage": dict(usage or {}),
         }
         if error is not None:
-            model_call["error"] = error
+            model_call["error"] = _sanitize_text(error, self._known_sensitive_values())
         self.model_calls.append(model_call)
 
     def finish(
@@ -266,7 +273,9 @@ class AgentTrace:
             return
         self.ended_at = _utc_now()
         self.duration_ms = round((time.perf_counter() - self._started_monotonic) * 1000, 3)
-        self.error = error
+        self.error = (
+            _sanitize_text(error, self._known_sensitive_values()) if error is not None else None
+        )
         self.status = status or ("failed" if error is not None else "completed")
 
     def to_dict(self) -> dict[str, Any]:
@@ -275,28 +284,31 @@ class AgentTrace:
         for index, step in enumerate(self.steps):
             recorded_at = self.event_times[index] if index < len(self.event_times) else None
             events.append({"recorded_at": recorded_at, **step})
-        return {
-            "trace_version": self.trace_version,
-            "run_id": self.run_id,
-            "parent_run_id": self.parent_run_id,
-            "parent_tool_call_id": self.parent_tool_call_id,
-            "child_run_ids": list(self.child_run_ids),
-            "input": self.user_input,
-            "agent_name": self.agent_name,
-            "instructions": self.instructions,
-            "model": self.model,
-            "model_config": self.model_config,
-            "tool_schemas": self.tool_schemas,
-            "usage": self.usage,
-            "model_calls": self.model_calls,
-            "started_at": self.started_at,
-            "ended_at": self.ended_at,
-            "duration_ms": self.duration_ms,
-            "error": self.error,
-            "status": self.status,
-            "events": events,
-            "max_iterations": self.max_iterations,
-        }
+        return sanitize_trace_data(
+            {
+                "trace_version": self.trace_version,
+                "run_id": self.run_id,
+                "parent_run_id": self.parent_run_id,
+                "parent_tool_call_id": self.parent_tool_call_id,
+                "child_run_ids": list(self.child_run_ids),
+                "input": self.user_input,
+                "agent_name": self.agent_name,
+                "instructions": self.instructions,
+                "model": self.model,
+                "model_config": self.model_config,
+                "tool_schemas": self.tool_schemas,
+                "usage": self.usage,
+                "model_calls": self.model_calls,
+                "started_at": self.started_at,
+                "ended_at": self.ended_at,
+                "duration_ms": self.duration_ms,
+                "error": self.error,
+                "status": self.status,
+                "events": events,
+                "max_iterations": self.max_iterations,
+            },
+            sensitive_values=self._known_sensitive_values(),
+        )
 
     def to_jsonl(self, path: str | Path, append: bool = False) -> Path:
         """Write one run header followed by one line per execution event."""
@@ -1230,6 +1242,7 @@ class Agent:
         if base_url:
             config["base_url"] = base_url
         config.update(self.llm.kwargs)
+        sensitive_values = _collect_sensitive_values(config)
         trace = AgentTrace(
             parent_run_id=parent_trace.run_id if parent_trace is not None else None,
             parent_tool_call_id=parent_tool_call_id,
@@ -1238,7 +1251,8 @@ class Agent:
             instructions=self.instructions,
             max_iterations=self.max_iterations,
             model=self.llm.model,
-            model_config=_redact_config(config),
+            model_config=_redact_config(config, sensitive_values=sensitive_values),
+            _sensitive_values=sensitive_values,
         )
         if parent_trace is not None and trace.run_id not in parent_trace.child_run_ids:
             parent_trace.child_run_ids.append(trace.run_id)
@@ -1342,22 +1356,201 @@ def _flatten_numeric_usage(value: Any, prefix: str = "") -> dict[str, int | floa
     return flattened
 
 
-def _redact_config(config: dict[str, Any]) -> dict[str, Any]:
+_REDACTED = "<redacted>"
+_SENSITIVE_KEY_NAMES = {
+    "apikey",
+    "authorization",
+    "authtoken",
+    "clientsecret",
+    "cookie",
+    "credentials",
+    "password",
+    "passwd",
+    "proxyauthorization",
+    "refreshtoken",
+    "secret",
+    "setcookie",
+    "token",
+}
+_SENSITIVE_KEY_SUFFIXES = (
+    "apikey",
+    "authtoken",
+    "clientsecret",
+    "credential",
+    "credentials",
+    "password",
+    "refreshtoken",
+    "secret",
+)
+_URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_AUTH_PATTERN = re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=:%-]+")
+_SECRET_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)(\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|"
+    r"cookie|credentials?|password|passwd|refresh[_-]?token|secret)\b\s*[:=]\s*)"
+    r"([\"']?)([^\"'\s,;}&]+)([\"']?)"
+)
+
+
+def sanitize_trace_data(
+    data: dict[str, Any],
+    *,
+    sensitive_values: Iterable[str] = (),
+) -> dict[str, Any]:
+    """Return detached trace data with credentials removed recursively.
+
+    This is intentionally applied at both trace construction and export. Visual
+    imports are untrusted input and may contain raw provider configuration, so
+    serializers must not assume an imported trace was already sanitized.
+    """
+    secrets = {value for value in sensitive_values if value}
+    secrets.update(_collect_sensitive_values(data))
+    sanitized = _sanitize_trace_value(data, secrets)
+    if not isinstance(sanitized, dict):  # pragma: no cover - data is typed as a dict
+        raise TypeError("Trace data must remain a dictionary after sanitization.")
+    return sanitized
+
+
+def _redact_config(
+    config: dict[str, Any],
+    *,
+    sensitive_values: Iterable[str] = (),
+) -> dict[str, Any]:
     """Keep trace configuration useful without serializing credentials."""
-    sensitive_fragments = ("key", "token", "secret", "password", "authorization")
+    sanitized = sanitize_trace_data(config, sensitive_values=sensitive_values)
+    return {str(key): _json_safe_trace_value(value) for key, value in sanitized.items()}
 
-    def redact(value: Any, key: str = "") -> Any:
-        lowered = key.lower()
-        if any(fragment in lowered for fragment in sensitive_fragments):
-            return "<redacted>"
-        if isinstance(value, dict):
-            return {str(k): redact(v, str(k)) for k, v in value.items()}
-        if isinstance(value, (list, tuple)):
-            return [redact(item, key) for item in value]
-        try:
-            json.dumps(value)
-            return value
-        except (TypeError, ValueError):
-            return repr(value)
 
-    return {key: redact(value, key) for key, value in config.items()}
+def _sanitize_trace_value(value: Any, secrets: set[str], key: str = "") -> Any:
+    if key and _is_sensitive_key(key):
+        return _REDACTED
+    if isinstance(value, dict):
+        return {
+            str(item_key): _sanitize_trace_value(item, secrets, str(item_key))
+            for item_key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_trace_value(item, secrets, key) for item in value]
+    if isinstance(value, str):
+        return _sanitize_text(value, secrets)
+    return value
+
+
+def _sanitize_text(text: str, secrets: Iterable[str]) -> str:
+    sanitized = _URL_PATTERN.sub(lambda match: _sanitize_url(match.group(0)), text)
+    sanitized = _AUTH_PATTERN.sub(lambda match: f"{match.group(1)} {_REDACTED}", sanitized)
+
+    def redact_assignment(match: re.Match[str]) -> str:
+        quote = match.group(2) or match.group(4)
+        return f"{match.group(1)}{quote}{_REDACTED}{quote}"
+
+    sanitized = _SECRET_ASSIGNMENT_PATTERN.sub(redact_assignment, sanitized)
+    for secret in sorted(set(secrets), key=len, reverse=True):
+        if sanitized == secret:
+            return _REDACTED
+        if len(secret) >= 4:
+            sanitized = sanitized.replace(secret, _REDACTED)
+    return sanitized
+
+
+def _sanitize_url(raw_url: str) -> str:
+    try:
+        parsed = urlsplit(raw_url)
+    except ValueError:
+        return raw_url
+    if not parsed.scheme or not parsed.netloc:
+        return raw_url
+
+    hostname = parsed.hostname or ""
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    netloc = f"{hostname}{port}"
+    if parsed.username is not None or parsed.password is not None:
+        netloc = f"{_REDACTED}@{netloc}"
+
+    query = urlencode(
+        [
+            (key, _REDACTED if _is_sensitive_key(key) else value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        ]
+    )
+    fragment = parsed.fragment
+    if "=" in fragment:
+        fragment = urlencode(
+            [
+                (key, _REDACTED if _is_sensitive_key(key) else value)
+                for key, value in parse_qsl(fragment, keep_blank_values=True)
+            ]
+        )
+    return urlunsplit((parsed.scheme, netloc, parsed.path, query, fragment))
+
+
+def _collect_sensitive_values(value: Any, key: str = "") -> set[str]:
+    secrets: set[str] = set()
+    if key and _is_sensitive_key(key):
+        secrets.update(_string_values(value))
+    if isinstance(value, dict):
+        for item_key, item in value.items():
+            secrets.update(_collect_sensitive_values(item, str(item_key)))
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            secrets.update(_collect_sensitive_values(item, key))
+    elif isinstance(value, str) and _looks_like_url_key(key):
+        secrets.update(_url_sensitive_values(value))
+    return secrets
+
+
+def _string_values(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {value} if value else set()
+    if isinstance(value, dict):
+        values: set[str] = set()
+        for item in value.values():
+            values.update(_string_values(item))
+        return values
+    if isinstance(value, (list, tuple)):
+        values = set()
+        for item in value:
+            values.update(_string_values(item))
+        return values
+    return set()
+
+
+def _url_sensitive_values(raw_url: str) -> set[str]:
+    try:
+        parsed = urlsplit(raw_url)
+    except ValueError:
+        return set()
+    values = {value for value in (parsed.username, parsed.password) if value}
+    values.update(
+        value
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if value and _is_sensitive_key(key)
+    )
+    return values
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", key.casefold())
+    if normalized in _SENSITIVE_KEY_NAMES:
+        return True
+    if normalized.endswith("token") and not normalized.endswith("tokens"):
+        return True
+    return any(normalized.endswith(suffix) for suffix in _SENSITIVE_KEY_SUFFIXES)
+
+
+def _looks_like_url_key(key: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", key.casefold())
+    return normalized.endswith("url") or normalized.endswith("uri") or "endpoint" in normalized
+
+
+def _json_safe_trace_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe_trace_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe_trace_value(item) for item in value]
+    try:
+        json.dumps(value, allow_nan=False)
+        return value
+    except (TypeError, ValueError):
+        return repr(value)

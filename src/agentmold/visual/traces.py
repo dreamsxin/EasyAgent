@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agentmold.agent import sanitize_trace_data
+
 DEFAULT_VISUAL_TRACE_LOG = Path(".agentmold/visual_runs.jsonl")
 
 __all__ = [
@@ -87,13 +89,14 @@ def parse_trace_jsonl(text: str | bytes) -> list[dict[str, Any]]:
         else:
             raise ValueError(f"Trace 第 {line_number} 行 record_type 必须是 run 或 event")
 
-    return [runs[run_id] for run_id in order]
+    return [sanitize_trace_data(runs[run_id]) for run_id in order]
 
 
 def traces_to_jsonl(runs: list[dict[str, Any]]) -> str:
     """Serialize replay runs back to the portable EasyAgent JSONL format."""
     lines: list[str] = []
-    for run in runs:
+    for raw_run in runs:
+        run = sanitize_trace_data(raw_run)
         run_id = run.get("run_id")
         if not isinstance(run_id, str) or not run_id.strip():
             raise ValueError("每个 Trace run 都必须包含有效 run_id")
