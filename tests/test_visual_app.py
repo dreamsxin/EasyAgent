@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ from agentmold.visual.teaching_models import LiveTeachingModel
 
 streamlit_testing = pytest.importorskip("streamlit.testing.v1")
 AppTest = streamlit_testing.AppTest
+APP_FILE = Path(__file__).parents[1] / "src" / "agentmold" / "visual" / "app.py"
 
 
 def _select_offline_mode(app) -> None:
@@ -24,7 +26,7 @@ def test_live_mode_does_not_fall_back_to_scripted_execution(monkeypatch) -> None
         "agentmold.visual.teaching_view.load_live_teaching_models",
         lambda: ([], []),
     )
-    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
 
     app.run()
     app.segmented_control[0].select("Multi-Agent").run()
@@ -69,7 +71,7 @@ def test_live_mode_passes_saved_model_to_live_runner(monkeypatch) -> None:
         "agentmold.visual.teaching_view.run_live_teaching_experiment",
         fake_live_runner,
     )
-    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
 
     app.run()
     app.segmented_control[0].select("Routing").run()
@@ -115,7 +117,7 @@ def test_live_mode_surfaces_progress_when_runner_fails(monkeypatch) -> None:
         "agentmold.visual.teaching_view.run_live_teaching_experiment",
         failing_runner,
     )
-    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
 
     app.run()
     app.segmented_control[0].select("Plan-and-Execute").run()
@@ -166,7 +168,7 @@ def test_live_mode_keeps_previous_success_and_exposes_partial_attempt(monkeypatc
         fake_runner,
     )
     monkeypatch.setattr("agentmold.visual.teaching_view.remember_trace", fake_remember)
-    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
 
     app.run()
     app.segmented_control[0].select("Routing").run()
@@ -188,7 +190,7 @@ def test_live_mode_keeps_previous_success_and_exposes_partial_attempt(monkeypatc
 
 
 def test_react_sidebar_has_direct_advanced_safety_controls() -> None:
-    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
 
     app.run()
 
@@ -212,7 +214,7 @@ def test_offline_teaching_modes_run_without_a_react_agent(
     mode: str,
     trace_count: int,
 ) -> None:
-    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
 
     app.run()
     assert not app.exception
@@ -242,7 +244,7 @@ def test_offline_teaching_modes_run_without_a_react_agent(
 
 
 def test_switching_architectures_preserves_each_experiment_state() -> None:
-    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
     custom_input = "Design a three-step offline research workflow"
 
     app.run()
@@ -262,7 +264,7 @@ def test_switching_architectures_preserves_each_experiment_state() -> None:
 
 
 def test_teaching_traces_flow_into_replay_and_evaluation_views() -> None:
-    app = AppTest.from_file("src/agentmold/visual/app.py", default_timeout=20)
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
 
     app.run()
     app.segmented_control[0].select("Multi-Agent").run()
