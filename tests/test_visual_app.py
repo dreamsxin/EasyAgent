@@ -18,7 +18,16 @@ APP_FILE = Path(__file__).parents[1] / "src" / "agentmold" / "visual" / "app.py"
 
 def _select_offline_mode(app) -> None:
     execution = next(item for item in app.radio if item.label == "执行方式")
-    execution.set_value("确定性离线演示").run()
+    execution.set_value("无网络练习（预设回答）").run()
+
+
+def _select_live_mode(app) -> None:
+    execution = next(item for item in app.radio if item.label == "执行方式")
+    execution.set_value("真实模型执行（可能产生费用）").run()
+    confirmation = next(
+        item for item in app.checkbox if item.label == "我知道真实执行会联网并可能产生费用"
+    )
+    confirmation.check().run()
 
 
 def test_live_mode_does_not_fall_back_to_scripted_execution(monkeypatch) -> None:
@@ -32,11 +41,31 @@ def test_live_mode_does_not_fall_back_to_scripted_execution(monkeypatch) -> None
     app.segmented_control[0].select("Multi-Agent").run()
 
     execution = next(item for item in app.radio if item.label == "执行方式")
+    assert execution.value == "无网络练习（预设回答）"
+    assert any(button.label == "开始无网络练习" for button in app.button)
+    _select_live_mode(app)
     live_button = next(button for button in app.button if button.label == "运行真实架构")
-    assert execution.value == "真实模型执行"
     assert live_button.disabled is True
     assert any(button.label == "去 ReAct 配置模型" for button in app.button)
     assert "teaching.multi_agent.live.result" not in app.session_state
+
+
+def test_execution_mode_is_shared_across_architectures() -> None:
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
+
+    app.run()
+    app.segmented_control[0].select("Plan-and-Execute").run()
+    assert app.session_state["teaching.execution_mode"] == "offline"
+    _select_live_mode(app)
+    assert app.session_state["teaching.execution_mode"] == "live"
+
+    app.segmented_control[0].select("Reflection").run()
+    execution = next(item for item in app.radio if item.label == "执行方式")
+    assert execution.value == "真实模型执行（可能产生费用）"
+    assert any(
+        item.label == "我知道真实执行会联网并可能产生费用" and item.value is True
+        for item in app.checkbox
+    )
 
 
 def test_live_mode_passes_saved_model_to_live_runner(monkeypatch) -> None:
@@ -75,6 +104,7 @@ def test_live_mode_passes_saved_model_to_live_runner(monkeypatch) -> None:
 
     app.run()
     app.segmented_control[0].select("Routing").run()
+    _select_live_mode(app)
     next(button for button in app.button if button.label == "运行真实架构").click().run()
 
     assert not app.exception
@@ -121,6 +151,7 @@ def test_live_mode_surfaces_progress_when_runner_fails(monkeypatch) -> None:
 
     app.run()
     app.segmented_control[0].select("Plan-and-Execute").run()
+    _select_live_mode(app)
     next(button for button in app.button if button.label == "运行真实架构").click().run()
 
     assert not app.exception
@@ -172,6 +203,7 @@ def test_live_mode_keeps_previous_success_and_exposes_partial_attempt(monkeypatc
 
     app.run()
     app.segmented_control[0].select("Routing").run()
+    _select_live_mode(app)
     run_button = next(button for button in app.button if button.label == "运行真实架构")
     run_button.click().run()
     successful = app.session_state["teaching.routing.live.result"]
@@ -230,12 +262,14 @@ def test_offline_teaching_modes_run_without_a_react_agent(
     navigation.select(label).run()
     assert not app.exception
     assert app.session_state["ea_architecture_mode"] == mode
-    assert next(item for item in app.radio if item.label == "执行方式").value == "真实模型执行"
+    assert (
+        next(item for item in app.radio if item.label == "执行方式").value
+        == "无网络练习（预设回答）"
+    )
 
-    _select_offline_mode(app)
-    assert [button.label for button in app.button][-2:] == ["运行离线演示", "重置"]
+    assert [button.label for button in app.button][-2:] == ["开始无网络练习", "重置"]
 
-    next(button for button in app.button if button.label == "运行离线演示").click().run()
+    next(button for button in app.button if button.label == "开始无网络练习").click().run()
     assert not app.exception
     experiment = app.session_state[f"teaching.{mode}.offline.result"]
     assert experiment.mode == mode
@@ -251,7 +285,7 @@ def test_switching_architectures_preserves_each_experiment_state() -> None:
     app.segmented_control[0].select("Plan-and-Execute").run()
     _select_offline_mode(app)
     app.text_area[0].set_value(custom_input)
-    next(button for button in app.button if button.label == "运行离线演示").click().run()
+    next(button for button in app.button if button.label == "开始无网络练习").click().run()
     plan_result = app.session_state["teaching.plan_execute.offline.result"]
 
     app.segmented_control[0].select("Reflection").run()
@@ -269,7 +303,7 @@ def test_teaching_traces_flow_into_replay_and_evaluation_views() -> None:
     app.run()
     app.segmented_control[0].select("Multi-Agent").run()
     _select_offline_mode(app)
-    next(button for button in app.button if button.label == "运行离线演示").click().run()
+    next(button for button in app.button if button.label == "开始无网络练习").click().run()
     assert len(app.session_state["trace_runs"]) == 3
 
     next(button for button in app.button if button.label == "运行回放").click().run()

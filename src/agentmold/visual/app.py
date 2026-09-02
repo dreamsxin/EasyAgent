@@ -676,9 +676,12 @@ def _render_top_navigation(st: Any) -> tuple[str, str]:
         st.session_state.ea_visual_view = "evaluation"
         st.rerun()
     context_messages = {
-        "architecture": "运行五种架构实验，并区分概念示意与真实 Trace。",
+        "architecture": (
+            "新手路径：选择执行方式 → 运行 → 查看 Trace。ReAct 是基础 Agent 工作台，"
+            "其余是架构练习。"
+        ),
         "trace": "查看一次运行的时间线、配置与父子 Agent family。",
-        "evaluation": "比较 2-4 个 Agent 运行，或执行同一 Agent 的批量回归。",
+        "evaluation": "对照已记录运行，或做不联网的 Mock 输出回归。",
     }
     context_col.caption(context_messages.get(current_view, context_messages["architecture"]))
     return current_view, architecture_id
@@ -767,9 +770,9 @@ def _run_app() -> None:
             <div class="ea-title">Make agents <span>observable.</span></div>
             <div class="ea-subtitle">把代码、对话与执行轨迹放进同一个清晰的研究工作台。</div>
             <div class="ea-strip">
-                <span class="ea-chip live">● LIVE SESSION</span>
-                <span class="ea-chip trace">TRACE READY</span>
-                <span class="ea-chip">CODE-FIRST</span>
+                <span class="ea-chip">● 无网络优先</span>
+                <span class="ea-chip trace">TRACE 可回放</span>
+                <span class="ea-chip">代码优先</span>
             </div>
         </div>
         """,

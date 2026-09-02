@@ -35,9 +35,12 @@ __all__ = ["render_teaching_view"]
 
 
 _EXECUTION_MODES: Final[dict[str, str]] = {
-    "live": "真实模型执行",
-    "offline": "确定性离线演示",
+    "offline": "无网络练习（预设回答）",
+    "live": "真实模型执行（可能产生费用）",
 }
+_GLOBAL_EXECUTION_KEY = "teaching.execution_mode"
+_GLOBAL_EXECUTION_WIDGET_KEY = "_teaching.execution_mode_widget"
+_LIVE_CONFIRMATION_KEY = "teaching.live_confirmed"
 
 _EXPECTED_CALLS: Final[dict[str, str]] = {
     "plan_execute": "约 4-7 次模型调用：规划、2-5 个步骤、综合",
@@ -81,14 +84,14 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
     state_prefix = f"teaching.{architecture_id}"
     input_key = f"{state_prefix}.input"
     input_widget_key = f"_{state_prefix}.input_widget"
-    execution_key = f"{state_prefix}.execution_mode"
-    execution_widget_key = f"_{state_prefix}.execution_widget"
+    execution_key = _GLOBAL_EXECUTION_KEY
+    execution_widget_key = _GLOBAL_EXECUTION_WIDGET_KEY
     if input_key not in st.session_state:
         st.session_state[input_key] = mode["sample_input"]
     if input_widget_key not in st.session_state:
         st.session_state[input_widget_key] = st.session_state[input_key]
     if execution_key not in st.session_state:
-        st.session_state[execution_key] = "live"
+        st.session_state[execution_key] = "offline"
     if execution_widget_key not in st.session_state:
         st.session_state[execution_widget_key] = _EXECUTION_MODES[st.session_state[execution_key]]
 
@@ -112,21 +115,30 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
         key=execution_widget_key,
         horizontal=True,
         on_change=remember_execution_mode,
-        help="真实模式让模型响应驱动控制流；离线模式使用固定响应，仅演示流程。",
+        help="无网络练习使用预设回答；真实模型执行会联网并可能产生 provider 费用。",
     )
     execution_mode = str(st.session_state[execution_key])
+    if execution_mode == "live":
+        st.checkbox(
+            "我知道真实执行会联网并可能产生费用",
+            key=_LIVE_CONFIRMATION_KEY,
+            help="确认只对当前浏览器会话生效，不会保存到项目配置。",
+        )
+    else:
+        st.caption("无网络练习不会调用外部模型，只演示架构的 Python 控制流和 Trace。")
     result_key = f"{state_prefix}.{execution_mode}.result"
     attempt_key = f"{state_prefix}.{execution_mode}.attempt"
     error_key = f"{state_prefix}.{execution_mode}.error"
+    progress_key = f"{state_prefix}.{execution_mode}.progress"
 
     live_models, model_errors = load_live_teaching_models()
     selected_model: LiveTeachingModel | None = None
     if execution_mode == "live":
         selected_model = _render_live_model_controls(st, state_prefix, live_models, model_errors)
     else:
-        st.warning(
-            "确定性离线演示使用固定 ScriptedLLM 响应。它会产生真实 AgentTrace，"
-            "但不会根据任意输入做真实规划、批评、委派或路由。"
+        st.info(
+            "无网络练习使用预设模型回答，会产生真实 Trace，但不会根据任意输入做真实规划、"
+            "批评、委派或路由。它适合第一次学习和重复练习。"
         )
 
     def remember_input() -> None:
@@ -156,12 +168,17 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
     with action_col:
         st.markdown('<div class="ea-section-label">操作</div>', unsafe_allow_html=True)
         run_clicked = st.button(
-            "运行真实架构" if execution_mode == "live" else "运行离线演示",
+            "运行真实架构" if execution_mode == "live" else "开始无网络练习",
             type="primary",
             use_container_width=True,
-            disabled=execution_mode == "live" and selected_model is None,
+            disabled=(
+                execution_mode == "live"
+                and (selected_model is None or not st.session_state.get(_LIVE_CONFIRMATION_KEY))
+            ),
             key=f"{state_prefix}.{execution_mode}.run",
         )
+        if execution_mode == "live" and selected_model is None:
+            st.caption("先切换为无网络练习，或到 ReAct 保存一个非 Mock 模型配置。")
         st.button(
             "重置",
             use_container_width=True,
@@ -169,7 +186,6 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
             on_click=reset_experiment,
         )
 
-    progress_key = f"{state_prefix}.{execution_mode}.progress"
     progress_placeholder = st.empty()
     previous_progress = st.session_state.get(progress_key, [])
     if isinstance(previous_progress, list) and previous_progress:
