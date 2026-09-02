@@ -6,10 +6,10 @@ architectures onto that single primitive, so you can recognise a pattern when
 you need it and implement it without a workflow DSL.
 
 > The visual lab (`easyagent visual`) exposes all five patterns in its top navigation.
-> ReAct opens the configurable single-Agent workbench. The other pages default to a saved
-> real provider profile: model responses drive planning, critique, routing, and delegation.
-> A separately labelled deterministic offline mode uses fixed `ScriptedLLM` responses only
-> to teach control flow and Trace structure. Each page labels its architecture diagram as
+> ReAct opens the configurable single-Agent workbench. The other pages default to a
+> no-network practice mode with preset responses. You can explicitly switch to a saved real
+> provider profile: model responses then drive planning, critique, routing, and delegation.
+> Each page labels its architecture diagram as
 > **concept only, not this run**, then shows Python events separately from real `AgentTrace`
 > records. Completed lessons export JSON, Trace JSONL, and `example.py`.
 

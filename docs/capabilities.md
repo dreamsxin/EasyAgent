@@ -23,7 +23,7 @@ framework than the package provides.
 | Provider text streaming | Shipped | Built-in network providers expose native sync/async chunks; `mock` and extensions may use the complete-response fallback. |
 | Memory | Shipped | Short-term `Memory` is core; named `VectorMemory` collections are an optional dependency. |
 | Trace and evaluation | Shipped | Trace v2 records status, model rounds, structured tool results, usage, and parent/child correlation; Eval v2 supports repeated samples and named trusted-Python metrics. |
-| Visual research lab | Shipped | Streamlit exposes ReAct, Plan-and-Execute, Reflection, Multi-Agent, and Routing; the four composition lessons default to saved real models, keep fixed-response offline demos explicitly separate, and provide replay, comparison, evaluation, and export. |
+| Visual research lab | Shipped | Streamlit exposes ReAct, Plan-and-Execute, Reflection, Multi-Agent, and Routing; composition lessons default to no-network practice, require explicit confirmation before live models, and provide replay, comparison, evaluation, and export. |
 | Architecture teaching workflow | Shipped | The visual workflow runs live or deterministic lessons, preserves completed/partial/failed experiments, and displays real Agent traces plus separate TeachingEvents without inventing missing work. |
 | Teaching runner Python modules | Experimental | `agentmold.visual.teaching` and `agentmold.visual.live_teaching`, their progress callbacks, metadata keys, and experiment JSON schema may change before 1.0. |
 | Python provider/tool extensions | Shipped | Standard entry points provide explicit discovery; extension loading errors are not hidden. |

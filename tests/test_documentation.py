@@ -97,6 +97,7 @@ def test_visual_architecture_lab_documents_runnable_fact_boundary():
     assert "已记录运行对照" in readme
     assert "Coordinator、Researcher 和 Analyst" in readme
     assert "无网络练习（预设回答）" in readme and "真实模型执行" in readme
+    assert "default to a" in architectures and "no-network practice mode" in architectures
     assert "Mock 输出回归" in readme
     assert "真实运行期间页面持续显示阶段进度" in readme
     assert "Coordinator 委派、专家返回和最终综合" in readme
