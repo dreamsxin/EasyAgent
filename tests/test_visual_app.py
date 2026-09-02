@@ -315,7 +315,7 @@ def test_teaching_traces_flow_into_replay_and_evaluation_views() -> None:
     assert not app.exception
     assert app.session_state["ea_visual_view"] == "evaluation"
     assert any(item.value == "## 对比与评测" for item in app.markdown)
-    assert [tab.label for tab in app.tabs] == ["Agent 运行对比", "批量回归"]
+    assert [tab.label for tab in app.tabs] == ["已记录运行对照", "Mock 输出回归"]
     assert len(app.multiselect[0].value) == 3
     assert len(app.dataframe) == 1
     assert [download.label for download in app.get("download_button")] == [
@@ -325,11 +325,14 @@ def test_teaching_traces_flow_into_replay_and_evaluation_views() -> None:
     assert any("协调 Agent" in expander.label for expander in app.expander)
     assert sum("子 Agent" in expander.label for expander in app.expander) == 2
 
-    next(button for button in app.button if button.label == "运行批量回归").click().run()
+    next(button for button in app.button if button.label == "运行 Mock 输出回归").click().run()
     assert not app.exception
     report = app.session_state["ea_eval_report"]
     assert report["summary"]["sample_count"] == 6
     assert report["summary"]["metrics"]["score"]["pass_rate"] == 1.0
+
+    app.number_input[0].set_value(2).run()
+    assert "ea_eval_report" not in app.session_state
 
     next(button for button in app.button if button.label == "架构实验").click().run()
     assert not app.exception

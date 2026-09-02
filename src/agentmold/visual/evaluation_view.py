@@ -22,8 +22,8 @@ __all__ = ["render_evaluation_view"]
 def render_evaluation_view(st: Any) -> None:
     """Render separate workflows for run comparison and repeated regression."""
     st.markdown("## 对比与评测")
-    st.caption("先选择要回答的问题：比较不同 Agent 的已完成运行，或验证同一 Agent 的重复稳定性。")
-    compare_tab, regression_tab = st.tabs(["Agent 运行对比", "批量回归"])
+    st.caption("先选择任务：对照已记录运行，或检查内置 Mock 的字符串回归。")
+    compare_tab, regression_tab = st.tabs(["已记录运行对照", "Mock 输出回归"])
     with compare_tab:
         _render_run_comparison(st)
     with regression_tab:
@@ -31,15 +31,15 @@ def render_evaluation_view(st: Any) -> None:
 
 
 def _render_run_comparison(st: Any) -> None:
-    st.markdown("### 比较 2-4 个真实运行")
+    st.markdown("### 对照 2-4 个已记录运行")
     st.markdown(
         "1. 先在顶部选择架构并运行实验。  \n"
-        "2. 回到这里选择 Agent 运行。Multi-Agent 可同时选择 Coordinator 和子 Agent。  \n"
+        "2. 回到这里选择已记录的 Agent 运行。Multi-Agent 可同时选择 Coordinator 和子 Agent。  \n"
         "3. 对照输出、模型轮次、工具、耗时、token、成本和父子关系。"
     )
     st.caption(
-        "这里只比较已经记录的 Trace，不会重新调用模型。相同输入适合做 A/B；"
-        "不同输入可用于观察协作分工，但不能直接判断哪个 Agent 更好。"
+        "这里只比较已经记录的 Trace，不会重新调用模型；记录可能来自 Mock、离线预设、真实模型、"
+        "失败或 partial 运行。相同输入才适合做 A/B，不同输入只用于观察角色分工。"
     )
 
     session_runs = st.session_state.get("trace_runs", [])
@@ -146,10 +146,10 @@ def _render_run_comparison(st: Any) -> None:
 
 
 def _render_regression(st: Any) -> None:
-    st.markdown("### 同一离线 Agent 的重复稳定性")
+    st.markdown("### 内置 Mock 输出回归")
     st.caption(
-        "适合检查固定 Agent 在多组 case 上是否持续包含期望片段。"
-        "这不是多个 Agent 的排行榜；每个 sample 都创建独立 mock Agent。"
+        "只检查固定 Mock Agent 的输出是否包含指定字符串，不调用网络、不使用当前 ReAct 配置，"
+        "也不是多个模型或 Agent 的质量排行榜。每个 sample 都创建独立 Mock Agent。"
     )
     cases_text = st.text_area(
         "评测用例（每行：问题 => 期望片段）",
@@ -165,7 +165,8 @@ def _render_regression(st: Any) -> None:
         step=1,
         key="ea_eval_repeats",
     )
-    if st.button("运行批量回归", type="primary", key="ea_run_evaluation"):
+    report_signature = (cases_text, int(repeats))
+    if st.button("运行 Mock 输出回归", type="primary", key="ea_run_evaluation"):
         cases: list[EvalCase] = []
         errors: list[str] = []
         for line_number, raw_line in enumerate(cases_text.splitlines(), start=1):
@@ -193,7 +194,10 @@ def _render_regression(st: Any) -> None:
                 repeats=int(repeats),
             )
             st.session_state.ea_eval_report = report.to_dict()
+            st.session_state.ea_eval_report_signature = report_signature
 
+    if st.session_state.get("ea_eval_report_signature") != report_signature:
+        st.session_state.pop("ea_eval_report", None)
     payload = st.session_state.get("ea_eval_report")
     if not isinstance(payload, dict):
         st.info("运行后会显示 sample 级结果、pass rate、轮次和 usage 覆盖率。")

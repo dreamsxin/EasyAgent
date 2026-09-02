@@ -332,6 +332,15 @@ def test_timeline_renders_events_and_escapes_content():
     assert "CALL" in timeline
     assert "RESULT" in timeline
     assert "ANSWER" in timeline
+
+    outcomes = _timeline_html(
+        [
+            {"type": "tool_result", "name": "search", "content": "bad", "status": "error"},
+            {"type": "tool_result", "name": "write", "content": "no", "status": "refused"},
+        ]
+    )
+    assert "FAILED" in outcomes
+    assert "REFUSED" in outcomes
     assert "&lt;tag&gt;" in timeline
     assert "<tag>" not in timeline
 
@@ -368,6 +377,15 @@ def test_execution_map_tracks_real_events_and_escapes_input():
     assert "TOOL CALL" in rendered
     assert "TOOL RESULT" in rendered
     assert "ANSWER" in rendered
+
+    failed = _execution_map_html(
+        [{"type": "tool_result", "name": "search", "content": "bad", "status": "error"}]
+    )
+    refused = _execution_map_html(
+        [{"type": "tool_result", "name": "write", "content": "no", "status": "refused"}]
+    )
+    assert "TOOL FAILED" in failed
+    assert "TOOL REFUSED" in refused
     assert "ea-flow-active" in rendered
     assert "&lt;hello&gt;" in rendered
     assert "<hello>" not in rendered

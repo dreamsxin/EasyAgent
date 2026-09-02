@@ -56,6 +56,14 @@ def timeline_html(steps: list[dict[str, Any]]) -> str:
         step_type = str(step.get("type", "event"))
         label, icon = labels.get(step_type, (step_type.upper(), "·"))
         name = step.get("name", "agent")
+        if step_type == "tool_result":
+            result_status = str(step.get("status") or "success")
+            result_labels = {
+                "success": ("RESULT", "←"),
+                "error": ("FAILED", "!"),
+                "refused": ("REFUSED", "×"),
+            }
+            label, icon = result_labels.get(result_status, ("RESULT", "?"))
         if step_type == "tool_call":
             detail = json.dumps(step.get("arguments", {}), ensure_ascii=False, default=str)
         elif step_type == "approval_request":
@@ -121,6 +129,14 @@ def execution_map_html(
     for index, event in enumerate(events):
         step_type = str(event.get("type", "event"))
         title, code, icon = labels.get(step_type, (step_type, step_type.upper(), "·"))
+        if step_type == "tool_result":
+            result_status = str(event.get("status") or "success")
+            result_labels = {
+                "success": ("工具返回", "TOOL RESULT", "←"),
+                "error": ("工具失败", "TOOL FAILED", "!"),
+                "refused": ("工具已拒绝", "TOOL REFUSED", "×"),
+            }
+            title, code, icon = result_labels.get(result_status, ("工具返回", "TOOL RESULT", "?"))
         if step_type == "tool_call":
             detail = json.dumps(event.get("arguments", {}), ensure_ascii=False, default=str)
         elif step_type == "approval_request":

@@ -1899,8 +1899,8 @@ def _run_app() -> None:
                                     f"`{step['name']}({step['arguments']})` 未执行。"
                                 )
                                 st.caption(
-                                    "Visual Lab 当前不提供运行中批准；"
-                                    "该确认请求和拒绝结果已写入 Trace。"
+                                    "Visual Lab 当前不提供运行中批准；确认请求只在实时运行中显示，"
+                                    "拒绝结果会写入 Trace 并出现在回放中。"
                                 )
                             except OSError:
                                 pass

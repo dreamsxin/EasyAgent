@@ -90,7 +90,10 @@ def test_summary_normalizes_metrics_and_label():
     assert summary["parent_run_id"] == "parent123"
     assert summary["parent_tool_call_id"] == "call123"
     assert summary["child_run_ids"] == ["child123"]
-    assert "research-model" in trace_label(run)
+    label = trace_label(run)
+    assert "research-model" in label
+    assert "Agent" in label
+    assert "Compare these papers" in label
 
 
 def test_summary_uses_trace_v2_status_and_model_rounds():
@@ -224,6 +227,12 @@ def test_build_trace_forest_groups_children_and_orphans():
         ("orphan", 0),
     ]
     assert trace_family_from_forest(forest, "missing") == []
+    assert [run["run_id"] for run in trace_family_from_forest(forest, "child-a")] == [
+        "root",
+        "child-a",
+        "grandchild",
+        "child-b",
+    ]
 
 
 def test_trace_log_round_trip_and_prefix_lookup(tmp_path):

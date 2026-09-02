@@ -210,11 +210,17 @@ def build_trace_forest(runs: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def trace_family_from_forest(forest: dict[str, Any], run_id: str) -> list[dict[str, Any]]:
-    """Collect a run and all its descendants from a forest structure."""
+    """Collect the root run and all descendants for a complete family export."""
     family: list[dict[str, Any]] = []
     all_runs = forest.get("all_runs", {})
     children_map = forest.get("children", {})
     seen: set[str] = set()
+    root_id = run_id
+    while root_id in all_runs:
+        parent_id = all_runs[root_id].get("parent_run_id")
+        if not isinstance(parent_id, str) or not parent_id or parent_id not in all_runs:
+            break
+        root_id = parent_id
 
     def walk(rid: str) -> None:
         if rid in seen or rid not in all_runs:
@@ -227,7 +233,7 @@ def trace_family_from_forest(forest: dict[str, Any], run_id: str) -> list[dict[s
             if isinstance(child_id, str):
                 walk(child_id)
 
-    walk(run_id)
+    walk(root_id)
     return family
 
 
@@ -341,7 +347,12 @@ def trace_label(run: dict[str, Any]) -> str:
     run_id = summary["run_id"][:12] or "unknown"
     started = str(run.get("started_at") or "")
     timestamp = started.replace("T", " ")[:19] if started else "unknown time"
-    return f"{timestamp} · {summary['model']} · {run_id}"
+    agent_name = summary["agent_name"] or "Agent"
+    status = summary["status"]
+    prompt = summary["input"].replace("\n", " ").strip()
+    prompt = prompt[:36] + ("…" if len(prompt) > 36 else "")
+    prompt_suffix = f" · {prompt}" if prompt else ""
+    return f"{agent_name} · {status} · {timestamp} · {summary['model']} · {run_id}{prompt_suffix}"
 
 
 def summarize_usage(usage: dict[str, Any]) -> dict[str, int | float | None]:
