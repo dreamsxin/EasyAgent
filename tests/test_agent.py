@@ -32,6 +32,22 @@ def test_agent_is_silent_by_default(capsys):
     assert agent.last_trace is not None
 
 
+def test_agent_invokes_calculator_for_an_obvious_math_question_with_mock():
+    @tool
+    def calculate(expression: str) -> str:
+        """Calculate a numeric expression."""
+        return f"calculated: {expression}"
+
+    agent = Agent(tools=[calculate], llm="mock", log_level=LogLevel.SILENT)
+
+    steps = list(agent.run_stream("What is 2 + 2?"))
+
+    assert [step["type"] for step in steps] == ["tool_call", "tool_result", "answer"]
+    assert steps[0]["name"] == "calculate"
+    assert steps[0]["arguments"] == {"expression": "2 + 2"}
+    assert "Used tool 'calculate'" in steps[-1]["content"]
+
+
 def test_agent_invokes_tool_when_mock_signals_it():
     @tool
     def echo(text: str) -> str:

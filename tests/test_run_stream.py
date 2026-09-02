@@ -18,6 +18,20 @@ def test_run_stream_direct_answer_yields_answer_step():
     assert "[mock-llm]" in steps[0]["content"]
 
 
+def test_run_stream_automatic_mock_tool_intent_is_observable():
+    @tool
+    def search_web(query: str) -> str:
+        """Search the local demo corpus."""
+        return f"found: {query}"
+
+    agent = Agent(tools=[search_web], llm="mock", log_level=LogLevel.SILENT)
+
+    steps = list(agent.run_stream("Please search the documentation for Trace"))
+
+    assert [step["type"] for step in steps] == ["tool_call", "tool_result", "answer"]
+    assert steps[0]["name"] == "search_web"
+
+
 def test_run_stream_tool_call_yields_expected_sequence():
     """A 'tool:' prompt should yield tool_call → tool_result → answer."""
 

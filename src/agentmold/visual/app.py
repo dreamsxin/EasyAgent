@@ -853,16 +853,28 @@ def _run_app() -> None:
                 if saved_interface in {"OpenAI 兼容", "Anthropic 兼容"}
                 else "OpenAI 兼容"
             )
-            st.session_state.ea_max_iterations = saved_agent_config.get("max_iterations", 10)
+            restored_max_iterations = saved_agent_config.get("max_iterations", 10)
+            if (
+                isinstance(restored_max_iterations, int)
+                and restored_max_iterations < 2
+                and saved_agent_config.get("selected_tools")
+            ):
+                restored_max_iterations = 2
+            st.session_state.ea_max_iterations = restored_max_iterations
             st.session_state.ea_custom_tool_files = saved_agent_config.get("custom_tool_files", [])
             st.session_state.ea_mcp_url = saved_agent_config.get("mcp_url", "")
             st.session_state.ea_rag_text = saved_agent_config.get("rag_text", "")
             st.session_state.ea_restored_tool_names = saved_agent_config.get(
                 "selected_tools", ["calculate"]
             )
-            st.session_state.ea_loop_detection_threshold = saved_agent_config.get(
-                "loop_detection_threshold", 3
-            )
+            restored_loop_threshold = saved_agent_config.get("loop_detection_threshold", 3)
+            if (
+                isinstance(restored_loop_threshold, int)
+                and restored_loop_threshold < 2
+                and saved_agent_config.get("selected_tools")
+            ):
+                restored_loop_threshold = 2
+            st.session_state.ea_loop_detection_threshold = restored_loop_threshold
             st.session_state.ea_require_approval = saved_agent_config.get("require_approval", False)
             st.session_state.ea_audit_log = saved_agent_config.get("audit_log", False)
             st.session_state.ea_tool_description_overrides = dict(

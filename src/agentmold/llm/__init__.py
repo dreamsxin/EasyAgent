@@ -11,6 +11,7 @@ EasyAgent talks to LLM providers through a single :class:`LLM` interface. The
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import typing
 from abc import ABC, abstractmethod
@@ -336,6 +337,8 @@ class _MockLLM(LLM):
       answer (so the ReAct loop terminates).
     * If the last user message contains the keyword ``"tool:"``, emit a
       fake tool call so the ReAct loop can be exercised without network.
+    * If the last user message has an obvious safe intent such as arithmetic,
+      search, or retrieval, emit the matching tool call deterministically.
     * Otherwise, echo the last user message.
     """
 
@@ -351,32 +354,86 @@ class _MockLLM(LLM):
         last_user = next((m for m in reversed(messages) if m.role == "user"), None)
         text = last_user.content if last_user else ""
         if "tool:" in text.lower() and tools:
-            # Strip the "tool:" prefix to get a cleaner argument value.
-            query_text = text.split(":", 1)[1].strip() if ":" in text else text
-            # If the user wrote "tool: retrieve 道的本质", match by tool name.
-            chosen = tools[0]
-            parts = query_text.split(None, 1)
-            if parts:
-                first_word = parts[0].lower()
-                for candidate in tools:
-                    if candidate["name"].lower() == first_word:
-                        chosen = candidate
-                        query_text = parts[1] if len(parts) > 1 else query_text
-                        break
-            # Derive a minimal arguments dict from the tool's schema.
-            props = chosen.get("parameters", {}).get("properties", {})
-            arguments = {pname: query_text for pname in props}
-            return LlmResponse(
-                content="",
-                tool_calls=[
-                    {
-                        "id": "call_mock",
-                        "name": chosen["name"],
-                        "arguments": arguments,
-                    }
-                ],
-            )
+            return self._tool_call(tools, text.split(":", 1)[1].strip())
+        if tools:
+            automatic = self._automatic_tool_request(tools, text)
+            if automatic is not None:
+                return automatic
         return LlmResponse(content=f"[mock-llm] {text}")
+
+    @classmethod
+    def _tool_call(cls, tools: list[dict[str, Any]], query_text: str) -> LlmResponse:
+        """Build a deterministic tool request from an explicit ``tool:`` prompt."""
+        # If the user wrote "tool: retrieve 道的本质", match by tool name.
+        chosen = tools[0]
+        parts = query_text.split(None, 1)
+        if parts:
+            first_word = parts[0].lower()
+            for candidate in tools:
+                if candidate["name"].lower() == first_word:
+                    chosen = candidate
+                    query_text = parts[1] if len(parts) > 1 else query_text
+                    break
+        return cls._request_for_tool(chosen, query_text)
+
+    @classmethod
+    def _automatic_tool_request(
+        cls,
+        tools: list[dict[str, Any]],
+        text: str,
+    ) -> LlmResponse | None:
+        """Match obvious safe intents without pretending to be a reasoning model."""
+        normalized = text.casefold()
+        intent_keywords = {
+            "calculate": ("calculate", "算", "计算", "数学", "加", "减", "乘", "除"),
+            "search": ("search", "find", "look up", "搜索", "查找", "查询"),
+            "retrieve": ("retrieve", "retrieval", "document", "notes", "检索", "文档", "笔记"),
+            "read": ("read file", "读取文件", "读文件", "文件内容"),
+            "list": ("list files", "list directory", "directory", "目录", "文件有哪些"),
+            "csv": ("csv", "数据汇总", "统计数据"),
+            "source": ("source", "citation", "引用", "来源"),
+        }
+        for candidate in tools:
+            name = str(candidate.get("name", ""))
+            normalized_name = name.casefold()
+            if normalized_name in {"write_file", "delete_file", "send_payment"}:
+                continue
+            aliases = intent_keywords.get(normalized_name, ())
+            if not aliases:
+                for prefix, prefix_aliases in intent_keywords.items():
+                    if normalized_name.startswith(prefix + "_"):
+                        aliases = prefix_aliases
+                        break
+            arithmetic_intent = normalized_name == "calculate" and bool(
+                re.search(r"\d\s*[+\-*/%]\s*\d", text)
+            )
+            if not aliases:
+                if normalized_name not in normalized and not arithmetic_intent:
+                    continue
+            elif not arithmetic_intent and not any(alias in normalized for alias in aliases):
+                continue
+            query_text = text
+            if normalized_name == "calculate":
+                expression = re.search(r"[0-9][0-9\s+\-*/().]*[0-9)]", text)
+                query_text = expression.group(0).strip() if expression else text
+            return cls._request_for_tool(candidate, query_text)
+        return None
+
+    @staticmethod
+    def _request_for_tool(tool_schema: dict[str, Any], query_text: str) -> LlmResponse:
+        """Derive a minimal string argument mapping from a tool schema."""
+        props = tool_schema.get("parameters", {}).get("properties", {})
+        arguments = {pname: query_text for pname in props}
+        return LlmResponse(
+            content="",
+            tool_calls=[
+                {
+                    "id": "call_mock",
+                    "name": tool_schema["name"],
+                    "arguments": arguments,
+                }
+            ],
+        )
 
 
 # Register the mock provider eagerly — it has no external dependencies.

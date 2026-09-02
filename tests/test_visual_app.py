@@ -68,6 +68,15 @@ def test_execution_mode_is_shared_across_architectures() -> None:
     )
 
 
+def test_restored_single_iteration_config_is_raised_for_selected_tools():
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
+
+    app.run()
+
+    assert app.session_state["ea_max_iterations"] >= 2
+    assert app.session_state["ea_loop_detection_threshold"] >= 2
+
+
 def test_live_mode_passes_saved_model_to_live_runner(monkeypatch) -> None:
     model = LiveTeachingModel(
         key="OpenAI 兼容",
