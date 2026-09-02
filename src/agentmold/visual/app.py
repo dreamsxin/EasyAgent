@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Literal
 if TYPE_CHECKING:
     from agentmold import Tool
 
+from agentmold.agent import sanitize_trace_data
 from agentmold.visual.agent_config import (
     AUDIT_LOG_PATH as _AUDIT_LOG_PATH,
 )
@@ -1738,8 +1739,8 @@ def _run_app() -> None:
             st.markdown(f"- **工具:** {tool_list}")
             st.markdown(f"- **最大迭代:** {agent.max_iterations}")
             gate_summary = []
-            if require_approval:
-                gate_summary.append("需确认工具=拒绝")
+            if any(t.confirm for t in agent.tools):
+                gate_summary.append("确认工具=当前界面始终拒绝")
             if audit_log:
                 gate_summary.append("✅ 审计日志")
             gate_summary.append(f"循环检测={loop_detection_threshold}")
@@ -1787,7 +1788,12 @@ def _run_app() -> None:
                     st.session_state.agent_signature = None
                     st.rerun()
             with act_col2:
-                if st.button("🗑 重置会话", use_container_width=True, key="ea_reset_btn"):
+                if st.button(
+                    "🗑 清空当前聊天（保留 Trace）",
+                    use_container_width=True,
+                    key="ea_reset_btn",
+                    help="只清空当前对话记忆；已经记录的 Trace 仍可在运行回放中查看。",
+                ):
                     _reset_visual_conversation(st, agent)
                     st.rerun()
 
@@ -1926,7 +1932,17 @@ def _run_app() -> None:
                         except OSError:
                             pass
                 except Exception as exc:  # noqa: BLE001
-                    error_msg = str(exc)
+                    raw_error = f"{type(exc).__name__}: {exc}"
+                    error_payload = sanitize_trace_data(
+                        {"error": raw_error},
+                        sensitive_values=(
+                            value
+                            for value in getattr(
+                                agent.last_trace, "_known_sensitive_values", lambda: set()
+                            )()
+                        ),
+                    )
+                    error_msg = str(error_payload["error"])
                     # On Windows, [Errno 22] can come from file I/O on the
                     # audit log or trace log when paths contain issues, or
                     # from stdout pipe races in the Streamlit subprocess.
@@ -1935,7 +1951,7 @@ def _run_app() -> None:
                         error_msg = (
                             f"{error_msg}\n"
                             "这通常是文件写入或日志输出冲突。尝试：\n"
-                            "1. 切换到标准模式（关闭 DEBUG 日志和审计日志）\n"
+                            "1. 关闭审计日志并重试\n"
                             "2. 清除 .agentmold/ 目录后重试\n"
                             "3. 重启可视化实验室"
                         )
@@ -1951,12 +1967,18 @@ def _run_app() -> None:
                     )
                     _apply_trace_usage_to_run_meta(run_meta, agent.last_trace)
                     st.session_state.run_meta = run_meta
+                    st.session_state.last_steps = list(steps)
+                    st.session_state.last_user_input = user_input
                     try:
                         live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                     except OSError:
                         pass  # Don't let a render error mask the original failure.
-                    # status removed to avoid stdout capture on Windows
-                    st.error(f"Agent 出错: {exc}")
+                    st.error(
+                        "这次运行没有完成。请检查模型 ID、provider extra、API Key、"
+                        "网络连接和最大迭代次数。"
+                    )
+                    with st.expander("技术详情", expanded=False):
+                        st.code(error_msg, language="text")
                     if agent.last_trace is not None:
                         _remember_trace(st, agent.last_trace)
                         failed_run = agent.last_trace.to_dict()
