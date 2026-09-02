@@ -13,6 +13,7 @@ import argparse
 from pathlib import Path
 
 from agentmold import AgentLoadError, __version__, load_agent
+from agentmold.exceptions import EasyAgentError
 
 __all__ = ["main"]
 
@@ -295,7 +296,7 @@ TEMPLATES: dict[str, tuple[str, str]] = {
 
 _README_TEMPLATE = """# {name}
 
-An AI agent built with [EasyAgent](https://github.com/your-org/agentmold).
+An AI agent built with [EasyAgent](https://github.com/dreamsxin/EasyAgent).
 
 Template: `{template}` — {template_description}
 
@@ -308,13 +309,51 @@ pip install -e .
 ## Run
 
 ```bash
-easyagent run "your question"  # ask once
-easyagent run --chat            # interactive chat
+{run_command}
+{chat_command}
 ```
 
-The generated project uses the offline `mock` model by default. To use a hosted model,
-change `llm` in `agent.py` and set its API key as an environment variable.
+{model_guidance}
 """
+
+_PROVIDER_SETUP: dict[str, dict[str, str]] = {
+    "openai": {
+        "extra": "openai",
+        "key": "OPENAI_API_KEY",
+        "guidance": (
+            "Set `OPENAI_API_KEY` before running. The model ID is configured in `agent.py`."
+        ),
+    },
+    "deepseek": {
+        "extra": "deepseek",
+        "key": "DEEPSEEK_API_KEY",
+        "guidance": (
+            "Set `DEEPSEEK_API_KEY` before running. The model ID is configured in `agent.py`."
+        ),
+    },
+    "anthropic": {
+        "extra": "anthropic",
+        "key": "ANTHROPIC_API_KEY",
+        "guidance": (
+            "Set `ANTHROPIC_API_KEY` before running. The model ID is configured in `agent.py`."
+        ),
+    },
+    "deepseek-anthropic": {
+        "extra": "deepseek-anthropic",
+        "key": "DEEPSEEK_API_KEY",
+        "guidance": (
+            "Set `DEEPSEEK_API_KEY` before running. The model ID is configured in `agent.py`."
+        ),
+    },
+    "ollama": {
+        "extra": "ollama",
+        "key": "",
+        "guidance": (
+            "Install Ollama, run `ollama list`, and keep the Ollama service running "
+            "before starting the agent."
+        ),
+    },
+}
 
 _PYPROJECT_TEMPLATE = """[build-system]
 requires = ["setuptools>=68.0", "wheel"]
@@ -324,7 +363,7 @@ build-backend = "setuptools.build_meta"
 name = "{package_name}"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = ["agentmold>={agentmold_version}"]
+dependencies = ["{agentmold_dependency}"]
 """
 
 _GITIGNORE = """\
@@ -353,6 +392,69 @@ def _non_empty_argument(value: str) -> str:
     if not normalized:
         raise argparse.ArgumentTypeError("value must not be empty")
     return normalized
+
+
+def _provider_setup(provider: str) -> dict[str, str] | None:
+    """Return setup metadata for a built-in provider, if one is known."""
+    return _PROVIDER_SETUP.get(provider)
+
+
+def _example_prompt(template: str) -> str:
+    """Return a first-run prompt that exercises a template's main tool."""
+    prompts = {
+        "default": "tool: search_web latest AI agent advances",
+        "coder": "tool: calculate 2 + 2",
+        "research-assistant": "tool: search_notes reproducible experiments",
+        "rag": "tool: retrieve_context retrieval",
+        "data-analysis": "tool: summarize_csv name,score\\nA,3\\nB,5",
+        "citation-aware": "tool: lookup_sources reproducible research",
+        "chatbot": "Hello! What can this chatbot do?",
+    }
+    return prompts.get(template, "Hello! What can this agent do?")
+
+
+def _model_guidance(
+    provider: str,
+    model: str | None,
+    setup: dict[str, str] | None,
+) -> str:
+    """Describe the generated model configuration and its required setup."""
+    if provider == "mock":
+        return (
+            "This project uses EasyAgent's deterministic offline `mock` model. It needs no API key "
+            "or network and responds to the example tool prompt without natural-language reasoning."
+        )
+    model_text = model or "the configured model"
+    if setup is None:
+        return (
+            f"This project is configured for provider `{provider}` and model `{model_text}`. "
+            "Install the provider package required by your extension and register it with "
+            "EasyAgent before running."
+        )
+    if setup["key"]:
+        return (
+            f"This project uses `{provider}` with model `{model_text}`. Install `{setup['extra']}` "
+            f"support through the generated dependency, then set `{setup['key']}` before running. "
+            "The model ID is stored in `agent.py`."
+        )
+    return (
+        f"This project uses local `{provider}` model `{model_text}`. Install the generated "
+        "provider extra, run `ollama list` to verify the model ID, and keep the Ollama "
+        "service running in another terminal before starting the agent."
+    )
+
+
+def _format_run_error(exc: Exception, agent: object) -> str:
+    """Turn an agent failure into a short beginner-actionable CLI message."""
+    details = f"{type(exc).__name__}: {exc}"
+    llm = getattr(agent, "llm", None)
+    provider = type(llm).__name__ if llm is not None else "unknown provider"
+    model = getattr(llm, "model", "unknown model") if llm is not None else "unknown model"
+    actions = (
+        "Check the provider/model configuration, required API-key environment variable, "
+        "installed provider extra, network access, and max_iterations."
+    )
+    return f"Error: {details}\\n  Provider: {provider}\\n  Model: {model}\\n  Next: {actions}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -437,17 +539,27 @@ def _cmd_init(args: argparse.Namespace) -> int:
         template_body.replace("__LLM_PLACEHOLDER__", _llm_expression(args.provider, args.model)),
         encoding="utf-8",
     )
-    (project_dir / "README.md").write_text(
-        _README_TEMPLATE.replace("{name}", args.name)
-        .replace("{template}", args.template)
-        .replace("{template_description}", template_desc),
-        encoding="utf-8",
+    setup = _provider_setup(args.provider)
+    model_guidance = _model_guidance(args.provider, args.model, setup)
+    readme = _README_TEMPLATE.format(
+        name=args.name,
+        template=args.template,
+        template_description=template_desc,
+        run_command=f'easyagent run "{_example_prompt(args.template)}"',
+        chat_command="easyagent run --chat",
+        model_guidance=model_guidance,
     )
+    (project_dir / "README.md").write_text(readme, encoding="utf-8")
     (project_dir / ".gitignore").write_text(_GITIGNORE, encoding="utf-8")
     package_name = _normalise_package_name(Path(args.name).name)
+    dependency = (
+        f"agentmold[{setup['extra']}]>={__version__}" if setup else f"agentmold>={__version__}"
+    )
     (project_dir / "pyproject.toml").write_text(
-        _PYPROJECT_TEMPLATE.replace("{package_name}", package_name).replace(
-            "{agentmold_version}", __version__
+        _PYPROJECT_TEMPLATE.format(
+            package_name=package_name,
+            agentmold_version=__version__,
+            agentmold_dependency=dependency,
         ),
         encoding="utf-8",
     )
@@ -455,9 +567,16 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print(f"Created agent project ({args.template!r} template) in {project_dir}")
     print(f"   {template_desc}")
     print("\nNext steps:")
-    print(f"  cd {args.name}")
+    print(f'  cd "{args.name}"')
     print("  pip install -e .")
-    print('  easyagent run "your question"')
+    if setup and setup["key"]:
+        print(f"  set {setup['key']}=your-key  # Windows cmd")
+        print(f"  $env:{setup['key']} = \"your-key\"  # PowerShell")
+        print(f"  export {setup['key']}=your-key  # macOS/Linux")
+    elif setup:
+        print("  ollama list  # choose an installed model ID")
+        print("  ollama serve  # run this in another terminal if needed")
+    print(f'  easyagent run "{_example_prompt(args.template)}"')
     return 0
 
 
@@ -478,14 +597,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
     try:
         agent = load_agent(file_path)
     except AgentLoadError as exc:
-        print(f"Error: {exc}")
+        print(_format_run_error(exc, None))
         return 1
     if args.chat:
         agent.chat()
-    else:
-        prompt = args.prompt or "Hello! What can you do?"
+        return 0
+
+    prompt = args.prompt or "tool: calculate 2 + 2"
+    try:
         answer = agent.run(prompt)
-        print(answer)
+    except (EasyAgentError, OSError) as exc:
+        print(_format_run_error(exc, agent))
+        return 1
+    print(answer)
     return 0
 
 

@@ -20,7 +20,14 @@ def test_cli_init_creates_project(tmp_path, capsys):
     assert "llm={'provider': 'openai', 'model': 'model-id'}" in content
     assert "build_agent" in content
     compile(content, str(project / "agent.py"), "exec")
-    assert 'easyagent run "your question"' in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert 'easyagent run "tool: search_web latest AI agent advances"' in output
+    assert "OPENAI_API_KEY" in output
+    metadata = (project / "pyproject.toml").read_text(encoding="utf-8")
+    assert "agentmold[openai]>=0.7.0" in metadata
+    readme = (project / "README.md").read_text(encoding="utf-8")
+    assert "OPENAI_API_KEY" in readme
+    assert "your-org" not in readme
 
 
 def test_cli_init_defaults_to_offline_mock(tmp_path):
@@ -34,7 +41,46 @@ def test_cli_init_defaults_to_offline_mock(tmp_path):
     assert 'requires-python = ">=3.10"' in metadata
     assert f'dependencies = ["agentmold>={__version__}"]' in metadata
     readme = (project / "README.md").read_text(encoding="utf-8")
-    assert 'easyagent run "your question"' in readme
+    assert 'easyagent run "tool: search_web latest AI agent advances"' in readme
+    assert "deterministic offline" in readme
+
+
+@pytest.mark.parametrize(
+    ("provider", "extra", "key"),
+    [
+        ("deepseek", "deepseek", "DEEPSEEK_API_KEY"),
+        ("anthropic", "anthropic", "ANTHROPIC_API_KEY"),
+        ("deepseek-anthropic", "deepseek-anthropic", "DEEPSEEK_API_KEY"),
+        ("ollama", "ollama", ""),
+    ],
+)
+def test_cli_init_generates_provider_specific_setup(tmp_path, provider, extra, key, capsys):
+    project = tmp_path / provider
+    rc = cli_main(["init", str(project), "--provider", provider, "--model", "model-id"])
+
+    assert rc == 0
+    output = capsys.readouterr().out
+    metadata = (project / "pyproject.toml").read_text(encoding="utf-8")
+    readme = (project / "README.md").read_text(encoding="utf-8")
+    assert f"agentmold[{extra}]>={__version__}" in metadata
+    assert provider in readme
+    assert "model-id" in readme
+    if key:
+        assert key in output and key in readme
+    else:
+        assert "ollama list" in output and "another terminal" in readme
+
+
+def test_cli_init_unknown_provider_explains_extension_setup(tmp_path):
+    project = tmp_path / "custom-provider"
+    rc = cli_main(["init", str(project), "--provider", "my-provider", "--model", "model-id"])
+
+    assert rc == 0
+    readme = (project / "README.md").read_text(encoding="utf-8")
+    assert "my-provider" in readme
+    assert "register it with EasyAgent" in readme
+    metadata = (project / "pyproject.toml").read_text(encoding="utf-8")
+    assert f"agentmold>={__version__}" in metadata
 
 
 def test_cli_init_requires_model_for_non_mock_provider(tmp_path):
@@ -149,6 +195,43 @@ def test_cli_init_force_overwrites(tmp_path):
     rc = cli_main(["init", str(project), "--force"])
     assert rc == 0
     assert marker not in (project / "agent.py").read_text(encoding="utf-8")
+
+
+def test_cli_run_uses_tool_prompt_when_prompt_is_omitted(tmp_path, capsys):
+    agent_file = tmp_path / "agent.py"
+    agent_file.write_text(
+        "from agentmold import Agent, tool\n"
+        "@tool\n"
+        "def calculate(expression: str) -> str:\n"
+        "    return expression\n"
+        "def build_agent():\n"
+        "    return Agent(tools=[calculate], llm='mock')\n",
+        encoding="utf-8",
+    )
+
+    rc = cli_main(["run", "--file", str(agent_file)])
+
+    assert rc == 0
+    assert "Used tool 'calculate'" in capsys.readouterr().out
+
+
+def test_cli_run_reports_actionable_error_without_traceback(tmp_path, capsys):
+    agent_file = tmp_path / "agent.py"
+    agent_file.write_text(
+        "from agentmold import Agent\n"
+        "def build_agent():\n"
+        "    return Agent(llm={'provider': 'missing', 'model': 'model-id'})\n",
+        encoding="utf-8",
+    )
+
+    rc = cli_main(["run", "hello", "--file", str(agent_file)])
+
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "Error:" in out
+    assert "Provider:" in out
+    assert "Next:" in out
+    assert "Traceback" not in out
 
 
 def test_cli_run_executes_agent(tmp_path, capsys):
