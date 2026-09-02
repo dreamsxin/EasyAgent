@@ -48,6 +48,18 @@ def test_usage_docs_explain_cache_metrics_are_best_effort():
     assert "cache hit rate remains unknown rather than guessed" in concepts
 
 
+def test_beginner_provider_setup_is_documented():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    quickstart = (ROOT / "docs" / "quickstart.md").read_text(encoding="utf-8")
+    memory = (ROOT / "docs" / "memory.md").read_text(encoding="utf-8")
+    assert 'pip install "agentmold[ollama]"' in readme
+    assert "EASYAGENT_MODEL" in readme
+    assert "另一个终端" in readme
+    assert "DEEPSEEK_API_KEY" in quickstart
+    assert "EASYAGENT_MODEL" in quickstart
+    assert "embedder=lambda" in memory
+
+
 def test_visual_log_id_is_documented():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     api = (ROOT / "docs" / "api.md").read_text(encoding="utf-8")
@@ -82,10 +94,10 @@ def test_visual_architecture_lab_documents_runnable_fact_boundary():
         assert mode in capabilities
     assert "概念示意 · 非本次运行" in readme
     assert "TeachingEvent" in readme
-    assert "Agent 运行对比" in readme
+    assert "已记录运行对照" in readme
     assert "Coordinator、Researcher 和 Analyst" in readme
-    assert "默认使用" in readme and "真实模型执行" in readme
-    assert "确定性离线演示" in readme
+    assert "无网络练习（预设回答）" in readme and "真实模型执行" in readme
+    assert "Mock 输出回归" in readme
     assert "真实运行期间页面持续显示阶段进度" in readme
     assert "Coordinator 委派、专家返回和最终综合" in readme
     assert "ScriptedLLM" in architectures

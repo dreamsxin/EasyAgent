@@ -28,6 +28,16 @@ def test_notebooks_are_valid_and_offline_first():
         assert "from agentmold" in code
         assert 'llm="mock"' in code or '"mock"' in code
         assert "sk-" not in code.lower()
+    local_lab_document = json.loads(
+        (NOTEBOOK_DIR / "03_local_model_lab.ipynb").read_text(encoding="utf-8")
+    )
+    local_lab_code = "\n".join(
+        "".join(cell["source"])
+        for cell in local_lab_document["cells"]
+        if cell["cell_type"] == "code"
+    )
+    assert '"provider": "ollama"' in local_lab_code
+    assert 'llm = "mock" if model == "mock"' in local_lab_code
 
 
 def test_notebook_code_runs_with_mock(tmp_path, monkeypatch):

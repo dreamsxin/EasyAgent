@@ -24,6 +24,20 @@ The collection records message IDs, roles, timestamps, documents, and embeddings
 the same collection with a different `embed_model` raises an error instead of mixing
 incompatible vectors.
 
+For a fully offline exercise, inject a deterministic embedder:
+
+```python
+from agentmold import Agent, VectorMemory
+
+memory = VectorMemory(
+    collection="offline-demo",
+    storage_path="./.agentmold/memory",
+    embed_model="local-hash",
+    embedder=lambda text: [float((sum(map(ord, text)) + i) % 17) for i in range(8)],
+)
+agent = Agent(memory=memory, llm="mock")
+```
+
 Search is available independently of the Agent loop:
 
 ```python

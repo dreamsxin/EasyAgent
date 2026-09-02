@@ -62,7 +62,11 @@ print(response)
 
 EasyAgent 通过 [Ollama](https://ollama.com) 支持本地模型。EasyAgent **不会自动下载或部署模型**——你需要先安装 Ollama 并拉取一个模型，之后 EasyAgent 才能调用它。
 
-**第一步：安装 Ollama 并拉取模型**（仅需做一次）
+**第一步：安装依赖和 Ollama 模型**（仅需做一次）
+
+```bash
+pip install "agentmold[ollama]"
+```
 
 ```bash
 # 1. 安装 Ollama
@@ -74,12 +78,25 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama pull MODEL_ID_FROM_OLLAMA_LIBRARY
 
 # 3. 确认 Ollama 服务正在运行（默认监听 localhost:11434）
+#    Ollama Desktop 通常会自动运行；否则请在另一个终端执行：
 ollama serve
 ```
 
+> `ollama serve` 通常会持续占用当前终端，请保留该窗口并在另一个终端继续下面的步骤。
 > 模型 ID 更新较快，请以 `ollama list` 的输出为准，不要依赖 EasyAgent 文档里的推荐名单。
 
-**第二步：在 EasyAgent 中使用**
+**第二步：设置模型 ID**
+
+```bash
+# macOS/Linux
+export EASYAGENT_MODEL=MODEL_ID_FROM_OLLAMA_LIST
+# Windows PowerShell
+$env:EASYAGENT_MODEL = "MODEL_ID_FROM_OLLAMA_LIST"
+# Windows cmd
+set EASYAGENT_MODEL=MODEL_ID_FROM_OLLAMA_LIST
+```
+
+**第三步：在 EasyAgent 中使用**
 
 ```python
 import os
@@ -97,18 +114,16 @@ agent = Agent(
 response = agent.run("Hello! What can you do?")
 ```
 
-切换模型只需修改 `EASYAGENT_MODEL`，Agent、工具和记忆代码不需要变化。
+这里的 `llm` 使用明确的 `provider` + `model` 配置；`EASYAGENT_MODEL` 必须是 `ollama list` 中的实际 ID。
+切换模型只需修改该变量，Agent、工具和记忆代码不需要变化。
 
 ### 可视化实验室（五种 Agent 架构直达）
 
 安装 Streamlit extra 后，顶部可以直接切换 `ReAct`、`Plan-and-Execute`、`Reflection`、
-`Multi-Agent` 和 `Routing`。ReAct 保留可配置的单 Agent 工作台；其余四种架构默认使用
-已保存的真实模型执行：Planner 的输出决定步骤，Critic 的反馈决定修订，Router 的输出决定
-唯一专家，Coordinator 的真实 tool calls 才会产生 Researcher/Analyst child traces。
-
-教学页也可显式切到 **确定性离线演示**。它不需要 API Key，使用固定 `ScriptedLLM` 响应，
-只适合观察 Python 控制流和 Trace 结构，不代表 Agent 对任意输入做了真实决策。页面、结果
-metadata 和导出文件都会标明执行方式，不会把离线脚本混称为真实架构执行。
+`Multi-Agent` 和 `Routing`。ReAct 保留可配置的单 Agent 工作台；其余四种架构默认进入 **无网络练习（预设回答）**：不需要 API Key，只演示 Python 控制流和 Trace 结构。
+切换到 **真实模型执行** 前，页面会要求确认联网和潜在 provider 费用；Planner 的输出决定步骤，
+Critic 的反馈决定修订，Router 的输出决定唯一专家，Coordinator 的真实 tool calls 才会产生
+Researcher/Analyst child traces。页面、结果 metadata 和导出文件都会标明执行方式，不会混称。
 
 真实运行期间页面持续显示阶段进度：Plan 的规划/逐步执行/综合，Reflection 的生成/审查/修订，
 Routing 的分类/专家处理，以及 Multi-Agent 的 Coordinator 委派、专家返回和最终综合。失败会
@@ -122,10 +137,10 @@ Routing 的分类/专家处理，以及 Multi-Agent 的 Coordinator 委派、专
 顶部的 **运行回放** 用于查看单次运行时间线、配置、父子 family 和 bundle；
 **对比与评测** 分成两个任务：
 
-- **Agent 运行对比**：选择 2-4 个已记录运行并排比较。Multi-Agent 实验可同时选择
-  Coordinator、Researcher 和 Analyst；输入不同时只用于观察角色分工，不视为公平 A/B。
-- **批量回归**：用内置 scorer 对同一离线 Agent 运行多组 case 和重复样本，不执行浏览器中
-  粘贴的 Python verifier 源码。
+- **已记录运行对照**：选择 2-4 个已记录运行并排比较。记录可能来自 Mock、无网络练习、真实模型、
+  失败或 partial 运行；Multi-Agent 实验可同时选择 Coordinator、Researcher 和 Analyst。
+- **Mock 输出回归**：只检查内置 Mock Agent 是否包含指定字符串，不调用网络、不使用当前 ReAct
+  配置，也不是多个 Agent 的质量排行榜。
 
 ```bash
 # 1. 安装可视化依赖
@@ -390,8 +405,8 @@ agent = Agent(
 
 ### MCP 工具（外部工具服务）
 
-通过 MCP 协议连接外部工具服务器，把它的工具变成普通 `Tool` 对象。需要安装
-`pip install "agentmold[mcp]"`，且 MCP 工具是异步的（用 `await agent.arun()`）：
+通过 MCP 协议连接外部工具服务器，把它的工具变成普通 `Tool` 对象。下面示例使用 OpenAI provider，
+需要安装 `pip install "agentmold[mcp,openai]"`，且 MCP 工具是异步的（用 `await agent.arun()`）：
 
 ```python
 import asyncio
@@ -441,13 +456,28 @@ from agentmold import Agent, Memory
 # 短期记忆（对话历史，默认）
 agent = Agent(memory=Memory(max_messages=20))
 
-# 长期记忆（向量存储，需要安装扩展）
+# 长期记忆（需要 agentmold[memory]；默认 embedding 会调用 OpenAI）
+# 请先设置 OPENAI_API_KEY 和 EASYAGENT_EMBED_MODEL，或注入离线 embedder。
 from agentmold.memory import VectorMemory
 agent = Agent(memory=VectorMemory(
     collection="literature-review",
     storage_path="./.agentmold/memory",
     embed_model=os.environ["EASYAGENT_EMBED_MODEL"],
 ))
+```
+
+不联网的最小方式是传入自己的确定性 embedder，例如：
+
+```python
+from agentmold import Agent, VectorMemory
+
+memory = VectorMemory(
+    collection="offline-demo",
+    storage_path="./.agentmold/memory",
+    embed_model="local-hash",
+    embedder=lambda text: [float((sum(map(ord, text)) + i) % 17) for i in range(8)],
+)
+agent = Agent(memory=memory, llm="mock")
 ```
 
 ## 📊 可观测性
@@ -510,19 +540,31 @@ Trace 会尽量保留 provider 返回的 usage 计数。Streamlit 会把常见�
 # 基础安装（核心功能，默认使用 mock）
 pip install agentmold
 
-# 带 OpenAI 支持
+# OpenAI 兼容 provider
 pip install "agentmold[openai]"
 
-# 带 DeepSeek OpenAI 兼容支持
+# DeepSeek OpenAI 兼容 provider
 pip install "agentmold[deepseek]"
 
-# 带向量记忆支持（默认 embedding 路径调用 OpenAI，也可注入自定义 embedder）
+# Anthropic 兼容 provider
+pip install "agentmold[anthropic]"
+
+# DeepSeek Anthropic 兼容 provider
+pip install "agentmold[deepseek-anthropic]"
+
+# Ollama 本地 provider
+pip install "agentmold[ollama]"
+
+# 向量记忆（默认 embedding 路径调用 OpenAI，也可注入自定义 embedder）
 pip install "agentmold[memory]"
 
-# 带可视化实验室
+# MCP 异步工具
+pip install "agentmold[mcp]"
+
+# 可视化实验室
 pip install "agentmold[visual]"
 
-# 全功能安装
+# 全功能安装（不包含 dev 测试工具）
 pip install "agentmold[all]"
 ```
 

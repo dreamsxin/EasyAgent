@@ -9,11 +9,13 @@ pip install agentmold
 easyagent init my-agent
 cd my-agent
 pip install -e .
-easyagent run "What can this agent do?"
+easyagent run "tool: search_web latest AI agent advances"
 ```
 
-The generated project uses `mock`, so the first run does not need an API key. Replace
-`llm="mock"` in `agent.py` when you are ready to use a hosted or local model.
+The generated project uses the deterministic `mock` model, so the first run does not need an API key.
+The `tool:` prefix in the example asks Mock to exercise the generated tool; Mock does not make
+natural-language decisions. Replace `llm="mock"` in `agent.py` when you are ready to use a hosted
+or local model.
 
 The CLI keeps provider and model selection separate:
 
@@ -53,6 +55,9 @@ pip install "agentmold[deepseek]"
 set DEEPSEEK_API_KEY=your-key        # Windows cmd
 $env:DEEPSEEK_API_KEY = "your-key"   # PowerShell
 export DEEPSEEK_API_KEY=your-key      # macOS/Linux
+set EASYAGENT_MODEL=MODEL_ID_FROM_PROVIDER        # Windows cmd
+$env:EASYAGENT_MODEL = "MODEL_ID_FROM_PROVIDER"   # PowerShell
+export EASYAGENT_MODEL=MODEL_ID_FROM_PROVIDER      # macOS/Linux
 ```
 
 Then use:
@@ -92,7 +97,9 @@ print(agent("tool: count the words in this sentence"))
 ```
 
 `agent.run(text)` and `agent(text)` are equivalent. `run_stream(text)` yields execution
-events such as `text_delta`, `tool_call`, `tool_result`, and `answer`. `text_delta` is an
-optional provider chunk, not a guaranteed tokenizer token. OpenAI, DeepSeek, Anthropic,
-DeepSeek Anthropic, and Ollama provide native sync and async text chunks; `mock` keeps the
-complete-response fallback.
+events
+such as `text_delta`, `tool_call`, `tool_result`, `answer`, `approval_request`, and
+`loop_detected`. `text_delta` and `approval_request` are transient; the others are durable
+Trace events. `text_delta` is an optional provider chunk, not a guaranteed tokenizer token.
+OpenAI, DeepSeek, Anthropic, DeepSeek Anthropic, and Ollama provide native sync and async text
+chunks; `mock` keeps the complete-response fallback.
