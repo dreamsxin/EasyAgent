@@ -12,6 +12,7 @@ LLM, tools, iterations), build it with a clear button, then chat with it
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import time
 from pathlib import Path
@@ -818,6 +819,8 @@ def _run_app() -> None:
     loop_detection_threshold = 3
     require_approval = False
     audit_log = False
+    thinking_tool_conflict = False
+    thinking_enabled = False
     if agent_file is not None:
         st.sidebar.header("📄 代码 Agent")
         st.sidebar.code(str(agent_file), language="text")
@@ -995,20 +998,33 @@ def _run_app() -> None:
                 step=0.1,
                 key=f"ea_temperature_{widget_suffix}",
             )
-            timeout = st.number_input(
-                "请求超时（秒）",
-                min_value=1.0,
-                max_value=300.0,
-                step=1.0,
-                key=f"ea_timeout_{widget_suffix}",
-            )
-            max_tokens = st.number_input(
-                "最大输出 tokens",
-                min_value=1,
-                max_value=131072,
-                step=256,
-                key=f"ea_max_tokens_{widget_suffix}",
-            )
+            supports_timeout = connection_type != "Ollama（本地）"
+            supports_max_tokens = connection_type in {
+                "DeepSeek Anthropic",
+                "Anthropic 兼容",
+            } or (connection_type == "自定义提供商" and custom_interface == "Anthropic 兼容")
+            if supports_timeout:
+                timeout = st.number_input(
+                    "请求超时（秒）",
+                    min_value=1.0,
+                    max_value=300.0,
+                    step=1.0,
+                    key=f"ea_timeout_{widget_suffix}",
+                )
+            else:
+                timeout = 30.0
+                st.caption("Ollama 使用本地服务超时设置，此处不单独配置。")
+            if supports_max_tokens:
+                max_tokens = st.number_input(
+                    "最大输出 tokens",
+                    min_value=1,
+                    max_value=131072,
+                    step=256,
+                    key=f"ea_max_tokens_{widget_suffix}",
+                )
+            else:
+                max_tokens = 4096
+                st.caption("当前接口不读取此参数，已隐藏无效设置。")
             # DeepSeek thinking mode controls.
             is_deepseek = connection_type in {"DeepSeek OpenAI", "DeepSeek Anthropic"}
             thinking_enabled = False
@@ -1018,8 +1034,8 @@ def _run_app() -> None:
                 thinking_enabled = st.checkbox(
                     "开启思考模式",
                     key=f"ea_thinking_{widget_suffix}",
-                    help="开启后模型会先输出思维链再给最终回答，"
-                    "提升准确性但增加延迟。Temperature 会自动忽略。",
+                    help="思考模式只影响 provider 请求和成本；界面不会显示或推断隐藏思维链。"
+                    "Temperature 会自动忽略。",
                 )
                 if thinking_enabled:
                     thinking_effort = st.select_slider(
@@ -1167,7 +1183,12 @@ def _run_app() -> None:
             )
             mcp_col1, mcp_col2 = st.columns(2)
             with mcp_col1:
-                mcp_connect = st.button("🔗 连接", use_container_width=True, key="ea_mcp_connect")
+                mcp_connect = st.button(
+                    "🔗 连接",
+                    use_container_width=True,
+                    key="ea_mcp_connect",
+                    disabled=not bool(mcp_url.strip()),
+                )
             with mcp_col2:
                 if st.button(
                     "断开",
@@ -1221,8 +1242,8 @@ def _run_app() -> None:
             and not bool(st.session_state.get("ea_rag_tool")),
         ):
             st.caption(
-                "粘贴文档文本，自动切分建库并生成 retrieve 工具。"
-                "Agent 可调用它检索相关片段。默认离线嵌入器，无需 API Key。"
+                "粘贴文档文本，自动切分建库并生成 retrieve 工具。建库后会自动启用该工具，"
+                "Agent 才会在运行时检索相关片段。文档全文会保存在项目本地配置中。"
             )
             rag_text = st.text_area(
                 "文档内容",
@@ -1232,7 +1253,12 @@ def _run_app() -> None:
             )
             rag_col1, rag_col2 = st.columns(2)
             with rag_col1:
-                rag_build = st.button("📚 建库", use_container_width=True, key="ea_rag_build")
+                rag_build = st.button(
+                    "📚 建库",
+                    use_container_width=True,
+                    key="ea_rag_build",
+                    disabled=not bool(rag_text.strip()),
+                )
             with rag_col2:
                 if st.button(
                     "清除",
@@ -1264,6 +1290,8 @@ def _run_app() -> None:
                 if rag_tool_list:
                     st.session_state.ea_rag_tool = rag_tool_list[0]
                     st.session_state.ea_rag_origin = "RAG · 文档检索"
+                    st.session_state[_tool_widget_key(rag_tool_list[0].name)] = True
+                    st.session_state.ea_rag_enabled = True
                     from agentmold.rag import chunk_text
 
                     chunks = chunk_text(rag_text, size=500, overlap=80, source="rag-input")
@@ -1297,6 +1325,8 @@ def _run_app() -> None:
             if rag_tool_list:
                 st.session_state.ea_rag_tool = rag_tool_list[0]
                 st.session_state.ea_rag_origin = "RAG · 文档检索"
+                st.session_state[_tool_widget_key(rag_tool_list[0].name)] = True
+                st.session_state.ea_rag_enabled = True
                 chunks = _chunk_text(saved_rag_text, size=500, overlap=80, source="rag-input")
                 st.session_state.ea_rag_chunk_count = len(chunks)
 
@@ -1326,7 +1356,20 @@ def _run_app() -> None:
         for tool_error in st.session_state.ea_visual_tool_errors:
             st.sidebar.error(tool_error)
 
+        async_tool_names = {
+            tool_name
+            for tool_name, visual_tool in available_tools.items()
+            if inspect.iscoroutinefunction(getattr(visual_tool, "func", None))
+        }
+        if async_tool_names:
+            st.sidebar.warning(
+                "以下工具只能通过 Python async API 的 arun/arun_stream 调用，"
+                f"当前同步 Visual 对话不会启用：{', '.join(sorted(async_tool_names))}。"
+            )
+
         restored_tool_names = set(st.session_state.ea_restored_tool_names)
+        for async_tool_name in async_tool_names:
+            st.session_state[_tool_widget_key(async_tool_name)] = False
         selected_tools = []
         # Build groups preserving first-seen order.
         _origin_order: list[str] = []
@@ -1364,16 +1407,33 @@ def _run_app() -> None:
                     if widget_key not in st.session_state:
                         st.session_state[widget_key] = tool_name in restored_tool_names
                     label = tool_name
+                    is_async_tool = tool_name in async_tool_names
+                    if is_async_tool:
+                        label = f"⏱ {label} · 仅 async"
                     if getattr(visual_tool, "confirm", False):
                         label = f"⚠ {label} · 破坏性"
                     effective_description = st.session_state.ea_tool_description_overrides.get(
                         tool_name, visual_tool.description
                     )
                     help_text = effective_description or "未提供工具说明"
+                    if is_async_tool:
+                        help_text += "（异步工具；请在 Python 中使用 await agent.arun()）"
                     if getattr(visual_tool, "confirm", False):
                         help_text += "（需要确认；开启高级拒绝开关后不会执行）"
-                    if st.checkbox(label, key=widget_key, help=help_text):
+                    if st.checkbox(
+                        label,
+                        key=widget_key,
+                        help=help_text,
+                        disabled=is_async_tool,
+                    ):
                         selected_tools.append(tool_name)
+
+        if thinking_enabled and connection_type == "DeepSeek Anthropic" and selected_tools:
+            thinking_tool_conflict = True
+            st.sidebar.warning(
+                "DeepSeek Anthropic 思考模式不能与工具同时使用；请关闭思考模式，"
+                "或取消选择工具后再生成 Agent。"
+            )
 
         overrides = st.session_state.ea_tool_description_overrides
         with st.sidebar.expander(
@@ -1468,7 +1528,7 @@ def _run_app() -> None:
             "🔄 重新生成 Agent" if _has_agent else "🔨 生成 Agent",
             type="primary",
             use_container_width=True,
-            disabled=model_missing,
+            disabled=model_missing or thinking_tool_conflict,
         ) or (restored_agent_config and not model_missing)
         reload_clicked = False
         with st.sidebar.expander("更多操作", expanded=False):
