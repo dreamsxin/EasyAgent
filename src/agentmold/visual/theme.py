@@ -1211,6 +1211,54 @@ def inject_theme(st: Any) -> None:
         }
 
         </style>
+        <script>
+        // Auto-refresh when Streamlit theme changes
+        (function() {
+            let lastTheme = document.documentElement.getAttribute('data-theme');
+            const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    if (mutation.attributeName === 'data-theme') {
+                        const newTheme = document.documentElement.getAttribute('data-theme');
+                        if (newTheme !== lastTheme) {
+                            lastTheme = newTheme;
+                            // Small delay to ensure the theme is fully applied
+                            setTimeout(function() {
+                                location.reload();
+                            }, 100);
+                        }
+                    }
+                });
+            });
+
+            // Start observing theme changes
+            observer.observe(document.documentElement, {
+                attributes: true,
+                attributeFilter: ['data-theme']
+            });
+
+            // Also check for class-based theme changes (fallback)
+            let lastClass = document.body.className;
+            const classObserver = new MutationObserver(function() {
+                const newClass = document.body.className;
+                if (newClass !== lastClass) {
+                    lastClass = newClass;
+                    // Check if theme-related classes changed
+                    const oldLight = /(?:^|\\s)light(?:$|\\s)/.test(lastClass);
+                    const newLight = /(?:^|\\s)light(?:$|\\s)/.test(newClass);
+                    if (oldLight !== newLight) {
+                        setTimeout(function() {
+                            location.reload();
+                        }, 100);
+                    }
+                }
+            });
+
+            classObserver.observe(document.body, {
+                attributes: true,
+                attributeFilter: ['class']
+            });
+        })();
+        </script>
         """,
         unsafe_allow_html=True,
     )

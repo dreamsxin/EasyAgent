@@ -756,6 +756,21 @@ def _reset_visual_conversation(st: Any, agent: Any) -> None:
 
 def _inject_theme(st: Any) -> None:
     """Apply the visual research-console theme (delegated to :mod:`theme`)."""
+    # Track current theme to detect changes
+    context = getattr(st, "context", None)
+    theme = getattr(context, "theme", None)
+    current_theme_type = theme.get("type") if isinstance(theme, dict) else getattr(theme, "type", None)
+
+    # Initialize session state for theme tracking
+    if "ea_last_theme_type" not in st.session_state:
+        st.session_state.ea_last_theme_type = current_theme_type or "dark"
+
+    # Check if theme has changed
+    if current_theme_type and current_theme_type != st.session_state.ea_last_theme_type:
+        st.session_state.ea_last_theme_type = current_theme_type
+        # Force rerun to apply new theme
+        st.rerun()
+
     inject_theme(st)
 
 
