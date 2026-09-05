@@ -23,6 +23,10 @@ class AnthropicLLM(LLM):
     """LLM backed by the Anthropic Messages API."""
 
     supports_native_streaming = True
+    # Declared on the class so instances built without __init__ (contract tests
+    # construct providers that way) still resolve it, and so the default is
+    # visible next to the streaming flag rather than hidden in __init__.
+    cache_prompt: bool = False
 
     def __init__(
         self,
@@ -32,6 +36,7 @@ class AnthropicLLM(LLM):
         base_url: str | None = None,
         timeout: float | None = 120,
         max_tokens: int = 4096,
+        cache_prompt: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(model, temperature, **kwargs)
@@ -52,6 +57,9 @@ class AnthropicLLM(LLM):
         self._client = anthropic.Anthropic(**client_kwargs)
         self._async_client = anthropic.AsyncAnthropic(**client_kwargs)
         self.max_tokens = max_tokens
+        if not isinstance(cache_prompt, bool):
+            raise ConfigurationError("cache_prompt must be a boolean.")
+        self.cache_prompt = cache_prompt
 
     def _complete(
         self,
@@ -100,6 +108,19 @@ class AnthropicLLM(LLM):
             "system": system_text,
             "messages": _to_anthropic_messages(convo),
         }
+        # Anthropic-compatible endpoints do not cache automatically; they need an
+        # explicit breakpoint. The cached prefix is ordered tools -> system ->
+        # messages, so one breakpoint at the end of the system block covers both
+        # the tool schemas and the instructions.
+        if self.cache_prompt and system_text:
+            kwargs["system"] = [
+                {
+                    "type": "text",
+                    "text": system_text,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+
         # DeepSeek/Anthropic thinking mode: suppress temperature when enabled.
         thinking_enabled = _anthropic_thinking_enabled(self.kwargs)
         if not thinking_enabled:

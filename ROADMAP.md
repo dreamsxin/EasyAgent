@@ -213,9 +213,12 @@ sound.
 - [x] Extend evaluation with repeated per-case samples, named trusted-Python metrics,
   pass-rate aggregation, runtime status, rounds, tool calls, token/cost coverage, and strict
   JSON export. Eval-time temperature override and bad-case feedback remain future work.
-- [ ] Enable active prompt caching: send `cache_control` on the stable system-prompt and
+- [x] Enable active prompt caching: send `cache_control` on the stable system-prompt and
   tool-schema prefix (Anthropic) and keep that prefix stable (OpenAI), so the existing
-  cache-hit metric reflects savings EasyAgent actually requested.
+  cache-hit metric reflects savings EasyAgent actually requested. Measured against DeepSeek:
+  the OpenAI-compatible endpoint caches automatically once the prefix is byte-stable
+  (hit 1024 -> 2048 across two runs), while the Anthropic-compatible endpoint needs the
+  opt-in `cache_prompt=True` breakpoint (input 557 -> 45, cache_read 0 -> 512).
 - [x] Add an experimental `RoutingLLM`: a single-LLM facade that wraps multiple
   providers and dispatches by task, cost, or privacy rule. This is explicit composition,
   not a multi-agent coordinator. Unknown route keys and selector errors raise instead of

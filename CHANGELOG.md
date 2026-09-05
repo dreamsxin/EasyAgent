@@ -3,6 +3,28 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
+## 0.11.0 - 2026-09-05
+
+### Added
+
+- Opt-in prompt caching for Anthropic-compatible providers: `cache_prompt=True` sends a
+  `cache_control` breakpoint at the end of the system block. Anthropic orders the cached
+  prefix as tools then system then messages, so that one breakpoint also covers the tool
+  schemas. Verified against DeepSeek's Anthropic-compatible endpoint: `input_tokens` fell
+  from 557 to 45 and `cache_read_input_tokens` rose from 0 to 512 for the same prompt.
+- It stays off by default because a cache write can be billed above a normal input token, so
+  marking a short prompt that is never reused costs more than it saves.
+
+### Changed
+
+- Documented that OpenAI-compatible endpoints cache automatically and need no flag; what
+  matters is that the prefix stays byte-identical, which EasyAgent already guarantees.
+  Measured against DeepSeek's OpenAI-compatible endpoint, `prompt_cache_hit_tokens` rose from
+  1024 to 2048 across two runs sharing one system prompt, with no code change.
+- `tests/test_prompt_caching.py` locks the prefix-stability invariant, so adding a timestamp
+  or other per-run value to the system prompt now fails a test instead of silently ending the
+  savings.
+
 ## 0.10.0 - 2026-09-05
 
 ### Added

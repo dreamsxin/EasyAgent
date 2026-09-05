@@ -341,6 +341,59 @@ raises `ConfigurationError`. There is no silent fallback, because falling back w
 the request to a provider the rule meant to avoid — exactly the wrong behavior for a
 privacy or cost rule. Pass `default="fast"` if you want `None` to mean "use this route".
 
+## Prompt caching
+
+The two wire protocols behave differently, and EasyAgent does not pretend otherwise.
+
+**OpenAI-compatible endpoints cache automatically.** No flag is needed; the provider matches
+a repeated prefix on its own. What matters is that the prefix stays byte-identical, which
+EasyAgent already guarantees: the system prompt is built from the agent name, instructions,
+and tool names, with no timestamp or per-run value. Measured against DeepSeek's
+OpenAI-compatible endpoint with one shared 3.3 KB system prompt:
+
+```
+run 1: prompt_tokens=2206  prompt_cache_hit_tokens=1024  prompt_cache_miss_tokens=1182
+run 2: prompt_tokens=2203  prompt_cache_hit_tokens=2048  prompt_cache_miss_tokens=155
+```
+
+`tests/test_prompt_caching.py` locks the prefix-stability invariant, so adding a per-run
+value to the system prompt fails a test instead of silently ending the savings.
+
+**Anthropic-compatible endpoints require an explicit breakpoint,** so caching there is
+opt-in through `cache_prompt=True`:
+
+```python
+agent = Agent(
+    instructions=LONG_SHARED_INSTRUCTIONS,
+    llm={
+        "provider": "deepseek-anthropic",
+        "model": "your-model-id",
+        "cache_prompt": True,
+    },
+)
+```
+
+Measured against DeepSeek's Anthropic-compatible endpoint with the same prompt:
+
+```
+cache_prompt=False -> input_tokens=557  cache_read_input_tokens=0
+cache_prompt=True  -> input_tokens=45   cache_read_input_tokens=512
+```
+
+The breakpoint is placed at the end of the system block. Anthropic orders the cached prefix
+as tools → system → messages, so one breakpoint there covers the tool schemas as well.
+
+It stays off by default on purpose: a cache write can be billed at a premium over a normal
+input token, so marking a short prompt that is never reused costs more than it saves. Enable
+it when a long system prompt or tool schema is shared across many runs. When the system
+prompt is empty the breakpoint is skipped rather than wasted.
+
+`AgentTrace.usage` keeps whatever cache counters the provider reports
+(`prompt_cache_hit_tokens`, `cache_read_input_tokens`, and similar), and the visual lab
+normalizes them into a cache-hit rate. A provider that reports nothing shows `—`.
+
+
+
 `cost_budget_usd` composes with routing: the budget accumulates provider-reported cost
 across whichever routes answered.
 
