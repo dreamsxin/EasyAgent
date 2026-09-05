@@ -433,6 +433,11 @@ def test_theme_uses_streamlit_context_for_light_palette():
     assert "--ea-header-bg: rgba(244, 247, 250, 0.92)" in recorder.content
     assert "color: var(--ea-text) !important" in recorder.content
     assert "<script>" not in recorder.content
+    # Run-state and failure colors must come from the palette, not dark-only literals.
+    assert "--ea-danger: #b3261e" in recorder.content
+    assert "--ea-line-error: #c26b73" in recorder.content
+    assert "#ff8c8c" not in recorder.content
+    assert "#ff9a9a" not in recorder.content
 
 
 def test_theme_change_reruns_once_so_every_element_repaints():

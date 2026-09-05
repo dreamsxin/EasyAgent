@@ -39,6 +39,13 @@ def inject_theme(st: Any) -> None:
             "magenta": "#e68cff",
             "lime": "#b6f36b",
             "amber": "#ffc36b",
+            "danger": "#ff8c8c",
+            "danger-soft": "#ff9a9a",
+            "line-live": "#3c8c7a",
+            "line-complete": "#5c4b83",
+            "line-error": "#9a4b54",
+            "line-error-soft": "#6b353e",
+            "chip-trace": "#76538f",
             "header-bg": "rgba(8, 12, 18, 0.92)",
         },
         "light": {
@@ -59,6 +66,13 @@ def inject_theme(st: Any) -> None:
             "magenta": "#9b3caf",
             "lime": "#4d8d25",
             "amber": "#ad6d16",
+            "danger": "#b3261e",
+            "danger-soft": "#8c1d18",
+            "line-live": "#2f7566",
+            "line-complete": "#6b4f93",
+            "line-error": "#c26b73",
+            "line-error-soft": "#e0b4b8",
+            "chip-trace": "#7c53a0",
             "header-bg": "rgba(244, 247, 250, 0.92)",
         },
     }
@@ -144,6 +158,9 @@ def inject_theme(st: Any) -> None:
             background: var(--ea-surface-2);
         }
         /* Keep the native Streamlit controls legible across light and dark browser themes. */
+        /* These literals are intentionally shared: `input-bg` is a light surface in BOTH
+           palettes, so the border/placeholder/stepper colors below are chosen to stay
+           legible on a light field regardless of the surrounding theme. */
         [data-baseweb="input"] > div,
         [data-baseweb="textarea"] > div,
         [data-baseweb="select"] > div,
@@ -346,8 +363,8 @@ def inject_theme(st: Any) -> None:
             letter-spacing: 0.08em;
             padding: 0.28rem 0.58rem;
         }
-        .ea-chip.live { border-color: #3c8c7a; color: var(--ea-lime); }
-        .ea-chip.trace { border-color: #76538f; color: var(--ea-magenta); }
+        .ea-chip.live { border-color: var(--ea-line-live); color: var(--ea-lime); }
+        .ea-chip.trace { border-color: var(--ea-chip-trace); color: var(--ea-magenta); }
         .ea-section-label {
             color: var(--ea-cyan);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -410,15 +427,15 @@ def inject_theme(st: Any) -> None:
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .ea-state-running { border-color: #3c8c7a; }
+        .ea-state-running { border-color: var(--ea-line-live); }
         .ea-state-running .ea-run-state strong { color: var(--ea-lime); }
-        .ea-state-complete { border-color: #5c4b83; }
+        .ea-state-complete { border-color: var(--ea-line-complete); }
         .ea-state-complete .ea-run-state strong { color: var(--ea-magenta); }
-        .ea-state-error { border-color: #9a4b54; }
-        .ea-state-error .ea-run-state strong { color: #ff8c8c; }
+        .ea-state-error { border-color: var(--ea-line-error); }
+        .ea-state-error .ea-run-state strong { color: var(--ea-danger); }
         .ea-run-error {
-            border-top: 1px solid #6b353e;
-            color: #ff9a9a;
+            border-top: 1px solid var(--ea-line-error-soft);
+            color: var(--ea-danger-soft);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-size: 0.72rem;
             grid-column: 1 / -1;
@@ -461,7 +478,7 @@ def inject_theme(st: Any) -> None:
         .ea-answer { color: var(--ea-magenta); }
         .ea-thought { color: var(--ea-cyan); }
         .ea-approval_request { color: var(--ea-amber); }
-        .ea-loop_detected { color: #ff8c8c; }
+        .ea-loop_detected { color: var(--ea-danger); }
         .ea-timeline-label {
             color: var(--ea-text);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -569,9 +586,9 @@ def inject_theme(st: Any) -> None:
         .ea-flow-tool_result .ea-flow-node { border-radius: 7px; color: var(--ea-lime); }
         .ea-flow-answer .ea-flow-node { color: var(--ea-magenta); transform: rotate(45deg); }
         .ea-flow-answer .ea-flow-node span { transform: rotate(-45deg); }
-        .ea-flow-error .ea-flow-node { border-radius: 7px; color: #ff8c8c; }
+        .ea-flow-error .ea-flow-node { border-radius: 7px; color: var(--ea-danger); }
         .ea-flow-approval_request .ea-flow-node { border-radius: 7px; color: var(--ea-amber); }
-        .ea-flow-loop_detected .ea-flow-node { border-radius: 7px; color: #ff8c8c; }
+        .ea-flow-loop_detected .ea-flow-node { border-radius: 7px; color: var(--ea-danger); }
         .ea-flow-user .ea-flow-node { color: var(--ea-cyan); }
         .ea-flow-copy { min-width: 0; padding: 0.22rem 0.2rem 0.8rem 0.55rem; }
         .ea-flow-code {
@@ -945,8 +962,11 @@ def inject_theme(st: Any) -> None:
         }
         .ea-live-progress-completed strong { color: var(--ea-lime); }
         .ea-live-progress-warning strong { color: var(--ea-amber); }
-        .ea-live-progress-failed { border-left: 2px solid #ff8c8c; padding-left: 0.55rem; }
-        .ea-live-progress-failed strong { color: #ff8c8c; }
+        .ea-live-progress-failed {
+            border-left: 2px solid var(--ea-danger);
+            padding-left: 0.55rem;
+        }
+        .ea-live-progress-failed strong { color: var(--ea-danger); }
         @media (prefers-reduced-motion: reduce) {
             .ea-arch-node-wrap { animation: none; }
         }

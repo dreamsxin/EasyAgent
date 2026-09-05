@@ -20,6 +20,10 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
   documents `st.context.theme.type` as possibly stale during a theme switch, so the app records
   the observed type and reruns exactly once when it changes, instead of waiting for an unrelated
   rerun such as changing architecture mode.
+- Run-state, failure, and chip colors now come from the light/dark palette instead of dark-only
+  hex literals, so error borders and failure text stay legible in the light theme. The remaining
+  literals are the native-input rules, which intentionally target a light input field in both
+  themes and are annotated as such.
 - Returning to ReAct from the sidebar resets the top navigation widget through a pending-state
   key, so the segmented control no longer overwrites the requested mode on the next run.
 
