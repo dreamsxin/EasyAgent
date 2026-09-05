@@ -276,7 +276,8 @@ def test_offline_teaching_modes_run_without_a_react_agent(
         == "无网络练习（预设回答）"
     )
 
-    assert [button.label for button in app.button][-2:] == ["开始无网络练习", "重置"]
+    assert [button.label for button in app.main.button][-2:] == ["开始无网络练习", "重置"]
+    assert [button.label for button in app.sidebar.button] == ["← 回到 ReAct 工作台"]
 
     next(button for button in app.button if button.label == "开始无网络练习").click().run()
     assert not app.exception
@@ -353,3 +354,28 @@ def test_teaching_traces_flow_into_replay_and_evaluation_views() -> None:
     assert app.session_state["ea_visual_view"] == "evaluation"
     assert len(app.multiselect[0].value) == 3
     assert app.session_state["teaching.multi_agent.offline.result"].mode == "multi_agent"
+
+
+def test_every_view_keeps_a_left_sidebar() -> None:
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
+
+    app.run()
+    assert any(header.value == "⚙️ Agent 配置" for header in app.sidebar.header)
+
+    app.segmented_control[0].select("Reflection").run()
+    assert any(header.value == "🧭 实验导航" for header in app.sidebar.header)
+    assert any("Reflection" in item.value for item in app.sidebar.markdown)
+
+    next(button for button in app.main.button if button.label == "运行回放").click().run()
+    assert any(header.value == "🧭 实验导航" for header in app.sidebar.header)
+    assert any("运行回放" in item.value for item in app.sidebar.markdown)
+
+    next(button for button in app.main.button if button.label == "对比与评测").click().run()
+    assert any(header.value == "🧭 实验导航" for header in app.sidebar.header)
+
+    next(
+        button for button in app.sidebar.button if button.label == "← 回到 ReAct 工作台"
+    ).click().run()
+    assert app.session_state["ea_architecture_mode"] == "react"
+    assert app.session_state["ea_visual_view"] == "architecture"
+    assert any(header.value == "⚙️ Agent 配置" for header in app.sidebar.header)

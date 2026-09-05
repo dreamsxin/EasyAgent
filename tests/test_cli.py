@@ -24,7 +24,7 @@ def test_cli_init_creates_project(tmp_path, capsys):
     assert 'easyagent run "tool: search_web latest AI agent advances"' in output
     assert "OPENAI_API_KEY" in output
     metadata = (project / "pyproject.toml").read_text(encoding="utf-8")
-    assert "agentmold[openai]>=0.7.0" in metadata
+    assert f"agentmold[openai]>={__version__}" in metadata
     readme = (project / "README.md").read_text(encoding="utf-8")
     assert "OPENAI_API_KEY" in readme
     assert "your-org" not in readme

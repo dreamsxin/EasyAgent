@@ -435,6 +435,39 @@ def test_theme_uses_streamlit_context_for_light_palette():
     assert "<script>" not in recorder.content
 
 
+def test_theme_change_reruns_once_so_every_element_repaints():
+    class ThemeRecorder:
+        content = ""
+
+        def __init__(self, theme_type: str) -> None:
+            self.context = SimpleNamespace(theme={"type": theme_type})
+            self.session_state: dict[str, object] = {}
+            self.reruns = 0
+
+        def markdown(self, content: str, *, unsafe_allow_html: bool) -> None:
+            assert unsafe_allow_html is True
+            self.content = content
+
+        def rerun(self) -> None:
+            self.reruns += 1
+
+    first = ThemeRecorder("dark")
+    _inject_theme(first)
+    assert first.reruns == 0
+    assert first.session_state["ea_last_theme_type"] == "dark"
+
+    switched = ThemeRecorder("light")
+    switched.session_state["ea_last_theme_type"] = "dark"
+    _inject_theme(switched)
+    assert switched.reruns == 1
+    assert switched.session_state["ea_last_theme_type"] == "light"
+
+    stable = ThemeRecorder("light")
+    stable.session_state["ea_last_theme_type"] = "light"
+    _inject_theme(stable)
+    assert stable.reruns == 0
+
+
 def test_custom_openai_config_from_visual_controls():
     config = _llm_config_from_ui(
         "自定义提供商",

@@ -196,6 +196,9 @@ Temperature、超时和最大输出 tokens。点击“保存配置”后，接�
 Agent 名称、指令、接口类型、最大迭代次数、工具选择和上传模块会自动保存到
 `.agentmold/visual_agent.json`。再次启动实验室时会恢复这些控件并生成上次 Agent。
 窄屏窗口会自动收起侧栏，并在左上角显示 **Agent 配置** 按钮；点击即可重新展开配置。
+架构练习、运行回放和对比与评测这三类页面也保留左侧栏，但只显示 **实验导航**（当前视图、
+当前架构、操作步骤和返回 ReAct 工作台的入口）；Agent 配置面板仍然只属于 ReAct 工作台，
+避免让教学页看起来可以改写单 Agent 配置。
 **自定义工具模块** 支持上传 UTF-8 `.py` 文件；模块必须显式导出 `TOOLS` 或零参数
 `build_tools()`，返回由 `@tool` 创建的工具列表。上传 Python 会以 Streamlit 服务的本地权限
 执行，只应加载可信代码。完整格式和安全边界见 [自定义工具模块](docs/custom-tools.md)。
@@ -640,6 +643,8 @@ runner。两种执行方式都导出 Python 控制流事件、Agent traces、JSO
 - [长期记忆 Collection](docs/memory.md)
 - [内置工具权限](docs/tool-policies.md)
 - [Provider 与 Tool 扩展](docs/extensions.md)
+- [生产部署实践](docs/production-guide.md)
+- [故障排除手册](docs/troubleshooting.md)
 - [精选 Cookbook](cookbook/README.md)
 - [教程与示例](examples/)
 - [Notebook 实验](examples/notebooks/)

@@ -616,11 +616,81 @@ _ARCHITECTURE_NAV = {
     "routing": "Routing",
 }
 
+_VIEW_NAV = {
+    "architecture": "架构实验",
+    "trace": "运行回放",
+    "evaluation": "对比与评测",
+}
+
+_SIDEBAR_GUIDES: dict[str, tuple[str, ...]] = {
+    "architecture": (
+        "1. 选择执行方式：无网络练习或真实模型。",
+        "2. 编辑实验输入后运行。",
+        "3. 阅读 Python 控制流与真实 AgentTrace。",
+    ),
+    "trace": (
+        "1. 选择一次已记录的运行。",
+        "2. 拖动回放进度查看事件顺序。",
+        "3. 需要时导入或导出 JSONL Trace。",
+    ),
+    "evaluation": (
+        "1. 「已记录运行对照」比较 2-4 个真实运行。",
+        "2. 「Mock 输出回归」只做离线字符串检查。",
+        "3. 两者都不会修改当前 ReAct 配置。",
+    ),
+}
+
+
+def _render_context_sidebar(st: Any, view: str, architecture_mode: str) -> None:
+    """Render the shared left sidebar for every non-ReAct view.
+
+    The ReAct workbench owns a full Agent configuration sidebar. The teaching,
+    replay, and evaluation views previously rendered no sidebar at all, so the
+    left column disappeared whenever the user switched modes. This keeps one
+    stable navigation surface without turning the UI into a second programming
+    model.
+    """
+    architecture_label = _ARCHITECTURE_NAV.get(architecture_mode, architecture_mode)
+    view_label = _VIEW_NAV.get(view, view)
+    st.sidebar.header("🧭 实验导航")
+    st.sidebar.markdown(
+        f"**当前视图**：{view_label}  \n**当前架构**：{architecture_label}",
+    )
+    if view == "architecture":
+        st.sidebar.caption("这是架构练习页；Agent 配置面板属于 ReAct 工作台。")
+    else:
+        st.sidebar.caption("这是研究工具页；它只读取已记录的运行，不改动 Agent 配置。")
+
+    st.sidebar.divider()
+    st.sidebar.markdown('<div class="ea-section-label">操作步骤</div>', unsafe_allow_html=True)
+    for step in _SIDEBAR_GUIDES.get(view, _SIDEBAR_GUIDES["architecture"]):
+        st.sidebar.markdown(f"- {step}")
+
+    st.sidebar.divider()
+    if st.sidebar.button(
+        "← 回到 ReAct 工作台",
+        use_container_width=True,
+        key="ea_sidebar_back_to_react",
+    ):
+        # The navigation widget already ran this pass, so its key cannot be
+        # written here. Record the request and let _render_top_navigation apply
+        # it before the widget is instantiated on the next run.
+        st.session_state.ea_pending_architecture = "react"
+        st.session_state.ea_visual_view = "architecture"
+        st.rerun()
+    st.sidebar.caption(f"本地 Trace 日志：`{DEFAULT_VISUAL_TRACE_LOG}`")
+
 
 def _render_top_navigation(st: Any) -> tuple[str, str]:
     """Render architecture-first navigation with Streamlit 1.30 fallback."""
     current_view = str(st.session_state.get("ea_visual_view", "architecture"))
     current_architecture = str(st.session_state.get("ea_architecture_mode", "react"))
+    pending = st.session_state.pop("ea_pending_architecture", None)
+    if isinstance(pending, str) and pending in _ARCHITECTURE_NAV:
+        current_architecture = pending
+        st.session_state.ea_architecture_mode = pending
+        # Safe to write here: the widget below has not been instantiated yet.
+        st.session_state.ea_architecture_nav = _ARCHITECTURE_NAV[pending]
     if current_architecture not in _ARCHITECTURE_NAV:
         current_architecture = "react"
     labels = list(_ARCHITECTURE_NAV.values())
@@ -754,24 +824,39 @@ def _reset_visual_conversation(st: Any, agent: Any) -> None:
         st.session_state.pop(key, None)
 
 
+def _current_theme_type(st: Any) -> str | None:
+    """Read Streamlit's reported light/dark theme type, if it is available."""
+    theme = getattr(getattr(st, "context", None), "theme", None)
+    if isinstance(theme, dict):
+        value = theme.get("type")
+    else:
+        value = getattr(theme, "type", None)
+    return value if value in {"light", "dark"} else None
+
+
 def _inject_theme(st: Any) -> None:
-    """Apply the visual research-console theme (delegated to :mod:`theme`)."""
-    # Track current theme to detect changes
-    context = getattr(st, "context", None)
-    theme = getattr(context, "theme", None)
-    current_theme_type = theme.get("type") if isinstance(theme, dict) else getattr(theme, "type", None)
+    """Apply the theme and self-correct Streamlit's stale theme type once.
 
-    # Initialize session state for theme tracking
-    if "ea_last_theme_type" not in st.session_state:
-        st.session_state.ea_last_theme_type = current_theme_type or "dark"
-
-    # Check if theme has changed
-    if current_theme_type and current_theme_type != st.session_state.ea_last_theme_type:
-        st.session_state.ea_last_theme_type = current_theme_type
-        # Force rerun to apply new theme
-        st.rerun()
-
+    ``st.context.theme.type`` is documented as possibly wrong during the run in
+    which the user switches themes, so the first render after a switch can use
+    the previous palette. Recording the observed type and rerunning exactly once
+    when it changes makes every element pick up the new palette immediately
+    instead of waiting for an unrelated rerun.
+    """
     inject_theme(st)
+
+    session_state = getattr(st, "session_state", None)
+    rerun = getattr(st, "rerun", None)
+    if session_state is None or not callable(rerun):
+        return
+    theme_type = _current_theme_type(st)
+    if theme_type is None:
+        return
+
+    previous = session_state.get("ea_last_theme_type")
+    session_state["ea_last_theme_type"] = theme_type
+    if previous is not None and previous != theme_type:
+        rerun()
 
 
 def _run_app() -> None:
@@ -797,16 +882,19 @@ def _run_app() -> None:
     )
     visual_view, architecture_mode = _render_top_navigation(st)
     if visual_view == "trace":
+        _render_context_sidebar(st, "trace", architecture_mode)
         _render_trace_lab(st, standalone=True)
         return
     if visual_view == "evaluation":
         from agentmold.visual.evaluation_view import render_evaluation_view
 
+        _render_context_sidebar(st, "evaluation", architecture_mode)
         render_evaluation_view(st)
         return
     if architecture_mode != "react":
         from agentmold.visual.teaching_view import render_teaching_view
 
+        _render_context_sidebar(st, "architecture", architecture_mode)
         render_teaching_view(st, architecture_mode)
         return
 

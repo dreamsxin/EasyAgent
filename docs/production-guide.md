@@ -259,24 +259,48 @@ def create_audited_agent():
 
 ## Performance Optimization
 
-### 1. Connection Pooling
+### 1. Connection Pooling and Timeouts
+
+The built-in providers construct their own SDK clients, so tune the request budget
+through the documented `llm` config instead of injecting an HTTP client:
+
+```python
+from agentmold import Agent
+
+agent = Agent(
+    llm={
+        "provider": "openai",
+        "model": "gpt-4",
+        "timeout": 30.0,      # per-request timeout
+        "max_retries": 2,     # retried before the first event is exposed
+        "retry_delay": 0.5,   # exponential backoff base
+    }
+)
+```
+
+For a custom pooling policy, register your own provider and own the client:
 
 ```python
 import httpx
-from agentmold.llm.providers import openai_provider
+from agentmold.llm import LLM, LlmResponse, Message, register_provider
 
-# Configure HTTP client with connection pooling
-http_client = httpx.Client(
-    timeout=30.0,
-    limits=httpx.Limits(max_keepalive_connections=20, max_connections=100)
-)
 
-# Use pooled client for provider
-provider = openai_provider.OpenAIProvider(
-    model="gpt-4",
-    api_key="your-api-key",
-    http_client=http_client
-)
+class PooledLLM(LLM):
+    """Provider that reuses one pooled httpx client."""
+
+    def __init__(self, model: str, **kwargs: object) -> None:
+        super().__init__(model, **kwargs)
+        self._client = httpx.Client(
+            timeout=30.0,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+        )
+
+    def _complete(self, messages, tools=None) -> LlmResponse:
+        # Translate `messages` to your service's wire format here.
+        raise NotImplementedError
+
+
+register_provider("pooled", PooledLLM)
 ```
 
 ### 2. Memory Management
@@ -447,29 +471,54 @@ class ResilientAgent:
 
 ### 2. Circuit Breaker Pattern
 
+Stop calling a provider that keeps failing, then probe it again after a cooldown.
+This uses only the standard library so it stays inside EasyAgent's dependency policy.
+
 ```python
-from circuitbreaker import circuit
+import time
+
 from agentmold import Agent
+from agentmold.exceptions import LLMError
 
-@circuit(failure_threshold=5, recovery_timeout=60)
+
 class CircuitBreakerAgent:
-    """Agent with circuit breaker for provider failures."""
+    """Agent that stops calling a failing provider for a cooldown window."""
 
-    def __init__(self):
+    def __init__(self, failure_threshold: int = 5, recovery_seconds: float = 60.0):
         self.agent = Agent(llm={"provider": "openai", "model": "gpt-4"})
+        self.failure_threshold = failure_threshold
+        self.recovery_seconds = recovery_seconds
+        self._failures = 0
+        self._opened_at: float | None = None
 
     def run(self, query: str) -> str:
         """Run with circuit breaker protection."""
-        return self.agent.run(query)
+        if self._opened_at is not None:
+            if time.monotonic() - self._opened_at < self.recovery_seconds:
+                raise RuntimeError("Circuit is open; provider is still cooling down.")
+            # Cooldown elapsed: allow one probe request.
+            self._opened_at = None
+            self._failures = 0
+
+        try:
+            result = self.agent.run(query)
+        except LLMError:
+            self._failures += 1
+            if self._failures >= self.failure_threshold:
+                self._opened_at = time.monotonic()
+            raise
+
+        self._failures = 0
+        return result
+
 
 # Usage
 agent_wrapper = CircuitBreakerAgent()
 
 try:
     result = agent_wrapper.run("Hello")
-except Exception as e:
-    # Circuit is open, provider is experiencing issues
-    print(f"Service unavailable: {e}")
+except (LLMError, RuntimeError) as exc:
+    print(f"Service unavailable: {exc}")
 ```
 
 ## Deployment Strategies
@@ -515,8 +564,10 @@ class CanaryDeployment:
 ### 1. Health Checks
 
 ```python
+from datetime import datetime, timezone
+
 from agentmold import Agent
-import healthcheck
+
 
 class AgentHealthCheck:
     """Health check endpoint for EasyAgent."""
@@ -528,17 +579,17 @@ class AgentHealthCheck:
         """Perform health check."""
         health_status = {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
-            "checks": {}
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "checks": {},
         }
 
         try:
             # Test basic agent functionality
-            test_result = self.agent.run("Health check test")
+            self.agent.run("Health check test")
             health_status["checks"]["agent_functionality"] = "pass"
-        except Exception as e:
-            health_status["status"] "unhealthy"
-            health_status["checks"]["agent_functionality"] = f"fail: {str(e)}"
+        except Exception as exc:
+            health_status["status"] = "unhealthy"
+            health_status["checks"]["agent_functionality"] = f"fail: {exc}"
 
         return health_status
 ```

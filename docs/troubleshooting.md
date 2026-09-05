@@ -35,7 +35,7 @@ if agent.last_trace:
     trace = agent.last_trace
     print(f"Run ID: {trace.run_id}")
     print(f"Duration: {trace.duration_ms}ms")
-    print(f"Events: {len(trace.events)}")
+    print(f"Steps: {len(trace.steps)}")
 
     # 导出详细追踪信息
     trace.to_jsonl("debug_trace.jsonl")
@@ -195,7 +195,8 @@ MaxIterationsError: Exceeded max_iterations=10 without producing a final answer
 
 **解决方案:**
 ```python
-from agentmold import Agent, LoopDetectedError
+from agentmold import Agent
+from agentmold.exceptions import LoopDetectedError, MaxIterationsError
 
 # 方案 1: 增加最大迭代次数
 agent = Agent(
@@ -212,15 +213,15 @@ agent = Agent(
 # 方案 3: 捕获异常并提供更好的错误信息
 try:
     result = agent("复杂问题")
-except MaxIterationsError as e:
-    print(f"Agent 无法在 {e.max_iterations} 次迭代内生成答案")
+except MaxIterationsError as exc:
+    print(f"Agent 未能生成最终答案: {exc}")
     print("建议:")
     print("1. 检查工具返回格式是否正确")
     print("2. 简化用户问题")
     print("3. 增加系统提示的清晰度")
-except LoopDetectedError as e:
-    print(f"检测到循环调用: {e.tool_name}")
-    print(f"参数: {e.arguments}")
+except LoopDetectedError as exc:
+    # 事件详情记录在 agent.last_trace 的 loop_detected 事件里
+    print(f"检测到循环调用: {exc}")
 ```
 
 ### 工具问题
@@ -261,33 +262,33 @@ ToolError: Invalid arguments for tool 'my_tool': missing required parameter 'par
 
 **解决方案:**
 ```python
-from agentmold import tool
 import json
 
-# 检查工具 Schema
-@tool
-def calculate(expression: str) -> str:
-    """计算数学表达式
+from agentmold.tools import calculate
 
-    Args:
-        expression: 要计算的数学表达式，例如 "2 + 2"
-    """
-    try:
-        # 安全的计算方式
-        allowed_chars = set("0123456789+-*/.() ")
-        if not all(c in allowed_chars for c in expression):
-            return "错误: 包含不允许的字符"
-        return str(eval(expression))
-    except Exception as e:
-        return f"计算错误: {str(e)}"
-
-# 打印工具 Schema
+# 内置 calculate 使用 AST 白名单，不执行任意代码，可直接查看它的 Schema
 print("工具 Schema:")
-print(json.dumps(calculate.schema, indent=2, ensure_ascii=False))
+print(json.dumps(calculate.to_dict(), indent=2, ensure_ascii=False))
 
 # 测试工具调用
-result = calculate("2 + 2")
-print(f"测试结果: {result}")
+print(f"测试结果: {calculate('2 + 2')}")
+```
+
+如果需要自定义工具，把参数当作数据处理，不要把字符串当代码执行：
+
+```python
+from agentmold import tool
+
+
+@tool
+def add(a: float, b: float) -> str:
+    """把两个数字相加。
+
+    Args:
+        a: 第一个数字。
+        b: 第二个数字。
+    """
+    return str(a + b)
 ```
 
 ### 记忆问题
@@ -301,7 +302,8 @@ print(f"测试结果: {result}")
 
 **解决方案:**
 ```python
-from agentmold import Agent, Memory, CompactingMemory
+from agentmold import Agent, CompactingMemory, Memory
+from agentmold.llm import Message
 
 # 方案 1: 增加记忆容量
 agent = Agent(
@@ -350,8 +352,9 @@ print(f"执行时间: {duration:.2f} 秒")
 
 # 检查详细性能信息
 if agent.last_trace:
-    print(f"模型调用次数: {len(agent.last_trace.events)}")
-    print(f"工具调用次数: {sum(1 for e in agent.last_trace.events if e['type'] == 'tool_call')}")
+    trace = agent.last_trace
+    print(f"模型轮次: {len(trace.model_calls)}")
+    print(f"工具调用次数: {len(trace.tool_calls)}")
 ```
 
 **解决方案:**
@@ -519,7 +522,7 @@ memory = VectorMemory(collection="test")
 memory.clear_session()  # 不删除长期存储
 
 # 3. 限制追踪历史
-if agent.last_trace and len(agent.last_trace.events) > 1000:
+if agent.last_trace and len(agent.last_trace.steps) > 1000:
     agent.last_trace = None  # 释放大对象
 ```
 
@@ -614,12 +617,12 @@ print(f"操作系统: {platform.system()} {platform.release()}")
 print(f"架构: {platform.machine()}")
 
 print("\n=== 依赖版本 ===")
-import pkg_resources
+from importlib.metadata import PackageNotFoundError, version
+
 for pkg in ["httpx", "openai", "anthropic"]:
     try:
-        version = pkg_resources.get_distribution(pkg).version
-        print(f"{pkg}: {version}")
-    except pkg_resources.DistributionNotFound:
+        print(f"{pkg}: {version(pkg)}")
+    except PackageNotFoundError:
         print(f"{pkg}: 未安装")
 
 print("\n=== 错误信息 ===")
@@ -707,25 +710,31 @@ if __name__ == "__main__":
 import pytest
 from agentmold import Agent, tool
 
+
 @tool
-def test_tool(x: int) -> int:
-    """测试工具"""
+def double(x: int) -> int:
+    """把输入乘以 2。
+
+    Args:
+        x: 需要翻倍的整数。
+    """
     return x * 2
 
-def test_basic_functionality():
-    """基本功能测试"""
-    agent = Agent(tools=[test_tool], llm="mock")
-    result = agent("tool: test_tool 5")
-    assert "10" in result or "tool" in result.lower()
 
-def test_error_handling():
-    """错误处理测试"""
-    agent = Agent(llm="mock")
-    try:
-        agent("这个问题会触发错误")
-    except Exception as e:
-        print(f"预期错误: {e}")
-        assert True  # 错误被正确处理
+def test_tool_is_invoked_by_mock_provider():
+    """Mock provider 在看到 `tool:` 前缀时会请求工具。"""
+    agent = Agent(tools=[double], llm="mock")
+    result = agent("tool: double 5")
+    assert "double" in result
+
+
+def test_missing_model_id_raises_configuration_error():
+    """缺少 model 时 Agent 构造应立即失败，而不是运行到一半。"""
+    from agentmold.exceptions import ConfigurationError
+
+    with pytest.raises(ConfigurationError):
+        Agent(llm={"provider": "openai"})
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

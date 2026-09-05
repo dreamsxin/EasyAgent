@@ -3,6 +3,26 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
+## 0.8.0 - 2026-09-05
+
+### Added
+
+- Every visual view keeps a left sidebar. The architecture lessons, run replay, and
+  comparison/evaluation views render an **实验导航** panel that names the current view and
+  architecture, lists the steps for that task, and offers one explicit way back to the ReAct
+  workbench. The Agent configuration panel remains exclusive to ReAct.
+- Production deployment guide (`docs/production-guide.md`) and troubleshooting manual
+  (`docs/troubleshooting.md`), both linked from the README documentation index.
+
+### Fixed
+
+- Switching the Streamlit theme now repaints every element on the same interaction. Streamlit
+  documents `st.context.theme.type` as possibly stale during a theme switch, so the app records
+  the observed type and reruns exactly once when it changes, instead of waiting for an unrelated
+  rerun such as changing architecture mode.
+- Returning to ReAct from the sidebar resets the top navigation widget through a pending-state
+  key, so the segmented control no longer overwrites the requested mode on the next run.
+
 ## 0.7.0 - 2026-08-16
 
 ### Added
