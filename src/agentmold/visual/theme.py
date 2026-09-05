@@ -13,7 +13,19 @@ __all__ = ["inject_theme"]
 
 
 def inject_theme(st: Any) -> None:
-    """Apply colors for Streamlit's current light or dark theme."""
+    """Emit both palettes so a theme switch repaints without a server rerun.
+
+    Streamlit only reports the browser's color scheme when the frontend sends a
+    rerun message, so flipping the theme in the settings menu never re-executes
+    this script. Injecting one resolved palette would therefore leave the
+    previous colors in the DOM until an unrelated rerun happened.
+
+    Both palettes are emitted instead, selected by the CSS ``light-dark()``
+    function against the ``color-scheme`` that Streamlit sets on the app
+    container and updates client-side. ``st.context.theme.type`` is still used,
+    but only for the static fallback that older engines without ``light-dark()``
+    support fall back to.
+    """
     context = getattr(st, "context", None)
     theme = getattr(context, "theme", None)
     theme_type = theme.get("type") if isinstance(theme, dict) else getattr(theme, "type", None)
@@ -76,11 +88,45 @@ def inject_theme(st: Any) -> None:
             "header-bg": "rgba(244, 247, 250, 0.92)",
         },
     }
-    variables = "\n".join(
+    if set(palettes["light"]) != set(palettes["dark"]):
+        raise ValueError("light and dark palettes must define the same tokens")
+    # Static fallback for engines without light-dark(): use the type Streamlit
+    # reported, which is correct on first load and after any rerun.
+    fallback = "\n".join(
         f"            --ea-{name}: {value};" for name, value in palettes[theme_type].items()
     )
+    # Client-side selection: light-dark() reads the container's color-scheme,
+    # which Streamlit updates in the browser without contacting the server, so
+    # every element repaints the moment the user flips the theme. Look the dark
+    # value up by name so reordering one palette cannot mispair colors.
+    adaptive = "\n".join(
+        f"            --ea-{name}: light-dark({light}, {palettes['dark'][name]});"
+        for name, light in palettes["light"].items()
+    )
+    variables = "\n".join(
+        [
+            "        :root {",
+            fallback,
+            "        }",
+            "        @supports (color: light-dark(white, black)) {",
+            # light-dark() inside a custom property resolves against the
+            # color-scheme of the element the property is DECLARED on, not the
+            # one that consumes it. Declaring on :root would therefore follow the
+            # OS preference, which the in-app theme menu does not change. These
+            # Streamlit containers carry a concrete `color-scheme: light|dark`
+            # that the frontend rewrites client-side, and color-scheme inherits,
+            # so declaring here makes every descendant follow the active theme.
+            "            .stApp,",
+            '            [data-testid="stAppViewContainer"],',
+            '            [data-testid="stHeader"],',
+            '            [data-testid="stSidebar"] {',
+            adaptive,
+            "            }",
+            "        }",
+        ]
+    )
     st.markdown(
-        "<style>\n        :root {\n" + variables + "\n        }\n" + """
+        "<style>\n" + variables + "\n" + """
         .stApp,
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"],

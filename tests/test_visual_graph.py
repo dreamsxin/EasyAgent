@@ -1,5 +1,6 @@
 """Tests for the visual graph builder (pure function, no Streamlit needed)."""
 
+import re
 from types import SimpleNamespace
 
 from agentmold import Agent, LogLevel
@@ -428,16 +429,33 @@ def test_theme_uses_streamlit_context_for_light_palette():
     recorder = ThemeRecorder()
     _inject_theme(recorder)
 
+    # The static fallback uses the type Streamlit reported.
     assert "--ea-bg: #f4f7fa" in recorder.content
     assert "--ea-text: #1a2735" in recorder.content
     assert "--ea-header-bg: rgba(244, 247, 250, 0.92)" in recorder.content
     assert "color: var(--ea-text) !important" in recorder.content
     assert "<script>" not in recorder.content
-    # Run-state and failure colors must come from the palette, not dark-only literals.
     assert "--ea-danger: #b3261e" in recorder.content
     assert "--ea-line-error: #c26b73" in recorder.content
-    assert "#ff8c8c" not in recorder.content
-    assert "#ff9a9a" not in recorder.content
+
+    # Both palettes ship so a theme switch repaints without a server rerun.
+    assert "@supports (color: light-dark(white, black))" in recorder.content
+    assert "--ea-bg: light-dark(#f4f7fa, #080c12);" in recorder.content
+    assert "--ea-danger: light-dark(#b3261e, #ff8c8c);" in recorder.content
+
+    # light-dark() must be declared where Streamlit sets a concrete
+    # color-scheme, not on :root, which would follow the OS preference instead
+    # of the in-app theme menu.
+    supports_block = recorder.content[recorder.content.index("@supports") :]
+    assert supports_block.index('[data-testid="stAppViewContainer"]') < supports_block.index(
+        "--ea-bg: light-dark("
+    )
+
+    # Outside the palette declarations, no rule may hardcode a dark-only color.
+    rules = re.sub(r"--ea-[a-z0-9-]+:[^;]+;", "", recorder.content)
+    assert "#ff8c8c" not in rules
+    assert "#ff9a9a" not in rules
+    assert "#080c12" not in rules
 
 
 def test_theme_change_reruns_once_so_every_element_repaints():

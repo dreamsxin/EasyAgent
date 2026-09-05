@@ -16,10 +16,12 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
 
 ### Fixed
 
-- Switching the Streamlit theme now repaints every element on the same interaction. Streamlit
-  documents `st.context.theme.type` as possibly stale during a theme switch, so the app records
-  the observed type and reruns exactly once when it changes, instead of waiting for an unrelated
-  rerun such as changing architecture mode.
+- Switching the Streamlit theme now repaints every element immediately. The theme CSS ships both
+  palettes and selects between them with the CSS `light-dark()` function, declared on the
+  Streamlit app containers whose `color-scheme` the frontend rewrites in the browser. Streamlit
+  only reports the browser color scheme when the frontend sends a rerun message, so a
+  server-resolved single palette could not repaint on a theme switch at all. A static
+  single-palette block is still emitted first as the fallback for engines without `light-dark()`.
 - Run-state, failure, and chip colors now come from the light/dark palette instead of dark-only
   hex literals, so error borders and failure text stay legible in the light theme. The remaining
   literals are the native-input rules, which intentionally target a light input field in both
