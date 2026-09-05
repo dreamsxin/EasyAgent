@@ -3,6 +3,17 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
+## 0.11.1 - 2026-09-06
+
+### Fixed
+
+- `tests/test_prompt_caching.py` no longer requires the optional `anthropic` SDK. The tests
+  now shape requests through `_request_kwargs` on an instance built with `__new__`, the same
+  convention `tests/test_providers.py` already used, and the two cases that genuinely need
+  the real constructor are guarded with `pytest.importorskip`. The 0.11.0 tag failed its
+  release checks for this reason and was never published, so 0.11.1 is the first release
+  carrying the prompt-caching work.
+
 ## 0.11.0 - 2026-09-05
 
 ### Added

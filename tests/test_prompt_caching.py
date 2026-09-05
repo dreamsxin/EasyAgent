@@ -6,33 +6,8 @@ import pytest
 
 from agentmold import Agent, tool
 from agentmold.exceptions import ConfigurationError
+from agentmold.llm import LLM, Message
 from agentmold.llm.providers import anthropic_provider
-
-
-class _Recorder:
-    """Capture the kwargs the provider would send, without any network call."""
-
-    def __init__(self) -> None:
-        self.kwargs: dict[str, object] = {}
-
-    def create(self, **kwargs: object):
-        self.kwargs = kwargs
-        return _FakeMessage()
-
-
-class _FakeMessage:
-    content = [type("Text", (), {"type": "text", "text": "ok"})()]
-    stop_reason = "end_turn"
-    usage = type(
-        "Usage",
-        (),
-        {
-            "input_tokens": 10,
-            "output_tokens": 2,
-            "cache_creation_input_tokens": 0,
-            "cache_read_input_tokens": 512,
-        },
-    )()
 
 
 @tool
@@ -45,29 +20,38 @@ def lookup(topic: str) -> str:
     return f"note about {topic}"
 
 
-def _provider(monkeypatch, **kwargs) -> tuple[anthropic_provider.AnthropicLLM, _Recorder]:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    llm = anthropic_provider.AnthropicLLM(model="claude-test", **kwargs)
-    recorder = _Recorder()
-    llm._client = type("Client", (), {"messages": recorder})()
-    return llm, recorder
+def _provider(*, cache_prompt: bool = False) -> anthropic_provider.AnthropicLLM:
+    """Build a provider without running __init__.
+
+    The ``anthropic`` SDK is an optional extra and is not installed in CI, so
+    the real constructor would raise ConfigurationError. Request shaping lives
+    entirely in ``_request_kwargs``, which needs no client, so these tests
+    follow the same construction convention as ``tests/test_providers.py``.
+    """
+    llm = anthropic_provider.AnthropicLLM.__new__(anthropic_provider.AnthropicLLM)
+    LLM.__init__(llm, "claude-test", 0.7)
+    llm.max_tokens = 100
+    llm.cache_prompt = cache_prompt
+    return llm
 
 
-def test_caching_is_off_by_default_and_sends_a_plain_system_string(monkeypatch):
-    llm, recorder = _provider(monkeypatch)
+def test_caching_is_off_by_default_and_sends_a_plain_system_string():
+    llm = _provider()
+    agent = Agent(instructions="Be terse.", llm="mock")
 
-    llm.complete(Agent(instructions="Be terse.", llm="mock").memory.messages())
+    kwargs = llm._request_kwargs(agent.memory.messages(), None)
 
-    assert isinstance(recorder.kwargs["system"], str)
-    assert "cache_control" not in str(recorder.kwargs["system"])
+    assert isinstance(kwargs["system"], str)
+    assert "cache_control" not in str(kwargs["system"])
 
 
-def test_cache_prompt_marks_the_stable_system_prefix(monkeypatch):
-    llm, recorder = _provider(monkeypatch, cache_prompt=True)
+def test_cache_prompt_marks_the_stable_system_prefix():
+    llm = _provider(cache_prompt=True)
+    agent = Agent(instructions="Be terse.", tools=[lookup], llm="mock")
 
-    llm.complete(Agent(instructions="Be terse.", tools=[lookup], llm="mock").memory.messages())
+    kwargs = llm._request_kwargs(agent.memory.messages(), agent.registry.schemas())
 
-    system = recorder.kwargs["system"]
+    system = kwargs["system"]
     assert isinstance(system, list) and len(system) == 1
     assert system[0]["type"] == "text"
     assert system[0]["cache_control"] == {"type": "ephemeral"}
@@ -76,18 +60,23 @@ def test_cache_prompt_marks_the_stable_system_prefix(monkeypatch):
     assert "lookup" in system[0]["text"]
 
 
-def test_cache_prompt_is_skipped_when_there_is_no_system_text(monkeypatch):
-    from agentmold.llm import Message
+def test_cache_prompt_is_skipped_when_there_is_no_system_text():
+    llm = _provider(cache_prompt=True)
 
-    llm, recorder = _provider(monkeypatch, cache_prompt=True)
-
-    llm.complete([Message(role="user", content="hello")])
+    kwargs = llm._request_kwargs([Message(role="user", content="hello")], None)
 
     # Marking an empty block would be a wasted breakpoint.
-    assert recorder.kwargs["system"] == ""
+    assert kwargs["system"] == ""
+
+
+def test_cache_prompt_defaults_to_false_on_the_class():
+    # Instances built without __init__ must still resolve the flag, otherwise
+    # every existing provider test that uses __new__ would break.
+    assert anthropic_provider.AnthropicLLM.cache_prompt is False
 
 
 def test_cache_prompt_rejects_non_boolean(monkeypatch):
+    pytest.importorskip("anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
     with pytest.raises(ConfigurationError, match="cache_prompt must be a boolean"):
@@ -95,6 +84,7 @@ def test_cache_prompt_rejects_non_boolean(monkeypatch):
 
 
 def test_deepseek_anthropic_accepts_cache_prompt(monkeypatch):
+    pytest.importorskip("anthropic")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
 
     llm = anthropic_provider.DeepSeekAnthropicLLM(model="deepseek-test", cache_prompt=True)
