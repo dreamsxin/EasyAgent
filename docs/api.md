@@ -306,6 +306,44 @@ history reset, parent/child run correlation, and a context-local recursion limit
 is deliberately not exported from the stable top-level package. See
 [Experimental Agent composition](agent-composition.md) for the execution and trace contract.
 
+## Experimental provider facade: `RoutingLLM`
+
+`from agentmold.experimental import RoutingLLM` wraps several providers behind one `LLM`
+interface and dispatches each completion through a rule you write:
+
+```python
+from agentmold import Agent
+from agentmold.experimental import RoutingLLM
+
+def by_length(messages, tools):
+    """Send long prompts to the stronger model."""
+    return "deep" if len(messages[-1].content) > 200 else "fast"
+
+llm = RoutingLLM(
+    routes={"fast": cheap_provider, "deep": strong_provider},
+    select=by_length,
+)
+agent = Agent(llm=llm)
+```
+
+This is a facade, not a coordinator. It runs no tools, delegates to no other Agent, and
+starts no run of its own; the Agent still sees exactly one model. Dispatch also covers
+`acomplete`, `stream`, and `astream`, each delegating to the routed provider so that
+provider's own retries, error normalization, and native streaming still apply.
+
+**Trace honesty.** `RoutingLLM.model` starts as a composite label such as
+`routing:deep|fast`, so a run header never impersonates a single model. After each dispatch
+it becomes the routed provider's model, so the per-round `model_calls` entries record the
+model that actually answered, and `last_route` names the chosen key.
+
+**Failures are loud.** A selector that raises, or returns a key that is not in `routes`,
+raises `ConfigurationError`. There is no silent fallback, because falling back would send
+the request to a provider the rule meant to avoid — exactly the wrong behavior for a
+privacy or cost rule. Pass `default="fast"` if you want `None` to mean "use this route".
+
+`cost_budget_usd` composes with routing: the budget accumulates provider-reported cost
+across whichever routes answered.
+
 Use standard asyncio controls for a whole run:
 
 ```python

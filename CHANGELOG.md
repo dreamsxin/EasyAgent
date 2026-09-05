@@ -3,6 +3,23 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
+## 0.10.0 - 2026-09-05
+
+### Added
+
+- Experimental provider facade `agentmold.experimental.RoutingLLM`: one `LLM` interface that
+  wraps several providers and dispatches each completion through an application-supplied
+  `select(messages, tools)` rule. Dispatch covers `complete`, `acomplete`, `stream`, and
+  `astream`, delegating to the routed provider so its own retries, error normalization, and
+  native streaming still apply. It runs no tools, delegates to no other Agent, and starts no
+  run of its own, so it is a facade rather than a coordinator.
+- `RoutingLLM.model` starts as a composite label such as `routing:deep|fast` so a run header
+  never impersonates a single model, then becomes the routed provider's model so each
+  `model_calls` entry records the model that actually answered. `last_route` names the key.
+- Unknown route keys and selector exceptions raise `ConfigurationError` instead of falling
+  back to another provider, because a silent fallback would defeat the privacy or cost rule
+  the selector expresses. Pass `default=` to accept `None` from the selector.
+
 ## 0.9.0 - 2026-09-05
 
 ### Added

@@ -216,9 +216,10 @@ sound.
 - [ ] Enable active prompt caching: send `cache_control` on the stable system-prompt and
   tool-schema prefix (Anthropic) and keep that prefix stable (OpenAI), so the existing
   cache-hit metric reflects savings EasyAgent actually requested.
-- [ ] Add an experimental `RoutingLLM`: a single-LLM facade that wraps multiple
+- [x] Add an experimental `RoutingLLM`: a single-LLM facade that wraps multiple
   providers and dispatches by task, cost, or privacy rule. This is explicit composition,
-  not a multi-agent coordinator.
+  not a multi-agent coordinator. Unknown route keys and selector errors raise instead of
+  falling back, so a privacy or cost rule can never be bypassed silently.
 - [x] Add an optional `cost_budget_usd`: the trace accumulates cost and raises
   `BudgetExceededError` when a run crosses the threshold. Only provider-reported cost counts;
   EasyAgent ships no price table, so `resolved_cost_usd()` is `None` for providers that report

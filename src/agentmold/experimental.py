@@ -16,9 +16,10 @@ from typing import Any
 
 from agentmold.agent import Agent
 from agentmold.exceptions import ToolError
+from agentmold.llm.routing import RouteSelector, RoutingLLM
 from agentmold.tool import Tool
 
-__all__ = ["agent_as_tool"]
+__all__ = ["RouteSelector", "RoutingLLM", "agent_as_tool"]
 
 _AGENT_TOOL_DEPTH: ContextVar[int] = ContextVar("agentmold_agent_tool_depth", default=0)
 _VALID_TOOL_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
