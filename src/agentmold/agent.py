@@ -26,6 +26,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 from agentmold.exceptions import (
+    BudgetExceededError,
     LLMError,
     LoopDetectedError,
     MaxIterationsError,
@@ -235,6 +236,20 @@ class AgentTrace:
         usage = _extract_usage(raw_response)
         for key, value in usage.items():
             self.usage[key] = self.usage.get(key, 0) + value
+
+    def resolved_cost_usd(self) -> float | None:
+        """Return the run's accumulated cost in USD, if a provider reported one.
+
+        EasyAgent never estimates cost from a price table: vendor pricing changes
+        independently of this package, so a stale table would silently report
+        wrong numbers. ``None`` means "this provider did not tell us", which is a
+        different fact from "this run was free".
+        """
+        for key in ("total_cost_usd", "cost_usd", "total_cost", "cost"):
+            value = self.usage.get(key)
+            if value is not None:
+                return float(value)
+        return None
 
     def add_model_call(
         self,
@@ -548,6 +563,13 @@ class Agent:
         Optional path to an append-only JSONL file recording every tool call
         (name, arguments, outcome, timing, ``run_id``) for replay and audit.
         Defaults to ``None`` (no file side effects).
+    cost_budget_usd:
+        Optional spend ceiling for one run. After each model round the trace's
+        accumulated cost is compared against this value, and
+        :class:`~agentmold.exceptions.BudgetExceededError` is raised once it is
+        crossed. Only costs the provider actually reports are counted; EasyAgent
+        does not estimate cost from a price table, so providers that report no
+        cost can never trip the budget. Defaults to ``None`` (no ceiling).
     """
 
     def __init__(
@@ -562,6 +584,7 @@ class Agent:
         on_approval: Callable[[str, dict[str, Any]], bool] | None = None,
         loop_detection_threshold: int | None = 3,
         audit_log: str | Path | None = None,
+        cost_budget_usd: float | None = None,
     ) -> None:
         self.name = name
         self.instructions = instructions
@@ -583,6 +606,21 @@ class Agent:
         self._on_approval = on_approval
         self._loop_detection_threshold = loop_detection_threshold
         self._audit = _AuditLogger(audit_log)
+        if cost_budget_usd is not None and cost_budget_usd <= 0:
+            raise ValueError("cost_budget_usd must be greater than 0")
+        self._cost_budget_usd = cost_budget_usd
+
+    def _check_cost_budget(self, trace: AgentTrace) -> None:
+        """Raise once the provider-reported cost crosses the configured ceiling."""
+        if self._cost_budget_usd is None:
+            return
+        spent = trace.resolved_cost_usd()
+        if spent is None or spent < self._cost_budget_usd:
+            return
+        raise BudgetExceededError(
+            f"Run exceeded cost_budget_usd={self._cost_budget_usd}: "
+            f"provider-reported cost is {spent}. Raise the budget or shorten the task."
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -670,6 +708,9 @@ class Agent:
                     response_kind="tool_calls" if response.tool_calls else "answer",
                     usage=usage,
                 )
+                # Checked after the round is recorded so the trace explains the
+                # spend that tripped the budget.
+                self._check_cost_budget(trace)
 
                 if not response.tool_calls:
                     self.log.answer(response.content)
@@ -834,6 +875,9 @@ class Agent:
                     response_kind="tool_calls" if response.tool_calls else "answer",
                     usage=usage,
                 )
+                # Checked after the round is recorded so the trace explains the
+                # spend that tripped the budget.
+                self._check_cost_budget(trace)
 
                 if not response.tool_calls:
                     self.log.answer(response.content)

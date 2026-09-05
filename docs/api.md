@@ -14,6 +14,7 @@ Agent(
     on_approval=None,
     loop_detection_threshold=3,
     audit_log=None,
+    cost_budget_usd=None,
 )
 ```
 
@@ -109,6 +110,29 @@ at a time to keep the teaching loop readable.
 call as one JSON line with `run_id`, UTC `timestamp`, `tool`, `arguments`, the `outcome`,
 a `refused` flag, and `duration_ms`. The log is append-only and written per call, so a
 crash still leaves every completed entry for replay. The default is no file side effects.
+
+**Optional cost budget.** Pass `cost_budget_usd=0.50` to stop a run once its spend reaches
+that ceiling. After each model round the accumulated cost is compared against the budget,
+and `BudgetExceededError` is raised when it is crossed. The trace keeps the rounds and tool
+calls that already happened, so you can see exactly what the money bought:
+
+```python
+from agentmold import Agent, BudgetExceededError
+
+agent = Agent(llm={"provider": "openai", "model": "gpt-4o"}, cost_budget_usd=0.50)
+try:
+    agent.run("Summarize this corpus")
+except BudgetExceededError as exc:
+    print(exc)
+    print(agent.last_trace.resolved_cost_usd())
+```
+
+Only costs the provider actually reports are counted. `AgentTrace.resolved_cost_usd()`
+returns `None` when the provider sent no cost field, and a budget can never trip on
+`None` — EasyAgent does not estimate cost from a built-in price table, because vendor
+pricing changes independently of this package and a stale table would report wrong
+numbers silently. For providers that bill but report no cost (including local models,
+which are free), track spend in the provider's own console.
 
 ## `load_agent`
 

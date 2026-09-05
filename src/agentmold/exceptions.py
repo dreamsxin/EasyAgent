@@ -27,6 +27,10 @@ class LoopDetectedError(EasyAgentError):
     """Raised when the agent repeats the same tool call and appears stuck."""
 
 
+class BudgetExceededError(EasyAgentError):
+    """Raised when a run's resolved cost crosses its ``cost_budget_usd``."""
+
+
 class ConfigurationError(EasyAgentError):
     """Raised when there is a configuration problem (e.g. missing API key)."""
 

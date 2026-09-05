@@ -219,8 +219,10 @@ sound.
 - [ ] Add an experimental `RoutingLLM`: a single-LLM facade that wraps multiple
   providers and dispatches by task, cost, or privacy rule. This is explicit composition,
   not a multi-agent coordinator.
-- [ ] Add an optional `cost_budget_usd`: the trace accumulates cost and raises
-  `BudgetExceededError` when a run crosses the threshold.
+- [x] Add an optional `cost_budget_usd`: the trace accumulates cost and raises
+  `BudgetExceededError` when a run crosses the threshold. Only provider-reported cost counts;
+  EasyAgent ships no price table, so `resolved_cost_usd()` is `None` for providers that report
+  nothing and such runs can never trip the budget.
 
 Release gate: cache-hit rate rises when caching is enabled; a routed run reports
 per-model cost; and evaluation reports include sampling pass rate and step-level metrics

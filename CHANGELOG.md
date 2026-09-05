@@ -3,6 +3,20 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
+## 0.9.0 - 2026-09-05
+
+### Added
+
+- Optional per-run spend ceiling: `Agent(cost_budget_usd=0.50)` raises the new
+  `BudgetExceededError` once a run's provider-reported cost crosses the threshold. The check
+  runs after each model round is recorded, so the trace still shows the rounds and tool calls
+  that produced the spend, and it applies to both the sync and async paths.
+- `AgentTrace.resolved_cost_usd()` returns the run's accumulated cost, or `None` when the
+  provider reported none. EasyAgent deliberately ships no price table: vendor pricing changes
+  independently of this package, so an estimate would silently go stale. A run whose provider
+  reports no cost can therefore never trip the budget; track that spend in the provider's
+  console instead.
+
 ## 0.8.0 - 2026-09-05
 
 ### Added

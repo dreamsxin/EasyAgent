@@ -13,6 +13,7 @@ from agentmold.agent import (
 from agentmold.discovery import discover_providers, discover_tools
 from agentmold.exceptions import (
     AgentLoadError,
+    BudgetExceededError,
     ExtensionLoadError,
     LoopDetectedError,
     MCPError,
@@ -48,6 +49,7 @@ __all__ = [
     "AgentEvent",
     "AgentTrace",
     "ApprovalRequestEvent",
+    "BudgetExceededError",
     "LoopDetectedError",
     "LoopDetectedEvent",
     "MCPError",

@@ -29,6 +29,7 @@ framework than the package provides.
 | Python provider/tool extensions | Shipped | Standard entry points provide explicit discovery; extension loading errors are not hidden. |
 | Agent as a tool | Experimental | `agentmold.experimental.agent_as_tool` supports bounded parent/child experiments and correlated traces. |
 | Shared provider conformance matrix | Shipped | Every built-in adapter runs through one offline final-chat and tool-round-trip contract suite. |
+| Per-run cost budget | Shipped | `cost_budget_usd` stops a run with `BudgetExceededError` once provider-reported cost crosses the ceiling. Only reported costs count: `AgentTrace.resolved_cost_usd()` returns `None` when a provider sends none, and no built-in price table estimates cost. |
 | General multi-Agent coordinator | Non-goal | No coordinator runtime, role graph, or automatic delegation layer is planned. Multi-agent experiments stay behind `agent_as_tool`. |
 | Workflow DSL | Non-goal | The primary path remains Python functions and normal control flow. |
 | Hosted tool marketplace | Non-goal | Extensions use Python packaging and curated examples instead of a centralized runtime marketplace. |
