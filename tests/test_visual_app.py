@@ -14,6 +14,28 @@ from agentmold.visual.teaching_models import LiveTeachingModel
 streamlit_testing = pytest.importorskip("streamlit.testing.v1")
 AppTest = streamlit_testing.AppTest
 APP_FILE = Path(__file__).parents[1] / "src" / "agentmold" / "visual" / "app.py"
+_PERSISTED_CONFIG = Path(".agentmold/visual_agent.json")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_persisted_visual_config():
+    """Start every AppTest from factory defaults.
+
+    The lab persists the sidebar configuration to
+    ``.agentmold/visual_agent.json``, so without this one test's provider choice
+    would decide the next test's start state -- and a developer's local config
+    would decide all of them.
+    """
+    original = _PERSISTED_CONFIG.read_bytes() if _PERSISTED_CONFIG.exists() else None
+    _PERSISTED_CONFIG.unlink(missing_ok=True)
+    try:
+        yield
+    finally:
+        if original is None:
+            _PERSISTED_CONFIG.unlink(missing_ok=True)
+        else:
+            _PERSISTED_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+            _PERSISTED_CONFIG.write_bytes(original)
 
 
 def _select_offline_mode(app) -> None:
@@ -28,6 +50,59 @@ def _select_live_mode(app) -> None:
         item for item in app.checkbox if item.label == "我知道真实执行会联网并可能产生费用"
     )
     confirmation.check().run()
+
+
+def _build_mock_agent(app) -> None:
+    """Click the sidebar build button, the step a first-time user must take."""
+    next(item for item in app.sidebar.button if item.label == "🔨 生成 Agent").click().run()
+
+
+def test_setup_state_is_full_width_and_the_run_split_opens_with_the_agent() -> None:
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
+
+    app.run()
+
+    assert not app.exception
+    # This is the state every fresh user starts in: no Agent, so no run to show
+    # beside the guidance. It must not open the chat/graph split, or the guidance
+    # and the export panel end up squeezed into the left half with the right half
+    # empty.
+    assert not any("RUN STATUS" in str(item.value) for item in app.main.markdown)
+    # Full width means the guidance is a direct child of the main area rather
+    # than nested inside a column.
+    top_level = list(app.main.children.values())
+    assert any("还没有 Agent" in str(getattr(item, "value", "")) for item in top_level)
+    assert any("PYTHON EXPORT" in expander.label for expander in app.main.expander)
+    # The guidance says "请在左侧完成配置", so the config sidebar has to be there.
+    assert any(header.value == "⚙️ Agent 配置" for header in app.sidebar.header)
+
+    _build_mock_agent(app)
+
+    assert not app.exception
+    assert any("CONVERSATION" in str(item.value) for item in app.main.markdown)
+    assert any("RUN STATUS" in str(item.value) for item in app.main.markdown)
+
+
+def test_failed_run_keeps_the_status_and_timeline_column(monkeypatch) -> None:
+    def explode(self, *args, **kwargs):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr("agentmold.agent.Agent.run_stream", explode)
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
+
+    app.run()
+    _build_mock_agent(app)
+
+    app.chat_input[0].set_value("这次一定失败").run()
+
+    assert not app.exception
+    assert any("这次运行没有完成" in str(item.value) for item in app.main.error)
+    # A research console must not hide the run evidence exactly when the run
+    # failed: stopping the script inside the chat column used to drop the whole
+    # right-hand column and the export panel.
+    assert any("RUN STATUS" in str(item.value) for item in app.main.markdown)
+    assert any("RUN TIMELINE" in str(item.value) for item in app.main.markdown)
+    assert app.session_state["run_meta"]["state"] == "error"
 
 
 def test_live_mode_does_not_fall_back_to_scripted_execution(monkeypatch) -> None:

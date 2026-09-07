@@ -97,11 +97,13 @@ def _render_run_comparison(st: Any) -> None:
         hide_index=True,
     )
 
-    for summary in summaries:
+    for index, summary in enumerate(summaries):
         role = _run_role(summary, forest)
         with st.expander(
             f"{summary['agent_name'] or 'Agent'} · {role} · {summary['run_id'][:12]}",
-            expanded=False,
+            # Open the first run so the panel is not a wall of closed rows,
+            # matching how the teaching view lists per-run trace detail.
+            expanded=index == 0,
         ):
             relation = {
                 "run_id": summary["run_id"],

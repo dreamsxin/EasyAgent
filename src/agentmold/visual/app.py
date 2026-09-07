@@ -863,7 +863,15 @@ def _run_app() -> None:
     """The actual Streamlit application body."""
     import streamlit as st
 
-    st.set_page_config(page_title="EasyAgent Research Console", page_icon="◈", layout="wide")
+    st.set_page_config(
+        page_title="EasyAgent Research Console",
+        page_icon="◈",
+        layout="wide",
+        # Every setup instruction in this app points at the sidebar ("请在左侧
+        # 完成配置"), so it must not start collapsed. "auto" collapses it on
+        # narrow viewports, which makes that instruction unfollowable.
+        initial_sidebar_state="expanded",
+    )
     _inject_theme(st)
     st.markdown(
         """
@@ -1814,37 +1822,41 @@ def _run_app() -> None:
     # ------------------------------------------------------------------
     # Main area: Agent status + chat + execution graph
     # ------------------------------------------------------------------
-    col_chat, col_graph = st.columns([1, 1])
+    if agent is None:
+        # Rendered full width, before the two-column split. The setup state has
+        # no run to show beside it, so opening the columns here would squeeze
+        # the guidance and the export panel into the left half and leave the
+        # right half empty.
+        if agent_file is not None:
+            st.error("代码 Agent 尚未加载，请检查文件路径和 build_agent()。")
+        elif model_missing:
+            st.warning("⚠ 请在左侧填写**模型 ID**，然后点击 **🔨 生成 Agent**。")
+        else:
+            st.info(
+                "👆 还没有 Agent。请在左侧完成配置（模型、工具、模式），\n"
+                "然后点击 **🔨 生成 Agent** 按钮。\n\n"
+                "选择 Mock（离线）可无需 API Key 直接体验 Agent 基本循环。"
+            )
+        _render_learning_labs(
+            st,
+            agent_file=agent_file,
+            model_missing=model_missing,
+            name=name,
+            instructions=instructions,
+            llm=llm,
+            selected_tools=selected_tools,
+            max_iterations=max_iterations,
+            loop_detection_threshold=loop_detection_threshold,
+            require_approval=require_approval,
+            audit_log=audit_log,
+            tool_origins=tool_origins,
+        )
+        st.stop()
+
+    col_chat, col_graph = st.columns([1, 1], gap="large")
 
     with col_chat:
         # ---- Agent status / overview card ----
-        if agent is None:
-            if agent_file is not None:
-                st.error("代码 Agent 尚未加载，请检查文件路径和 build_agent()。")
-            elif model_missing:
-                st.warning("⚠ 请在左侧填写**模型 ID**，然后点击 **🔨 生成 Agent**。")
-            else:
-                st.info(
-                    "👆 还没有 Agent。请在左侧完成配置（模型、工具、模式），\n"
-                    "然后点击 **🔨 生成 Agent** 按钮。\n\n"
-                    "选择 Mock（离线）可无需 API Key 直接体验 Agent 基本循环。"
-                )
-            _render_learning_labs(
-                st,
-                agent_file=agent_file,
-                model_missing=model_missing,
-                name=name,
-                instructions=instructions,
-                llm=llm,
-                selected_tools=selected_tools,
-                max_iterations=max_iterations,
-                loop_detection_threshold=loop_detection_threshold,
-                require_approval=require_approval,
-                audit_log=audit_log,
-                tool_origins=tool_origins,
-            )
-            st.stop()
-
         with st.container(border=True):
             tool_list = ", ".join(t.name for t in agent.tools) if agent.tools else "（无）"
             # --- Status group ---
@@ -1904,7 +1916,9 @@ def _run_app() -> None:
                     st.rerun()
             with act_col2:
                 if st.button(
-                    "🗑 清空当前聊天（保留 Trace）",
+                    # Kept short: this button sits in half of a half-width
+                    # column, so a longer label wraps. The detail is in help=.
+                    "🗑 清空聊天",
                     use_container_width=True,
                     key="ea_reset_btn",
                     help="只清空当前对话记忆；已经记录的 Trace 仍可在运行回放中查看。",
@@ -1930,6 +1944,7 @@ def _run_app() -> None:
             steps: list[dict[str, Any]] = []
             answer_text = ""
             run_started = time.perf_counter()
+            run_failed = False
             run_meta = _initial_run_meta()
             run_meta.update({"state": "running", "phase": "思考中"})
             st.session_state.run_meta = run_meta
@@ -2113,38 +2128,46 @@ def _run_app() -> None:
                     log_error = st.session_state.get("ea_trace_log_error")
                     if log_error:
                         st.warning(f"本地日志写入失败: {log_error}")
-                    st.stop()
+                    # Flag instead of st.stop(). Stopping here fired inside
+                    # col_chat, so the RUN STATUS / TIMELINE / EXECUTION MAP
+                    # column and the export panel never rendered -- the page
+                    # hid the run evidence exactly when the run failed. The
+                    # failed run's meta and steps were already written to
+                    # session_state above, so the right column has real data.
+                    run_failed = True
 
-                trace = agent.last_trace
-                _apply_trace_usage_to_run_meta(run_meta, trace)
-                run_meta.update(
-                    {
-                        "state": "complete",
-                        "phase": "已完成",
-                        "duration_ms": (
-                            trace.duration_ms
-                            if trace is not None and trace.duration_ms is not None
-                            else round((time.perf_counter() - run_started) * 1000, 1)
-                        ),
-                    }
-                )
-                st.session_state.run_meta = run_meta
-                try:
-                    live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
-                except OSError:
-                    pass
-                if answer_text and live_answer is None:
+                if not run_failed:
+                    trace = agent.last_trace
+                    _apply_trace_usage_to_run_meta(run_meta, trace)
+                    run_meta.update(
+                        {
+                            "state": "complete",
+                            "phase": "已完成",
+                            "duration_ms": (
+                                trace.duration_ms
+                                if trace is not None and trace.duration_ms is not None
+                                else round((time.perf_counter() - run_started) * 1000, 1)
+                            ),
+                        }
+                    )
+                    st.session_state.run_meta = run_meta
                     try:
-                        st.markdown(answer_text)
+                        live_metrics.markdown(_run_metrics_html(run_meta), unsafe_allow_html=True)
                     except OSError:
                         pass
-                if trace is not None:
-                    _remember_trace(st, trace)
+                    if answer_text and live_answer is None:
+                        try:
+                            st.markdown(answer_text)
+                        except OSError:
+                            pass
+                    if trace is not None:
+                        _remember_trace(st, trace)
 
-            st.session_state.messages.append({"role": "assistant", "content": answer_text})
-            st.session_state.last_steps = steps
-            st.session_state.last_user_input = user_input
-            st.rerun()
+            if not run_failed:
+                st.session_state.messages.append({"role": "assistant", "content": answer_text})
+                st.session_state.last_steps = steps
+                st.session_state.last_user_input = user_input
+                st.rerun()
 
     with col_graph:
         st.markdown('<div class="ea-section-label">RUN STATUS</div>', unsafe_allow_html=True)

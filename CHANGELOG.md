@@ -3,6 +3,35 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
+## 0.12.1 - 2026-09-07
+
+### Fixed
+
+- Visual lab first-run layout: the setup state (no Agent yet) opened the chat/graph column
+  split before checking whether there was anything to show beside the guidance, so the
+  instructions and the `PYTHON EXPORT` panel were squeezed into the left half while the right
+  half stayed empty. This is the state every fresh user starts in. The guidance and export
+  panel now render full width, and the split opens only once an Agent exists.
+- A failed run no longer hides its own evidence. `st.stop()` in the failure path fired inside
+  the chat column, which dropped the entire `RUN STATUS` / `RUN TIMELINE` / `EXECUTION MAP`
+  column and the export panel. The failure path now sets a flag and skips only the success
+  rendering, so the failed run's status and timeline stay on screen.
+- The lab no longer starts with a collapsed sidebar. Every setup instruction points at the
+  sidebar ("请在左侧完成配置"), which `initial_sidebar_state="auto"` made unfollowable on
+  narrow viewports.
+
+### Changed
+
+- The chat/graph split uses `gap="large"`; the two halves previously sat flush against each
+  other on a page that is already dense.
+- Shortened the "清空当前聊天（保留 Trace）" button label to "清空聊天". It sits in half of a
+  half-width column, where the long label wrapped; the detail moved into its tooltip.
+- The evaluation view now auto-opens the first per-run detail panel, matching how the teaching
+  view lists the same kind of trace detail instead of showing only closed rows.
+- `tests/test_visual_app.py` isolates `.agentmold/visual_agent.json` per test. The lab persists
+  sidebar configuration there, so one test's provider choice used to decide the next test's
+  start state, and a developer's local config decided all of them.
+
 ## 0.12.0 - 2026-09-07
 
 ### Added
