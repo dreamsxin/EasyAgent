@@ -385,12 +385,5 @@ def _finish_anthropic_thinking(
     return [buffer]
 
 
-def _anthropic_text_delta(event: Any) -> str:
-    """Extract user-visible text from one Anthropic stream event."""
-    visible_parts: list[str] = []
-    state = {"open": False, "closed": False}
-    return "".join(_anthropic_visible_deltas(event, visible_parts, state))
-
-
 register_provider("anthropic", AnthropicLLM)
 register_provider("deepseek-anthropic", DeepSeekAnthropicLLM)

@@ -256,12 +256,6 @@ def _strip_thinking_blocks(content: str) -> str:
     return _THINKING_BLOCK_RE.sub("", content).strip()
 
 
-def _format_thinking_content(reasoning: str | None, content: str) -> str:
-    """Backward-compatible helper that now returns only the visible answer."""
-    del reasoning
-    return _strip_thinking_blocks(content)
-
-
 def _openai_stream_events(chunks: Any) -> Iterator[LlmStreamEvent]:
     content_parts: list[str] = []
     reasoning_parts: list[str] = []

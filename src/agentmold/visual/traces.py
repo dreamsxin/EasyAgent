@@ -469,13 +469,6 @@ def _first_number(values: dict[str, Any], *keys: str) -> int | float | None:
     return None
 
 
-def _sum_numbers(values: dict[str, Any], keys: tuple[str, str]) -> int | float | None:
-    numbers = [_number(values.get(key)) for key in keys]
-    if all(value is not None for value in numbers):
-        return sum(value for value in numbers if value is not None)
-    return None
-
-
 def _cache_input_tokens(
     usage: dict[str, Any],
     *,

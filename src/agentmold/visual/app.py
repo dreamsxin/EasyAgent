@@ -52,51 +52,6 @@ from agentmold.visual.agent_config import (
 from agentmold.visual.agent_config import (
     tool_widget_key as _tool_widget_key,
 )
-from agentmold.visual.architecture import (
-    ARCHITECTURE_PRESETS as _ARCHITECTURE_PRESETS,
-)
-from agentmold.visual.architecture import (
-    INTENT_PRESETS as _INTENT_PRESETS,
-)
-from agentmold.visual.architecture import (
-    RETRIEVAL_PRESETS as _RETRIEVAL_PRESETS,
-)
-from agentmold.visual.architecture import (
-    TOOL_CALLING_PRESETS as _TOOL_CALLING_PRESETS,
-)
-from agentmold.visual.architecture import (
-    architecture_code as _architecture_code,
-)
-from agentmold.visual.architecture import (
-    architecture_description as _architecture_description,
-)
-from agentmold.visual.architecture import (
-    architecture_diagram_html as _architecture_diagram_html,
-)
-from agentmold.visual.architecture import (
-    intent_code as _intent_code,
-)
-from agentmold.visual.architecture import (
-    intent_description as _intent_description,
-)
-from agentmold.visual.architecture import (
-    intent_diagram_html as _intent_diagram_html,
-)
-from agentmold.visual.architecture import (
-    retrieval_code as _retrieval_code,
-)
-from agentmold.visual.architecture import (
-    retrieval_description as _retrieval_description,
-)
-from agentmold.visual.architecture import (
-    retrieval_diagram_html as _retrieval_diagram_html,
-)
-from agentmold.visual.architecture import (
-    tool_calling_description as _tool_calling_description,
-)
-from agentmold.visual.architecture import (
-    tool_calling_diagram_html as _tool_calling_diagram_html,
-)
 from agentmold.visual.codegen import api_key_environment, generate_agent_python
 from agentmold.visual.renderers import (
     apply_trace_usage_to_run_meta as _apply_trace_usage_to_run_meta,
@@ -157,13 +112,12 @@ from agentmold.visual.traces import (
 )
 
 
-def _render_trace_lab(st: Any, *, standalone: bool = False) -> None:
+def _render_trace_lab(st: Any) -> None:
     """Render trace import, scrubbed replay, export, and two-run comparison."""
-    container = st.container() if standalone else st.expander("TRACE LAB · 回放与对比")
-    with container:
-        if standalone:
-            st.markdown("## 运行回放")
-            st.caption("这里只展示已经发生并持久化的执行事实；概念架构节点不会出现在 Trace 中。")
+    # A plain container, kept so the whole view can be relocated as one block.
+    with st.container():
+        st.markdown("## 运行回放")
+        st.caption("这里只展示已经发生并持久化的执行事实；概念架构节点不会出现在 Trace 中。")
         session_runs = st.session_state.get("trace_runs", [])
         try:
             logged_runs = load_trace_runs()
@@ -343,162 +297,6 @@ def _render_trace_lab(st: Any, *, standalone: bool = False) -> None:
                 ),
                 unsafe_allow_html=True,
             )
-
-
-def _render_architecture_demo(st: Any) -> None:
-    """Render an interactive architecture-pattern showcase with a flowchart.
-
-    The user picks one of the mainstream agent architectures (ReAct,
-    Plan-and-Execute, Reflection, Multi-Agent, Routing).  The right-hand area
-    shows an animated node flowchart and the corresponding EasyAgent code
-    snippet, so learners can see how each pattern maps onto ordinary Python.
-
-    Below the architecture selector, a tool-calling mode comparison shows the
-    difference between Function Calling (EasyAgent's default) and Prompt
-    Injection (the legacy text-parsing approach).
-    """
-    with st.expander("🧠 AGENT 架构演示", expanded=False):
-        st.caption(
-            "以下模式都是 Agent + @tool + 普通 Python 的组合；"
-            "没有内置编排器、工作流引擎或 Coordinator 类。"
-        )
-        arch_options = list(_ARCHITECTURE_PRESETS.keys())
-        selected = st.selectbox(
-            "选择架构模式",
-            options=arch_options,
-            index=0,
-            key="ea_architecture",
-            help="查看主流 AI Agent 架构的设计思路与 EasyAgent 实现方式。",
-        )
-        description = _architecture_description(selected)
-        if description:
-            st.caption(description)
-
-        diagram_col, code_col = st.columns([1, 1])
-        with diagram_col:
-            st.markdown("**架构流程图**")
-            st.markdown(
-                _architecture_diagram_html(selected),
-                unsafe_allow_html=True,
-            )
-        with code_col:
-            st.markdown("**EasyAgent 实现**")
-            st.code(_architecture_code(selected), language="python")
-
-        st.divider()
-        st.markdown("#### 🔧 工具调用方式对比")
-        tc_options = list(_TOOL_CALLING_PRESETS.keys())
-        tc_selected = st.selectbox(
-            "选择工具调用方式",
-            options=tc_options,
-            index=0,
-            key="ea_tool_calling_mode_demo",
-            help=(
-                "对比 Function Calling（原生）与 Prompt-based Tool Calling"
-                "（提示词工具调用）的区别。"
-            ),
-        )
-        tc_desc = _tool_calling_description(tc_selected)
-        if tc_desc:
-            st.caption(tc_desc)
-
-        tc_diagram_col, tc_code_col = st.columns([1, 1])
-        with tc_diagram_col:
-            st.markdown("**调用流程图**")
-            st.markdown(
-                _tool_calling_diagram_html(tc_selected),
-                unsafe_allow_html=True,
-            )
-        with tc_code_col:
-            st.markdown("**代码示例**")
-            tc_preset = _TOOL_CALLING_PRESETS.get(tc_selected, {})
-            st.code(tc_preset.get("code", "").strip(), language="python")
-
-
-def _render_engineering_demo(st: Any) -> None:
-    """Render the engineering-practice teaching panel.
-
-    Two interactive comparison sub-modules (intent recognition cascade and
-    retrieval strategy) plus a quick-reference decision table, all following
-    the same selectbox + diagram + code pattern as the architecture demo.
-    """
-    with st.expander("🏭 工程实践：意图识别与检索策略", expanded=False):
-        # --- Sub-module A: intent recognition cascade ---
-        st.markdown("#### 🎯 意图识别优化")
-        st.caption(
-            "工程中用三级级联：规则匹配（<1ms）-> 轻量模型（5-20ms）-> 大模型兜底（500ms+）。"
-            "先便宜后贵，逐层升级。详见 [工程实践文档](docs/engineering.md)。"
-        )
-        intent_options = list(_INTENT_PRESETS.keys())
-        intent_selected = st.selectbox(
-            "选择意图识别策略",
-            options=intent_options,
-            index=0,
-            key="ea_intent_recognition",
-            help="查看三级意图识别策略的流程图与代码对比。",
-        )
-        intent_desc = _intent_description(intent_selected)
-        if intent_desc:
-            st.caption(intent_desc)
-
-        intent_diagram_col, intent_code_col = st.columns([1, 1])
-        with intent_diagram_col:
-            st.markdown("**级联流程图**")
-            st.markdown(
-                _intent_diagram_html(intent_selected),
-                unsafe_allow_html=True,
-            )
-        with intent_code_col:
-            st.markdown("**代码示例**")
-            st.code(_intent_code(intent_selected), language="python")
-
-        st.divider()
-
-        # --- Sub-module B: retrieval strategy comparison ---
-        st.markdown("#### 📖 检索策略：RAG vs LLM vs grep")
-        st.caption(
-            "三种知识来源各有适用场景：LLM 参数化知识（闭卷）、RAG 检索增强（开卷）、"
-            "grep 关键词搜索（查目录）。详见 [工程实践文档](docs/engineering.md)。"
-        )
-        retrieval_options = list(_RETRIEVAL_PRESETS.keys())
-        retrieval_selected = st.selectbox(
-            "选择检索策略",
-            options=retrieval_options,
-            index=0,
-            key="ea_retrieval_strategy",
-            help="对比三种知识获取方式的流程与代码。",
-        )
-        retrieval_desc = _retrieval_description(retrieval_selected)
-        if retrieval_desc:
-            st.caption(retrieval_desc)
-
-        retrieval_diagram_col, retrieval_code_col = st.columns([1, 1])
-        with retrieval_diagram_col:
-            st.markdown("**检索流程图**")
-            st.markdown(
-                _retrieval_diagram_html(retrieval_selected),
-                unsafe_allow_html=True,
-            )
-        with retrieval_code_col:
-            st.markdown("**代码示例**")
-            st.code(_retrieval_code(retrieval_selected), language="python")
-
-        st.divider()
-
-        # --- Sub-module C: quick-reference decision table ---
-        st.markdown("#### ⚡ 工程决策速查")
-        st.markdown(
-            "| 决策场景 | 推荐选择 | 关键依据 |\n"
-            "|----------|----------|----------|\n"
-            "| 高频明确关键词 | 规则匹配 | 延迟 <1ms，零成本 |\n"
-            "| 措辞多变但类别有限 | DistilBERT 分类 | 可离线，泛化优于规则 |\n"
-            "| 长尾、复杂、多意图 | 大模型兜底 | 泛化最强，成本最高 |\n"
-            "| 通识、稳定事实 | LLM 参数化知识 | 无需检索，延迟最低 |\n"
-            "| 私有文档、需引用 | RAG 检索增强 | 可溯源，知识可更新 |\n"
-            "| 精确术语、代码搜索 | grep 关键词搜索 | 零语义偏差 |\n"
-            "| 主模型超时 | 降级到小模型 -> 规则 -> 兜底文案 | 保证可用性 |\n"
-            "| 长对话 token 超限 | CompactingMemory 压缩 | 保留意图，压缩历史 |"
-        )
 
 
 def _render_code_export(
@@ -891,7 +689,7 @@ def _run_app() -> None:
     visual_view, architecture_mode = _render_top_navigation(st)
     if visual_view == "trace":
         _render_context_sidebar(st, "trace", architecture_mode)
-        _render_trace_lab(st, standalone=True)
+        _render_trace_lab(st)
         return
     if visual_view == "evaluation":
         from agentmold.visual.evaluation_view import render_evaluation_view
@@ -1277,7 +1075,6 @@ def _run_app() -> None:
                         isinstance(key, str)
                         and key.startswith("ea_tool_")
                         and key != "ea_tool_upload_epoch"
-                        and key != "ea_tool_calling_mode_demo"
                         and not key.startswith("ea_tool_description_")
                     ):
                         st.session_state.pop(key, None)
@@ -1415,7 +1212,6 @@ def _run_app() -> None:
                     st.session_state.ea_rag_tool = rag_tool_list[0]
                     st.session_state.ea_rag_origin = "RAG · 文档检索"
                     st.session_state[_tool_widget_key(rag_tool_list[0].name)] = True
-                    st.session_state.ea_rag_enabled = True
                     from agentmold.rag import chunk_text
 
                     chunks = chunk_text(rag_text, size=500, overlap=80, source="rag-input")
@@ -1450,7 +1246,6 @@ def _run_app() -> None:
                 st.session_state.ea_rag_tool = rag_tool_list[0]
                 st.session_state.ea_rag_origin = "RAG · 文档检索"
                 st.session_state[_tool_widget_key(rag_tool_list[0].name)] = True
-                st.session_state.ea_rag_enabled = True
                 chunks = _chunk_text(saved_rag_text, size=500, overlap=80, source="rag-input")
                 st.session_state.ea_rag_chunk_count = len(chunks)
 

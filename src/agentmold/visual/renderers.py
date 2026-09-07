@@ -268,13 +268,12 @@ def remember_trace(st: Any, trace: AgentTrace) -> None:
             continue
         run = t.to_dict()
         try:
-            path = append_trace_run(run)
+            append_trace_run(run)
         except OSError as exc:
             st.session_state.ea_trace_log_error = str(exc)
             return
         logged_ids.add(t.run_id)
         st.session_state.ea_logged_trace_ids = sorted(logged_ids)
-        st.session_state.ea_trace_log_path = str(path)
 
 
 def trace_support_payload(run: dict[str, Any]) -> dict[str, Any]:
