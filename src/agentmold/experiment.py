@@ -190,6 +190,60 @@ class EvalReport:
             )
         return summaries
 
+    def bad_cases(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """Return the samples worth reading first when iterating on a prompt.
+
+        A sample is a bad case when it failed to execute, when a verifier raised,
+        or when any metric scored below ``pass_threshold``. Samples whose metrics
+        all passed, and samples with nothing to score, are omitted: they carry no
+        feedback. Ordering puts execution failures first, then verifier errors,
+        then the lowest score, so the worst evidence is at the top.
+        """
+        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int)):
+            raise TypeError("limit must be an int or None")
+        if limit is not None and limit < 0:
+            raise ValueError("limit must be >= 0")
+        ranked = sorted(
+            (entry for result in self.results if (entry := self._bad_case(result))),
+            key=lambda entry: (
+                0 if entry["error"] else 1,
+                0 if entry["metric_errors"] else 1,
+                entry["worst_score"] if entry["worst_score"] is not None else math.inf,
+                entry["case_index"],
+                entry["sample_index"],
+            ),
+        )
+        return ranked if limit is None else ranked[:limit]
+
+    def _bad_case(self, result: EvalResult) -> dict[str, Any] | None:
+        """Describe one failing sample, or return None when it is not a bad case."""
+        metric_errors = {
+            name: metric.error for name, metric in result.metrics.items() if metric.error
+        }
+        failed_metrics = {
+            name: metric.score
+            for name, metric in result.metrics.items()
+            if metric.score is not None and metric.score < self.pass_threshold
+        }
+        if result.error is None and not metric_errors and not failed_metrics:
+            return None
+        scores = [score for score in failed_metrics.values() if score is not None]
+        return {
+            "case_index": result.case_index,
+            "sample_index": result.sample_index,
+            "name": result.case.name,
+            "input": result.case.input,
+            "expected": result.case.expected,
+            "output": result.output,
+            "error": result.error,
+            "metric_errors": metric_errors,
+            "failed_metrics": failed_metrics,
+            "worst_score": min(scores) if scores else None,
+            "reasons": {
+                name: metric.reason for name, metric in result.metrics.items() if metric.reason
+            },
+        }
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "summary": {
@@ -206,6 +260,7 @@ class EvalReport:
                 **_summarize_run_stats(self.results),
             },
             "case_summaries": self.case_summaries,
+            "bad_cases": self.bad_cases(),
             "results": [result.to_dict() for result in self.results],
         }
 
@@ -237,14 +292,15 @@ def evaluate(
     *,
     repeats: int = 1,
     verifiers: Mapping[str, Verifier] | None = None,
+    temperature: float | None = None,
 ) -> EvalReport:
     """Run independent samples and apply trusted Python verifiers."""
     if workers < 1:
         raise ValueError("workers must be >= 1")
-    prepared, verifier_map, work = _prepare(cases, repeats, verifiers, pass_threshold)
+    prepared, verifier_map, work = _prepare(cases, repeats, verifiers, pass_threshold, temperature)
 
     def run(item: tuple[int, int, EvalCase]) -> EvalResult:
-        return _run_case(build_agent, item, scorer, verifier_map)
+        return _run_case(build_agent, item, scorer, verifier_map, temperature)
 
     if workers == 1:
         results = [run(item) for item in work]
@@ -263,16 +319,17 @@ async def aevaluate(
     *,
     repeats: int = 1,
     verifiers: Mapping[str, Verifier] | None = None,
+    temperature: float | None = None,
 ) -> EvalReport:
     """Asynchronously run independent samples with bounded concurrency."""
     if concurrency < 1:
         raise ValueError("concurrency must be >= 1")
-    prepared, verifier_map, work = _prepare(cases, repeats, verifiers, pass_threshold)
+    prepared, verifier_map, work = _prepare(cases, repeats, verifiers, pass_threshold, temperature)
     semaphore = asyncio.Semaphore(concurrency)
 
     async def run(item: tuple[int, int, EvalCase]) -> EvalResult:
         async with semaphore:
-            return await _arun_case(build_agent, item, scorer, verifier_map)
+            return await _arun_case(build_agent, item, scorer, verifier_map, temperature)
 
     results = await asyncio.gather(*(run(item) for item in work))
     return _build_report(results, len(prepared), repeats, pass_threshold, verifier_map)
@@ -283,11 +340,18 @@ def _prepare(
     repeats: int,
     verifiers: Mapping[str, Verifier] | None,
     pass_threshold: float,
+    temperature: float | None = None,
 ) -> tuple[list[EvalCase], dict[str, Verifier], list[tuple[int, int, EvalCase]]]:
     if not isinstance(repeats, int) or isinstance(repeats, bool) or repeats < 1:
         raise ValueError("repeats must be an integer >= 1")
     if not math.isfinite(pass_threshold):
         raise ValueError("pass_threshold must be finite")
+    if temperature is not None:
+        # Validated up front so a bad value fails before any sample is charged.
+        if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+            raise ValueError("temperature must be a real number or None")
+        if not math.isfinite(temperature):
+            raise ValueError("temperature must be finite")
     verifier_map = dict(verifiers or {})
     for name, verifier in verifier_map.items():
         if not isinstance(name, str) or not name.strip():
@@ -310,12 +374,13 @@ def _run_case(
     item: tuple[int, int, EvalCase],
     scorer: Scorer | None,
     verifiers: Mapping[str, Verifier],
+    temperature: float | None = None,
 ) -> EvalResult:
     case_index, sample_index, case = item
     started = time.perf_counter()
     agent: Agent | None = None
     try:
-        agent = _build_agent(build_agent)
+        agent = _build_agent(build_agent, temperature)
         output = agent.run(case.input)
     except Exception as exc:  # noqa: BLE001 - one sample must not abort a dataset
         return _execution_failure(case, case_index, sample_index, started, agent, exc, verifiers)
@@ -336,12 +401,13 @@ async def _arun_case(
     item: tuple[int, int, EvalCase],
     scorer: Scorer | None,
     verifiers: Mapping[str, Verifier],
+    temperature: float | None = None,
 ) -> EvalResult:
     case_index, sample_index, case = item
     started = time.perf_counter()
     agent: Agent | None = None
     try:
-        agent = _build_agent(build_agent)
+        agent = _build_agent(build_agent, temperature)
         output = await agent.arun(case.input)
     except Exception as exc:  # noqa: BLE001 - one sample must not abort a dataset
         return _execution_failure(case, case_index, sample_index, started, agent, exc, verifiers)
@@ -562,10 +628,14 @@ def _elapsed_ms(started: float) -> float:
     return round((time.perf_counter() - started) * 1000, 3)
 
 
-def _build_agent(factory: AgentFactory) -> Agent:
+def _build_agent(factory: AgentFactory, temperature: float | None = None) -> Agent:
     agent = factory()
     if not isinstance(agent, Agent):
         raise TypeError("build_agent must return an Agent instance")
+    if temperature is not None:
+        # Applied after the factory so a dataset can be re-scored at a fixed
+        # temperature without editing the agent definition under test.
+        agent.llm.set_temperature(temperature)
     return agent
 
 

@@ -262,9 +262,22 @@ report = evaluate(
     build_agent,
     [EvalCase(input="question", expected="answer")],
     repeats=5,
+    temperature=0.0,
     verifiers={"safe_tools": used_only_safe_tools},
 )
+
+for entry in report.bad_cases(limit=5):
+    print(entry["name"], entry["worst_score"], entry["error"], entry["metric_errors"])
 ```
+
+`temperature=` overrides sampling for the whole dataset after the factory returns, so two
+prompts can be compared at the same temperature without editing the agent under test. It is
+applied through `LLM.set_temperature()`; a wrapping provider such as `RoutingLLM` overrides
+that method to reach every route, because the facade itself builds no request.
+
+`report.bad_cases(limit=None)` lists the samples worth reading first: execution failures, then
+verifier errors, then the lowest scores. Samples whose metrics all passed are omitted. The same
+list is exported under the `bad_cases` key of `to_dict()` and `to_json()`.
 
 `EvalResult.score` and the legacy `scored`, `passed`, and `mean_score` report properties still
 refer to the compatibility scorer. Named metrics are available through

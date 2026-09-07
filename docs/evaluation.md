@@ -120,3 +120,39 @@ provider fields.
 Runtime completion, task correctness, goal completion, and safety are deliberately separate
 metrics. Use explicit release gates for critical safety or task requirements rather than
 letting a high quality or low cost score compensate for them in one total score.
+
+## Fixing the evaluation temperature
+
+`temperature=` overrides sampling for the whole dataset, applied after the factory returns:
+
+```python
+# Compare two prompts at the same temperature rather than at whatever the
+# agent definition happens to use.
+report = evaluate(build_agent, cases, repeats=5, temperature=0.0)
+```
+
+The factory still builds the agent it wants, so a dataset can be re-scored at a different
+temperature without editing the agent under test. The override reaches whatever issues the
+request: `RoutingLLM` propagates it into every route, because the facade itself builds no
+request and an override that stopped there would be accepted and then silently ignored.
+
+Note that `temperature=0.0` makes `repeats>1` measure provider nondeterminism only. To measure
+answer variance, keep the temperature the deployment actually uses.
+
+## Reading bad cases
+
+`report.bad_cases()` returns the samples worth reading first, worst evidence at the top:
+
+```python
+for entry in report.bad_cases(limit=5):
+    print(entry["name"], entry["worst_score"], entry["error"])
+    print(entry["input"], "->", entry["output"])
+    print(entry["metric_errors"], entry["failed_metrics"])
+```
+
+A sample is a bad case when it failed to execute, when a verifier raised, or when any metric
+scored below `pass_threshold`. Samples whose metrics all passed, and samples with nothing to
+score, are omitted because they carry no feedback. Ordering is execution failures, then
+verifier errors, then the lowest score. The same list appears under the `bad_cases` key of
+`to_dict()` and `to_json()`.
+

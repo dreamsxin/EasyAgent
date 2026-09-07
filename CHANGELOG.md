@@ -3,6 +3,29 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
+## 0.12.0 - 2026-09-07
+
+### Added
+
+- `evaluate(..., temperature=)` and `aevaluate(..., temperature=)` override sampling for a whole
+  dataset, applied after the agent factory returns. Two prompts can now be compared at one
+  temperature without editing the agent under test. The value is validated up front, so a bad
+  temperature fails before any sample is charged.
+- `LLM.set_temperature()` is the override hook. `RoutingLLM` overrides it to propagate into every
+  route: the facade builds no request itself, so an override that stopped at the facade would be
+  accepted and then silently ignored.
+- `EvalReport.bad_cases(limit=None)` returns the samples worth reading first when iterating on a
+  prompt, ordered execution failures, then verifier errors, then lowest score. Each entry carries
+  the input, expected value, output, execution error, per-metric errors, failing metric scores,
+  and metric reasons.
+
+### Changed
+
+- `EvalReport.to_dict()` and `to_json()` gained a top-level `bad_cases` key. Existing keys are
+  unchanged, so readers that index `summary`, `case_summaries`, or `results` are unaffected.
+- Samples whose metrics all passed, and samples with nothing to score, are deliberately excluded
+  from `bad_cases`: they carry no feedback, so including them would dilute the list.
+
 ## 0.11.1 - 2026-09-06
 
 ### Fixed

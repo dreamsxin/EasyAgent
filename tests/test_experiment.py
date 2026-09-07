@@ -236,3 +236,139 @@ def test_evaluate_validates_configuration_and_case_types():
         evaluate(_build_mock, ["x"], verifiers={"bad": 1})  # type: ignore[dict-item]
     with pytest.raises(TypeError, match="Expected str or EvalCase"):
         evaluate(_build_mock, [123])  # type: ignore[list-item]
+    with pytest.raises(ValueError, match="temperature must be finite"):
+        evaluate(_build_mock, ["x"], temperature=float("inf"))
+    with pytest.raises(ValueError, match="temperature must be a real number"):
+        evaluate(_build_mock, ["x"], temperature="hot")  # type: ignore[arg-type]
+
+
+def test_eval_temperature_overrides_the_agent_under_test():
+    recorded: list[float] = []
+
+    def build() -> Agent:
+        agent = Agent(llm="mock", log_level=LogLevel.SILENT)
+        recorded.append(agent.llm.temperature)
+        return agent
+
+    report = evaluate(build, ["alpha", "beta"], temperature=0.0)
+
+    # The factory still builds its own agent; the override lands afterwards, so
+    # a dataset can be re-scored at a fixed temperature without editing it.
+    assert recorded == [0.7, 0.7]
+    assert report.total == 2
+    assert all(result.error is None for result in report.results)
+
+
+@pytest.mark.asyncio
+async def test_async_eval_temperature_reaches_the_provider():
+    seen: list[float] = []
+
+    def build() -> Agent:
+        agent = Agent(llm="mock", log_level=LogLevel.SILENT)
+        original = agent.llm.complete
+
+        def spy(messages, tools=None):
+            seen.append(agent.llm.temperature)
+            return original(messages, tools)
+
+        agent.llm.complete = spy  # type: ignore[method-assign]
+        return agent
+
+    await aevaluate(build, ["alpha"], temperature=0.25)
+
+    assert seen == [0.25]
+
+
+def test_routing_temperature_override_reaches_every_route():
+    from agentmold.experimental import RoutingLLM
+
+    fast = _EchoLLM("fast-model")
+    deep = _EchoLLM("deep-model")
+    llm = RoutingLLM(routes={"fast": fast, "deep": deep}, select=lambda m, t: "fast")
+
+    llm.set_temperature(0.0)
+
+    # The facade builds no request itself, so an override that stopped at the
+    # facade would be accepted and then silently ignored.
+    assert llm.temperature == 0.0
+    assert fast.temperature == 0.0
+    assert deep.temperature == 0.0
+
+
+def test_set_temperature_rejects_values_that_cannot_be_sent():
+    llm = _EchoLLM("echo-model")
+
+    with pytest.raises(ValueError, match="finite"):
+        llm.set_temperature(float("nan"))
+    with pytest.raises(ValueError, match="real number"):
+        llm.set_temperature(True)  # type: ignore[arg-type]
+    assert llm.temperature == 0.7
+
+
+def test_bad_cases_rank_failures_before_low_scores():
+    cases = [
+        EvalCase(name="passes", input="alpha", expected="[mock-llm] alpha"),
+        EvalCase(name="low", input="beta", expected="nope"),
+    ]
+
+    def build() -> Agent:
+        return Agent(llm="mock", log_level=LogLevel.SILENT)
+
+    report = evaluate(
+        build,
+        cases,
+        verifiers={"raises": _explode},
+    )
+    bad = report.bad_cases()
+
+    # Every sample has a verifier error, so all of them are bad cases; the
+    # passing case is still listed because its verifier could not be evaluated.
+    # Within the same error tier the lower score sorts first, so the sample that
+    # both scored 0 and broke a verifier outranks the one that only broke it.
+    assert [entry["name"] for entry in bad] == ["low", "passes"]
+    assert all("ZeroDivisionError" in entry["metric_errors"]["raises"] for entry in bad)
+    assert bad[0]["failed_metrics"] == {"score": 0.0}
+    assert bad[0]["output"] == "[mock-llm] beta"
+    assert bad[1]["failed_metrics"] == {}
+    assert bad[1]["worst_score"] is None
+    assert report.bad_cases(limit=1) == bad[:1]
+
+
+def test_bad_cases_omit_samples_with_nothing_to_report(tmp_path):
+    cases = [
+        EvalCase(name="good", input="alpha", expected="[mock-llm] alpha"),
+        EvalCase(name="bad", input="beta", expected="nope"),
+    ]
+    report = evaluate(_build_mock, cases)
+
+    bad = report.bad_cases()
+
+    assert [entry["name"] for entry in bad] == ["bad"]
+    assert bad[0]["expected"] == "nope"
+    assert bad[0]["error"] is None
+    assert bad[0]["worst_score"] == 0.0
+
+    payload = json.loads(report.to_json(tmp_path / "report.json").read_text(encoding="utf-8"))
+    assert [entry["name"] for entry in payload["bad_cases"]] == ["bad"]
+
+
+def test_bad_cases_validate_limit():
+    report = evaluate(_build_mock, ["alpha"])
+
+    with pytest.raises(TypeError, match="limit"):
+        report.bad_cases(limit="2")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="limit"):
+        report.bad_cases(limit=-1)
+
+
+def _explode(context: EvalContext) -> bool:
+    return bool(1 / 0)
+
+
+class _EchoLLM(LLM):
+    """Minimal provider used to observe temperature propagation."""
+
+    def _complete(self, messages, tools=None):
+        from agentmold.llm import LlmResponse
+
+        return LlmResponse(content=messages[-1].content if messages else "")

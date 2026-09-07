@@ -11,6 +11,7 @@ EasyAgent talks to LLM providers through a single :class:`LLM` interface. The
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import time
 import typing
@@ -113,6 +114,19 @@ class LLM(ABC):
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.kwargs = kwargs
+
+    def set_temperature(self, temperature: float) -> None:
+        """Override the sampling temperature for every later completion.
+
+        Providers that wrap other providers must override this so the new value
+        reaches whatever actually issues the request; otherwise an evaluation
+        temperature would be accepted and then silently ignored.
+        """
+        if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+            raise ValueError("temperature must be a real number")
+        if not math.isfinite(temperature):
+            raise ValueError("temperature must be finite")
+        self.temperature = float(temperature)
 
     @abstractmethod
     def _complete(

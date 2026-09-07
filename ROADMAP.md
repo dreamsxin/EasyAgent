@@ -212,7 +212,14 @@ sound.
 
 - [x] Extend evaluation with repeated per-case samples, named trusted-Python metrics,
   pass-rate aggregation, runtime status, rounds, tool calls, token/cost coverage, and strict
-  JSON export. Eval-time temperature override and bad-case feedback remain future work.
+  JSON export.
+- [x] Add an eval-time `temperature` override applied after the agent factory, so two prompts
+  can be compared at one sampling temperature without editing the agent under test. It goes
+  through `LLM.set_temperature()`, which `RoutingLLM` overrides to reach every route, so a
+  wrapping provider cannot accept the override and then ignore it.
+- [x] Add bad-case feedback: `EvalReport.bad_cases()` ranks execution failures, then verifier
+  errors, then the lowest scores, and the same list is part of the strict JSON export. Samples
+  whose metrics all passed are omitted because they carry no feedback.
 - [x] Enable active prompt caching: send `cache_control` on the stable system-prompt and
   tool-schema prefix (Anthropic) and keep that prefix stable (OpenAI), so the existing
   cache-hit metric reflects savings EasyAgent actually requested. Measured against DeepSeek:

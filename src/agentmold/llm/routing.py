@@ -150,5 +150,16 @@ class RoutingLLM(LLM):
         async for event in provider.astream(messages, tools):
             yield event
 
+    def set_temperature(self, temperature: float) -> None:
+        """Propagate the override into every route, not just the facade.
+
+        The facade's own ``temperature`` is never sent anywhere: each request is
+        built by the routed provider. Setting only the facade would accept an
+        evaluation temperature and then silently ignore it.
+        """
+        super().set_temperature(temperature)
+        for provider in self.routes.values():
+            provider.set_temperature(temperature)
+
     def __repr__(self) -> str:
         return f"RoutingLLM(routes={sorted(self.routes)}, default={self.default!r})"
