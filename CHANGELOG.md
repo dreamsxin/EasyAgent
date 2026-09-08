@@ -26,6 +26,13 @@ to build agents hits first, and what the visual lab does and does not let them s
 
 ### Added
 
+- Visual lab: a **👁 模型看到了什么** panel in the ReAct workbench lists, in order, the messages
+  the model will actually receive on the next request — system instructions, conversation, and
+  tool results written back into memory — plus the tool requests an assistant turn made. Until
+  now every surface in the app showed what came *back* from the model; the request side, which
+  most determines behaviour, was not visible anywhere. It reads live memory, is not written to
+  the Trace, and is not part of any export. `docs/concepts.md` gained a "See the request side"
+  section covering the same ground in code.
 - `tests/test_cli.py` scaffolds all seven templates and asserts the documented no-prompt first run
   succeeds on each, so a template can no longer ship with a broken first run.
 

@@ -127,6 +127,31 @@ def test_engineering_view_is_reachable_and_shows_every_trade_off() -> None:
     assert "工程实践" in " ".join(str(item.value) for item in app.sidebar.markdown)
 
 
+def test_model_view_shows_the_messages_the_model_receives() -> None:
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
+
+    app.run()
+    _build_mock_agent(app)
+
+    assert not app.exception
+    panel = next(expander for expander in app.main.expander if "模型看到了什么" in expander.label)
+    # The request side must be visible, not just what came back from the model.
+    assert "1 条消息" in panel.label
+    blocks = [str(item.value) for item in app.main.code]
+    assert any("SYSTEM" not in block and block.strip() for block in blocks)
+    labels = " ".join(str(item.value) for item in app.main.markdown)
+    assert "SYSTEM · 指令" in labels
+
+    app.chat_input[0].set_value("tool: calculate 2 + 2").run()
+
+    assert not app.exception
+    panel = next(expander for expander in app.main.expander if "模型看到了什么" in expander.label)
+    # The tool round is part of what the model sees on the next request.
+    after = " ".join(str(item.value) for item in app.main.markdown)
+    assert "USER · 用户输入" in after
+    assert "1 条消息" not in panel.label
+
+
 def test_live_mode_does_not_fall_back_to_scripted_execution(monkeypatch) -> None:
     monkeypatch.setattr(
         "agentmold.visual.teaching_view.load_live_teaching_models",

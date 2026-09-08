@@ -134,3 +134,25 @@ python cookbook/00_understand_the_agent_loop.py
 It prints the public events, the resulting memory roles, and the trace summary. Continue
 with [the API reference](api.md), [tool policies](tool-policies.md), and the
 [trace recipe](../cookbook/01_trace_a_research_run.py) when those boundaries matter.
+
+## See the request side
+
+Events, timelines and traces all describe what came *back* from the model. The request
+itself — the assembled system instructions, the conversation so far, and every tool result
+written back into memory — is what most determines the agent's behaviour.
+
+In code it is one call:
+
+```python
+for message in agent.memory.messages():
+    print(message.role, message.content[:80])
+```
+
+In the visual lab the ReAct workbench has a **👁 模型看到了什么** panel showing the same
+messages in order. Tool schemas travel outside the message list, so they stay in the separate
+**🔧 工具 Schema** panel. Edit the instructions, reopen the panel, and the exact change to the
+model's input is visible.
+
+The Trace deliberately does not carry these messages: `AgentTrace.add_model_call()` records
+round, provider, model, status, duration, usage and errors, not prompts. Prompt inspection is
+therefore live and local, and never leaves the session through an export.

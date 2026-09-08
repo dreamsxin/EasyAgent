@@ -299,6 +299,53 @@ def _render_trace_lab(st: Any) -> None:
             )
 
 
+_ROLE_LABELS = {
+    "system": "SYSTEM · 指令",
+    "user": "USER · 用户输入",
+    "assistant": "ASSISTANT · 模型回复",
+    "tool": "TOOL · 工具结果",
+}
+
+
+def _render_model_view(st: Any, agent: Any) -> None:
+    """Show the messages the model actually receives, in order.
+
+    Everything else in this app shows what came *back* from the model. The
+    request side -- the assembled instructions, conversation and tool results --
+    was not visible anywhere, which is the one artifact that most determines
+    the agent's behaviour. This reads live memory; it is not written to the
+    Trace and not part of any export.
+    """
+    try:
+        messages = list(agent.memory.messages())
+    except Exception as exc:  # noqa: BLE001 - never let a panel break the run
+        st.caption(f"无法读取当前消息：{type(exc).__name__}: {exc}")
+        return
+
+    with st.expander(f"👁 模型看到了什么 · {len(messages)} 条消息", expanded=False):
+        st.caption(
+            "这是下一次请求会发给模型的全部消息，按顺序排列。工具 Schema 单独传递，"
+            "不在这些消息里。改一句指令后回到这里，可以看出模型输入到底变了什么。"
+        )
+        for index, message in enumerate(messages, start=1):
+            role = str(getattr(message, "role", ""))
+            label = _ROLE_LABELS.get(role, role.upper())
+            name = getattr(message, "name", None)
+            suffix = f" · `{name}`" if name else ""
+            st.markdown(f"**{index}. {label}**{suffix}")
+            content = str(getattr(message, "content", ""))
+            if content:
+                st.code(content, language="text")
+            else:
+                st.caption("（无文本内容）")
+            tool_calls = list(getattr(message, "tool_calls", []) or [])
+            if tool_calls:
+                # The assistant turn that requested tools carries no text; the
+                # request itself is the payload worth reading.
+                st.caption("这一轮模型请求了工具：")
+                st.json(tool_calls, expanded=False)
+
+
 def _render_code_export(
     st: Any,
     name: str,
@@ -1723,6 +1770,9 @@ def _run_app() -> None:
                         if t.description:
                             st.caption(t.description)
                         st.json(t.parameters, expanded=False)
+
+            # --- What the model receives (request side) ---
+            _render_model_view(st, agent)
 
             # --- Actions group ---
             st.markdown('<div class="ea-section-label">操作</div>', unsafe_allow_html=True)
