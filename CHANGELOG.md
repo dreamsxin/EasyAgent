@@ -3,6 +3,41 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
+## 0.13.0 - 2026-09-08
+
+### Added
+
+- New visual lab view **工程实践** (`agentmold.visual.engineering_view`), reachable from the top
+  navigation. It renders the three engineering trade-offs that decide cost and latency before any
+  prompt is tuned: the intent-recognition cascade, the retrieval-strategy comparison, and native
+  function calling versus prompt-parsed tool calling. It is reference material: it runs no Agent,
+  records no Trace, and has no chat input.
+- The teaching view's concept section now offers the pattern skeleton code for the selected
+  architecture, labelled "模式骨架代码（概念，非本次运行）" so it cannot be confused with the
+  runnable source shown beside it.
+
+### Changed
+
+- The presets behind both additions (`INTENT_PRESETS`, `RETRIEVAL_PRESETS`,
+  `TOOL_CALLING_PRESETS`, `architecture_code`) were reachable only from tests after the unused
+  demo panels were removed. They now have a real surface again, and `docs/engineering.md` points
+  at it so the narrative and the interactive version stay in step.
+- The top navigation grew to four view buttons, so its column ratios changed from `[1,1,1,3]` to
+  `[1,1,1,1,2]`.
+
+### Removed
+
+- Verified-unreachable code, with no behaviour change: `_render_architecture_demo` and
+  `_render_engineering_demo` in the visual app (never called; 4 dead expanders and 8 dead
+  `st.columns` between them), the `standalone=` flag on `_render_trace_lab` that every call site
+  passed as `True`, `_anthropic_text_delta`, `_format_thinking_content`, `_sum_numbers`, and the
+  write-only `ea_rag_enabled` / `ea_trace_log_path` session keys.
+
+### Fixed
+
+- `tests/test_visual_app.py` isolates `.agentmold/visual_agent.json` per test, so one test's
+  provider choice no longer decides the next test's start state.
+
 ## 0.12.1 - 2026-09-07
 
 ### Fixed

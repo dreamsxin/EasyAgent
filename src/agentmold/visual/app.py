@@ -418,6 +418,7 @@ _VIEW_NAV = {
     "architecture": "架构实验",
     "trace": "运行回放",
     "evaluation": "对比与评测",
+    "engineering": "工程实践",
 }
 
 _SIDEBAR_GUIDES: dict[str, tuple[str, ...]] = {
@@ -435,6 +436,11 @@ _SIDEBAR_GUIDES: dict[str, tuple[str, ...]] = {
         "1. 「已记录运行对照」比较 2-4 个真实运行。",
         "2. 「Mock 输出回归」只做离线字符串检查。",
         "3. 两者都不会修改当前 ReAct 配置。",
+    ),
+    "engineering": (
+        "1. 意图识别：看三级级联在延迟与成本上的取舍。",
+        "2. 检索策略：对比 LLM 参数化知识、RAG 与 grep。",
+        "3. 工具调用：对比原生 function calling 与提示词解析。",
     ),
 }
 
@@ -520,7 +526,9 @@ def _render_top_navigation(st: Any) -> tuple[str, str]:
         current_view = "architecture"
     else:
         st.session_state.ea_architecture_mode = architecture_id
-    architecture_col, replay_col, eval_col, context_col = st.columns([1, 1, 1, 3])
+    architecture_col, replay_col, eval_col, engineering_col, context_col = st.columns(
+        [1, 1, 1, 1, 2]
+    )
     if architecture_col.button(
         "架构实验",
         use_container_width=True,
@@ -545,6 +553,14 @@ def _render_top_navigation(st: Any) -> tuple[str, str]:
     ):
         st.session_state.ea_visual_view = "evaluation"
         st.rerun()
+    if engineering_col.button(
+        "工程实践",
+        use_container_width=True,
+        type="primary" if current_view == "engineering" else "secondary",
+        key="ea_nav_engineering",
+    ):
+        st.session_state.ea_visual_view = "engineering"
+        st.rerun()
     context_messages = {
         "architecture": (
             "新手路径：选择执行方式 → 运行 → 查看 Trace。ReAct 是基础 Agent 工作台，"
@@ -552,6 +568,7 @@ def _render_top_navigation(st: Any) -> tuple[str, str]:
         ),
         "trace": "查看一次运行的时间线、配置与父子 Agent family。",
         "evaluation": "对照已记录运行，或做不联网的 Mock 输出回归。",
+        "engineering": "工程取舍参考：意图识别级联、检索策略与工具调用方式。不执行任何运行。",
     }
     context_col.caption(context_messages.get(current_view, context_messages["architecture"]))
     return current_view, architecture_id
@@ -696,6 +713,12 @@ def _run_app() -> None:
 
         _render_context_sidebar(st, "evaluation", architecture_mode)
         render_evaluation_view(st)
+        return
+    if visual_view == "engineering":
+        from agentmold.visual.engineering_view import render_engineering_view
+
+        _render_context_sidebar(st, "engineering", architecture_mode)
+        render_engineering_view(st)
         return
     if architecture_mode != "react":
         from agentmold.visual.teaching_view import render_teaching_view

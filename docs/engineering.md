@@ -6,6 +6,10 @@
 
 > 所有代码遵循 EasyAgent 的设计哲学：普通 Python，无 DSL，可观察、可追踪。
 
+可视化实验室里有同一份内容的交互版本：启动 `easyagent visual` 后点顶部导航的
+**工程实践**，三节各自带流程图和代码对照。那一页只是参考材料，不运行 Agent、不产生
+Trace；图与代码来自 `agentmold.visual.architecture` 的 preset，与本文同源。
+
 ---
 
 ## 一、意图识别优化：从规则到模型的级联策略

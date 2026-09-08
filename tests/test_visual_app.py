@@ -105,6 +105,28 @@ def test_failed_run_keeps_the_status_and_timeline_column(monkeypatch) -> None:
     assert app.session_state["run_meta"]["state"] == "error"
 
 
+def test_engineering_view_is_reachable_and_shows_every_trade_off() -> None:
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
+
+    app.run()
+    next(button for button in app.main.button if button.label == "工程实践").click().run()
+
+    assert not app.exception
+    assert app.session_state["ea_visual_view"] == "engineering"
+    headings = " ".join(str(item.value) for item in app.main.markdown)
+    assert "意图识别优化" in headings
+    assert "检索策略" in headings
+    assert "工具调用方式对比" in headings
+    # Each trade-off is driven by its own selector over the architecture presets.
+    labels = [item.label for item in app.selectbox]
+    assert "选择意图识别策略" in labels
+    assert "选择检索策略" in labels
+    assert "选择工具调用方式" in labels
+    # Reference material only: it must not run an Agent or record a Trace.
+    assert not app.chat_input
+    assert "工程实践" in " ".join(str(item.value) for item in app.sidebar.markdown)
+
+
 def test_live_mode_does_not_fall_back_to_scripted_execution(monkeypatch) -> None:
     monkeypatch.setattr(
         "agentmold.visual.teaching_view.load_live_teaching_models",
@@ -379,7 +401,10 @@ def test_switching_architectures_preserves_each_experiment_state() -> None:
 
     assert app.text_area[0].value == custom_input
     assert app.session_state["teaching.plan_execute.offline.result"] is plan_result
-    assert len(app.expander) == 5
+    # One skeleton panel plus one per recorded trace in the family.
+    labels = [expander.label for expander in app.expander]
+    assert sum("模式骨架代码" in label for label in labels) == 1
+    assert len(labels) == 6
 
 
 def test_teaching_traces_flow_into_replay_and_evaluation_views() -> None:

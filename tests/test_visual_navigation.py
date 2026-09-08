@@ -29,6 +29,7 @@ class _NavigationStub:
         architecture: bool = False,
         replay: bool = False,
         evaluation: bool = False,
+        engineering: bool = False,
     ):
         self.session_state = _SessionState()
         self.selected = selected
@@ -36,6 +37,7 @@ class _NavigationStub:
             _Column(architecture),
             _Column(replay),
             _Column(evaluation),
+            _Column(engineering),
             _Column(),
         ]
         self.rerun_called = False
@@ -106,5 +108,16 @@ def test_research_view_can_return_to_current_architecture():
     _render_top_navigation(st)
 
     assert st.session_state.ea_visual_view == "architecture"
+    assert st.session_state.ea_architecture_mode == "reflection"
+    assert st.rerun_called is True
+
+
+def test_engineering_view_is_reachable_without_changing_architecture():
+    st = _NavigationStub(selected="Reflection", engineering=True)
+    st.session_state.ea_architecture_mode = "reflection"
+
+    _render_top_navigation(st)
+
+    assert st.session_state.ea_visual_view == "engineering"
     assert st.session_state.ea_architecture_mode == "reflection"
     assert st.rerun_called is True

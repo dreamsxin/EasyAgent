@@ -6,6 +6,7 @@ import html
 from typing import Any, Final
 
 from agentmold.visual.architecture import (
+    architecture_code,
     architecture_description,
     architecture_diagram_html,
 )
@@ -280,6 +281,13 @@ def render_teaching_view(st: Any, architecture_id: str) -> None:
         description = architecture_description(mode["preset_key"])
         if description:
             st.caption(description)
+        skeleton = architecture_code(mode["preset_key"])
+        if skeleton:
+            # The pattern skeleton, not this run: it shows how the architecture
+            # maps onto Agent + @tool. The code column beside it holds the
+            # actual runnable source, so the two must stay clearly labelled.
+            with st.expander("模式骨架代码（概念，非本次运行）", expanded=False):
+                st.code(skeleton, language="python")
     with code_col:
         st.markdown("**普通 Python 可执行示例**")
         preview_source = _preview_source(
