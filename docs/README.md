@@ -64,3 +64,9 @@ work offline with the `mock` provider and are executed in CI, so they cannot dri
 - `examples/math_assistant.py`, `examples/research_assistant.py` — larger, still offline.
 - `examples/notebooks/` — three tutorial notebooks. These are **not** executed in CI, so treat
   them as teaching material rather than a guarantee.
+
+## Changing the code
+
+[`../CONTRIBUTING.md`](../CONTRIBUTING.md) carries the contributor view: the exact four commands CI
+runs, the optional-dependency trap that makes provider tests pass locally and fail in CI, a
+"where things live" map of the core and visual packages, and the known structural problems.
