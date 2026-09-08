@@ -36,6 +36,9 @@ to build agents hits first, and what the visual lab does and does not let them s
 
 ### Added
 
+- A **📖 术语** panel in the sidebar of every view defines the terms the UI already puts on
+  screen but never explained: tool call, round, execution event vs token, Trace, Log ID, and the
+  confirm gate. One line each, pointing at the doc that goes deeper.
 - Visual lab: a **👁 模型看到了什么** panel in the ReAct workbench lists, in order, the messages
   the model will actually receive on the next request — system instructions, conversation, and
   tool results written back into memory — plus the tool requests an assistant turn made. Until

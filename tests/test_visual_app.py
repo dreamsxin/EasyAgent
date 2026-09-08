@@ -169,6 +169,26 @@ def test_react_sidebar_offers_a_guided_path_and_hides_mcp_by_default() -> None:
     assert mcp.proto.expanded is False
 
 
+def test_glossary_defines_the_terms_the_ui_uses_in_every_view() -> None:
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
+
+    app.run()
+
+    def glossary_terms() -> str:
+        panel = next(item for item in app.sidebar.expander if "术语" in item.label)
+        return " ".join(str(item.value) for item in panel.markdown)
+
+    # These words are already on screen everywhere but were never defined.
+    for view_setup in (lambda: None, lambda: app.segmented_control[0].select("Routing").run()):
+        view_setup()
+        assert not app.exception
+        terms = glossary_terms()
+        assert "工具调用 tool call" in terms
+        assert "轮次 round" in terms
+        assert "执行事件 vs token" in terms
+        assert "确认门 confirm gate" in terms
+
+
 def test_live_mode_does_not_fall_back_to_scripted_execution(monkeypatch) -> None:
     monkeypatch.setattr(
         "agentmold.visual.teaching_view.load_live_teaching_models",
@@ -443,8 +463,9 @@ def test_switching_architectures_preserves_each_experiment_state() -> None:
 
     assert app.text_area[0].value == custom_input
     assert app.session_state["teaching.plan_execute.offline.result"] is plan_result
-    # One skeleton panel plus one per recorded trace in the family.
-    labels = [expander.label for expander in app.expander]
+    # One skeleton panel plus one per recorded trace in the family. Scoped to the
+    # main area so sidebar panels cannot shift the count.
+    labels = [expander.label for expander in app.main.expander]
     assert sum("模式骨架代码" in label for label in labels) == 1
     assert len(labels) == 6
 

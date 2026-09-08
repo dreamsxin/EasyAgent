@@ -499,6 +499,32 @@ _SIDEBAR_GUIDES: dict[str, tuple[str, ...]] = {
 }
 
 
+# Terms this UI already puts on screen but never defined anywhere. One line
+# each, pointing at the doc that goes deeper -- not a tutorial in a sidebar.
+_GLOSSARY: tuple[tuple[str, str], ...] = (
+    (
+        "工具调用 tool call",
+        "模型返回结构化的工具请求，Agent 执行对应的 Python 函数，结果写回记忆。",
+    ),
+    ("轮次 round", "一次模型请求。「最大迭代次数」限制的是轮数，不是工具个数。"),
+    (
+        "执行事件 vs token",
+        "执行事件是循环里已完成的一步；token 增量只是文本片段。见 docs/concepts.md。",
+    ),
+    ("Trace", "一次运行的记录：run_id、模型轮次、工具调用、用量。可导出 JSONL 回放。"),
+    ("Log ID", "就是 Trace 的 run_id，用它在「运行回放」里找回某次运行。"),
+    ("确认门 confirm gate", "标记 confirm 的工具执行前需要批准；本界面一律拒绝并记入 Trace。"),
+)
+
+
+def _render_glossary(st: Any) -> None:
+    """Define the terms the UI uses, in the sidebar of every view."""
+    with st.sidebar.expander("📖 术语", expanded=False):
+        for term, definition in _GLOSSARY:
+            st.markdown(f"**{term}**")
+            st.caption(definition)
+
+
 def _render_context_sidebar(st: Any, view: str, architecture_mode: str) -> None:
     """Render the shared left sidebar for every non-ReAct view.
 
@@ -523,6 +549,8 @@ def _render_context_sidebar(st: Any, view: str, architecture_mode: str) -> None:
     st.sidebar.markdown('<div class="ea-section-label">操作步骤</div>', unsafe_allow_html=True)
     for step in _SIDEBAR_GUIDES.get(view, _SIDEBAR_GUIDES["architecture"]):
         st.sidebar.markdown(f"- {step}")
+
+    _render_glossary(st)
 
     st.sidebar.divider()
     if st.sidebar.button(
@@ -1529,6 +1557,7 @@ def _run_app() -> None:
             disabled=model_missing or thinking_tool_conflict,
         ) or (restored_agent_config and not model_missing)
         reload_clicked = False
+        _render_glossary(st)
         with st.sidebar.expander("更多操作", expanded=False):
             if st.button("↩ 恢复默认配置", use_container_width=True):
                 delete_visual_agent_config()
