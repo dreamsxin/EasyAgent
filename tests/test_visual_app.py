@@ -152,6 +152,23 @@ def test_model_view_shows_the_messages_the_model_receives() -> None:
     assert "1 条消息" not in panel.label
 
 
+def test_react_sidebar_offers_a_guided_path_and_hides_mcp_by_default() -> None:
+    app = AppTest.from_file(APP_FILE, default_timeout=20)
+
+    app.run()
+
+    assert not app.exception
+    # The entry view had no guided path at all, while every other view had one.
+    guidance = " ".join(str(item.value) for item in app.sidebar.caption)
+    assert "Mock（离线）" in guidance
+    assert "🔨 生成 Agent" in guidance
+    assert "模型看到了什么" in guidance
+    # MCP auto-opened for everyone because it keyed off "not connected", putting
+    # three MCP widgets in front of a first-time user who has no MCP server.
+    mcp = next(item for item in app.sidebar.expander if "MCP 工具服务" in item.label)
+    assert mcp.proto.expanded is False
+
+
 def test_live_mode_does_not_fall_back_to_scripted_execution(monkeypatch) -> None:
     monkeypatch.setattr(
         "agentmold.visual.teaching_view.load_live_teaching_models",

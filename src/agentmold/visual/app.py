@@ -489,6 +489,13 @@ _SIDEBAR_GUIDES: dict[str, tuple[str, ...]] = {
         "2. 检索策略：对比 LLM 参数化知识、RAG 与 grep。",
         "3. 工具调用：对比原生 function calling 与提示词解析。",
     ),
+    # The ReAct workbench owns its own sidebar, but it is the entry view and had
+    # no guided path at all -- the one place a first-time user most needs one.
+    "react": (
+        "1. 保持「Mock（离线）」即可无需 API Key 开始。",
+        "2. 点「🔨 生成 Agent」，右侧出现对话框。",
+        "3. 提问后展开「👁 模型看到了什么」，看模型收到了什么。",
+    ),
 }
 
 
@@ -816,6 +823,8 @@ def _run_app() -> None:
         build_clicked = False
     else:
         st.sidebar.header("⚙️ Agent 配置")
+        for step in _SIDEBAR_GUIDES["react"]:
+            st.sidebar.caption(step)
         saved_agent_config = load_visual_agent_config()
         if "ea_visual_config_initialized" not in st.session_state:
             saved_connection = saved_agent_config.get("connection_type", "Mock（离线）")
@@ -1159,7 +1168,7 @@ def _run_app() -> None:
             f"{'已连接' if st.session_state.get('ea_mcp_tools') else '未连接'}"
             f" · {len(st.session_state.get('ea_mcp_tools', {}))} 个工具",
             expanded=bool(st.session_state.get("ea_mcp_error"))
-            or not bool(st.session_state.get("ea_mcp_tools")),
+            or bool(st.session_state.get("ea_mcp_tools")),
         ):
             st.caption(
                 "连接 MCP server，自动发现其工具。需要 "
@@ -1746,6 +1755,13 @@ def _run_app() -> None:
                 st.caption(message)
 
             # --- Tool schemas (function calling) ---
+            if agent.tools:
+                st.caption(
+                    "模型每一轮收到两样东西：工具 Schema（通过 API 的 tools 参数传递）"
+                    "和消息列表（指令、对话、工具结果）。两者分别在下面两个面板里。"
+                )
+            else:
+                st.caption("这个 Agent 没有工具，模型每一轮只收到消息列表。见下面的面板。")
             if agent.tools:
                 provider_name = type(agent.llm).__name__
                 if "Anthropic" in provider_name:

@@ -24,6 +24,16 @@ to build agents hits first, and what the visual lab does and does not let them s
   convention, and states accurately that `pip install -e .` installs the generated project's own
   dependencies and is only required once a hosted or local provider replaces `mock`.
 
+### Changed
+
+- The ReAct workbench sidebar now opens with the same three-step guided path the other views
+  always had (`_SIDEBAR_GUIDES["react"]`). It was the entry view and the only one with no guidance.
+- The MCP panel no longer auto-expands. Its condition was "open when not connected", which meant
+  it opened for every first-time user and put three MCP widgets in front of someone who has no MCP
+  server. It now opens only on an error or an active connection.
+- The Agent status card states plainly that the model receives two things each round — the tool
+  schemas via the API `tools` parameter and the message list — and names the panel for each.
+
 ### Added
 
 - Visual lab: a **👁 模型看到了什么** panel in the ReAct workbench lists, in order, the messages
