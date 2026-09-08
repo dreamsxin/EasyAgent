@@ -643,6 +643,9 @@ runner。两种执行方式都导出 Python 控制流事件、Agent traces、JSO
 
 ## 📚 文档
 
+先看 [**文档地图**](docs/README.md)：16 篇文档按「首次运行 → 动手写 → 学架构 → 做研究 →
+上生产」分层排序，并标注每篇的语言。下面是平铺清单：
+
 - [快速开始](docs/quickstart.md)
 - [能力状态：已交付、实验性与非目标](docs/capabilities.md)
 - [核心概念](docs/concepts.md)

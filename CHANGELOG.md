@@ -36,6 +36,11 @@ to build agents hits first, and what the visual lab does and does not let them s
 
 ### Added
 
+- `docs/README.md` is a documentation map: the 16 documents are ordered "first run → building →
+  patterns → research → operating", each with a one-line purpose and a language marker, because
+  the set is mixed English and Chinese and had no reading order. It also separates the runnable
+  material that CI executes (ten `cookbook/*.py`, two `examples/*.py`) from the three notebooks
+  that it does not, so the guarantee is not overstated.
 - A **📖 术语** panel in the sidebar of every view defines the terms the UI already puts on
   screen but never explained: tool call, round, execution event vs token, Trace, Log ID, and the
   confirm gate. One line each, pointing at the doc that goes deeper.
