@@ -3,6 +3,32 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
+## 0.14.0 - 2026-09-08
+
+This release works through a learner-facing review of the project: what someone who is learning
+to build agents hits first, and what the visual lab does and does not let them see.
+
+### Fixed
+
+- `easyagent run` with no prompt no longer sends a fixed `tool: calculate 2 + 2`. That prompt was
+  only correct for the `coder` template; on the other six the Mock provider fell back to the
+  agent's *first* tool and called it with the literal string `calculate 2 + 2`, so the run looked
+  successful while exercising the wrong tool with a meaningless argument. On the tool-free
+  `chatbot` template it echoed EasyAgent's internal `tool:` convention back as if the user had
+  typed it. The default now runs a capability prompt that works on any agent and prints a hint
+  naming the user's own first non-destructive tool, without inventing arguments for a signature it
+  does not know. `calculate` is still triggered directly when the agent has it.
+- The README first-run sequence (`## 交互式创建项目`) was not followable: it omitted
+  `pip install -e .` and passed a natural-language prompt to the offline `mock` provider, which
+  `docs/quickstart.md` states does not do natural-language reasoning. It now shows the `tool:`
+  convention, and states accurately that `pip install -e .` installs the generated project's own
+  dependencies and is only required once a hosted or local provider replaces `mock`.
+
+### Added
+
+- `tests/test_cli.py` scaffolds all seven templates and asserts the documented no-prompt first run
+  succeeds on each, so a template can no longer ship with a broken first run.
+
 ## 0.13.0 - 2026-09-08
 
 ### Added

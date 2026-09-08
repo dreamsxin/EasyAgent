@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from agentmold import __version__, load_agent
+from agentmold.cli import TEMPLATES
 from agentmold.cli import main as cli_main
 
 
@@ -213,6 +214,61 @@ def test_cli_run_uses_tool_prompt_when_prompt_is_omitted(tmp_path, capsys):
 
     assert rc == 0
     assert "Used tool 'calculate'" in capsys.readouterr().out
+
+
+def test_cli_run_without_prompt_hints_the_agents_own_tool(tmp_path, capsys):
+    agent_file = tmp_path / "agent.py"
+    agent_file.write_text(
+        "from agentmold import Agent, tool\n"
+        "@tool\n"
+        "def search_web(query: str) -> str:\n"
+        "    '''Search.'''\n"
+        "    return query\n"
+        "def build_agent():\n"
+        "    return Agent(tools=[search_web], llm='mock')\n",
+        encoding="utf-8",
+    )
+
+    rc = cli_main(["run", "--file", str(agent_file)])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    # No invented argument for a tool whose signature we do not know; the hint
+    # names the user's own tool instead.
+    assert "tool: search_web <arguments>" in out
+    assert "Used tool" not in out
+
+
+def test_cli_run_without_prompt_stays_quiet_for_a_tool_free_agent(tmp_path, capsys):
+    agent_file = tmp_path / "agent.py"
+    agent_file.write_text(
+        "from agentmold import Agent\n" "def build_agent():\n" "    return Agent(llm='mock')\n",
+        encoding="utf-8",
+    )
+
+    rc = cli_main(["run", "--file", str(agent_file)])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    # Nothing to exercise, so no hint -- and the internal "tool:" convention
+    # must not leak into the prompt the way the old fixed default did.
+    assert "tool:" not in out
+
+
+@pytest.mark.parametrize("template", sorted(TEMPLATES))
+def test_scaffolded_project_runs_without_a_prompt(tmp_path, capsys, template):
+    """The documented first run must succeed on every template."""
+    project = tmp_path / f"demo-{template}"
+    assert cli_main(["init", str(project), "--template", template]) == 0
+    capsys.readouterr()
+
+    rc = cli_main(["run", "--file", str(project / "agent.py")])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert out.strip()
+    assert "Error" not in out
+    assert "Traceback" not in out
 
 
 def test_cli_run_reports_actionable_error_without_traceback(tmp_path, capsys):

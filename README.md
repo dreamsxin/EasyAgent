@@ -240,8 +240,19 @@ Python 标准库的 `asyncio.wait_for()` 或任务取消。
 pip install agentmold
 easyagent init my-agent-project
 cd my-agent-project
-easyagent run "介绍一下这个 Agent"
+pip install -e .
+easyagent run
 ```
+
+`easyagent run` 不带参数时会用一个在任意模板上都能跑通的能力提示，并提示如何触发这个
+项目自己的工具。离线 `mock` 模型不做自然语言推理，需要用 `tool:` 前缀显式触发工具：
+
+```bash
+easyagent run "tool: search_web latest AI agent advances"
+```
+
+`pip install -e .` 安装生成项目自己声明的依赖。用离线 `mock` 模型时这一步可以跳过；
+换成托管或本地 Provider 后必须执行，否则缺少对应的 provider extra。
 
 托管或本地模型由用户分别选择 Provider 与模型 ID：
 

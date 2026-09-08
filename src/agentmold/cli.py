@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 from agentmold import AgentLoadError, __version__, load_agent
 from agentmold.exceptions import EasyAgentError
@@ -588,6 +589,31 @@ def _normalise_package_name(name: str) -> str:
     return normalised or "my-agent"
 
 
+def _default_run_prompt(agent: Any) -> tuple[str, str | None]:
+    """Return a prompt that runs on any agent, plus an optional tool hint.
+
+    ``easyagent run`` used to default to ``tool: calculate 2 + 2``, which fails
+    on every template that has no ``calculate`` tool. Rather than inventing
+    arguments for an arbitrary tool signature, only the one tool whose argument
+    is safe to synthesise is triggered automatically; otherwise the run proves
+    the install works and the hint shows how to exercise the user's own tool.
+    """
+    tools = list(getattr(agent, "tools", []) or [])
+    names = [tool.name for tool in tools]
+    if "calculate" in names:
+        return "tool: calculate 2 + 2", None
+
+    prompt = "Introduce yourself and list the tools you can use."
+    safe = next((tool.name for tool in tools if not getattr(tool, "confirm", False)), None)
+    if safe is None:
+        return prompt, None
+    hint = (
+        "Ran a capability prompt. To exercise a tool, name it and pass its arguments, "
+        f'for example: easyagent run "tool: {safe} <arguments>"'
+    )
+    return prompt, hint
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     file_path = Path(args.file).resolve()
     if not file_path.exists():
@@ -603,13 +629,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
         agent.chat()
         return 0
 
-    prompt = args.prompt or "tool: calculate 2 + 2"
+    hint: str | None = None
+    prompt = args.prompt
+    if not prompt:
+        prompt, hint = _default_run_prompt(agent)
     try:
         answer = agent.run(prompt)
     except (EasyAgentError, OSError) as exc:
         print(_format_run_error(exc, agent))
         return 1
     print(answer)
+    if hint:
+        print(f"\n{hint}")
     return 0
 
 
