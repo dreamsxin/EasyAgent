@@ -38,6 +38,9 @@ from agentmold._netpolicy import (
 from agentmold._netpolicy import (
     resolved_addresses as _resolved_addresses,
 )
+from agentmold._netpolicy import (
+    safe_request_url as _safe_request_url,
+)
 from agentmold.tool import Tool, tool
 
 __all__ = ["calculate", "workspace_tools", "http_tools"]
@@ -220,8 +223,11 @@ def http_tools(
             return f"Error: {exc}"
         if not allow_private and any(not address.is_global for address in addresses):
             return "Error: private or non-global destination is blocked"
+        # Request the validated host, never the caller's raw URL string: the two
+        # can disagree on the encoded hostname, which would defeat the allowlist.
+        request_url = _safe_request_url(parsed, host)
         try:
-            response = httpx.get(url, timeout=timeout, follow_redirects=False)
+            response = httpx.get(request_url, timeout=timeout, follow_redirects=False)
             if 300 <= response.status_code < 400:
                 return "Error: redirects are disabled by the network policy"
             response.raise_for_status()

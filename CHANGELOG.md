@@ -3,6 +3,55 @@
 Notable user-facing changes are recorded here. EasyAgent follows semantic versioning while
 the public API is pre-1.0; experimental APIs may still change between minor releases.
 
+## Unreleased
+
+### Security
+
+- `http_tools` now issues the request against the hostname it validated, rebuilt from the
+  parsed URL parts, instead of handing the model's raw URL string to httpx. The two could
+  disagree: the allowlist was normalised with the stdlib `str.encode("idna")` codec
+  (IDNA2003), while httpx encodes with the `idna` package (IDNA2008/UTS-46). For an
+  allowlist of `strasse.example`, a URL of `https://straße.example/` passed every check
+  and was then sent to `xn--strae-oqa.example` — a different, separately registrable
+  domain. `agentmold._netpolicy.normalise_host` now uses the same encoder as the
+  transport, and passes ASCII hosts through unchanged so names with underscores keep
+  working. Rebuilding the URL also drops the fragment before the request leaves the
+  process. `idna>=3.4` is now a declared dependency rather than an implicit one inherited
+  from httpx.
+- MCP tools re-validate the network policy before every call. `validate_server_url` ran
+  only during discovery, but each call opens a new connection and therefore performs a new
+  DNS lookup, so a short-TTL record could answer with a public address once and with
+  `127.0.0.1` or a metadata-service address for every call afterwards — for the lifetime of
+  the process, with `allow_private=False` in effect.
+- The `timeout` argument to `mcp_tools` is now applied. It was threaded down to
+  `_build_mcp_tool` and never used, so a wedged or hostile MCP server could hang a run
+  indefinitely. It now bounds tool discovery and each individual tool call.
+- `mcp_tools` logs a warning when it is given a URL and no `allowed_hosts`. The parameter
+  is optional here, unlike in `http_tools`, and silently permitting any resolved host was
+  not obvious from the call site.
+
+### Changed
+
+- Documentation corrections where the text claimed more than the code delivers:
+  - README and `ROADMAP.md` presented v1.1-v1.4 as forward work, though the confirmation
+    gate, loop detection, parallel async tool calls, the audit log, MCP, the RAG pipeline,
+    prompt caching, model routing and cost budgets are all shipped. README also introduced
+    MCP as a usable feature and listed it as unshipped in the same file.
+  - `docs/tool-policies.md` said absolute and `..` paths are rejected. They are resolved
+    first and accepted when the result stays inside the workspace root; containment is the
+    real guarantee.
+  - `docs/tool-policies.md`, `docs/mcp.md` and README said MCP reuses `http_tools`' SSRF
+    protection. It reuses the allowlist and private-address checks, but its allowlist is
+    optional and it does not disable redirects.
+  - `docs/mcp.md` was titled as tool-poisoning detection. Fingerprints detect rug-pulls;
+    nothing inspects descriptions for injected instructions.
+  - `docs/production-guide.md` listed nine `EASYAGENT_*` variables as configuration. The
+    library reads none of them; they belong to that page's own example application. The
+    ineffective `ENV EASYAGENT_LOG_LEVEL` line is gone from its Dockerfile, and its pinned
+    version was 0.7.0.
+  - README now names `EASYAGENT_API_KEY`, which an exported `agent.py` reads for a custom
+    provider.
+
 ## 0.14.0 - 2026-09-08
 
 This release works through a learner-facing review of the project: what someone who is learning

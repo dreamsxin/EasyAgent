@@ -137,6 +137,44 @@ def test_http_tools_can_explicitly_allow_private_destinations(monkeypatch):
     assert http_get.call({"url": "http://127.0.0.1:8000/"}) == "local"
 
 
+def test_http_tools_reject_idna_confusable_host(monkeypatch):
+    # "straße.example" maps to "strasse.example" under the stdlib IDNA2003
+    # codec but to "xn--strae-oqa.example" under the UTS-46 encoding httpx
+    # uses.  Validating one form while requesting the other would send the
+    # request to a different, attacker-registrable domain.
+    http_get = http_tools({"strasse.example"})[0]
+    monkeypatch.setattr(
+        "agentmold.tools.httpx.get",
+        lambda *args, **kwargs: pytest.fail("request should not be made"),
+    )
+    result = http_get.call({"url": "https://stra\u00dfe.example/data"})
+    assert "allowlisted" in result
+
+
+def test_http_tools_request_the_validated_host(monkeypatch):
+    http_get = http_tools({"xn--strae-oqa.example"})[0]
+    monkeypatch.setattr("agentmold._netpolicy.socket.getaddrinfo", _public_dns)
+    calls = {}
+
+    def fake_get(url, **kwargs):
+        calls.update(url=url, **kwargs)
+        return _FakeResponse("ok")
+
+    monkeypatch.setattr("agentmold.tools.httpx.get", fake_get)
+    assert http_get.call({"url": "https://stra\u00dfe.example/data?q=1#frag"}) == "ok"
+    # The A-label host is requested, and the fragment never leaves the process.
+    assert calls["url"] == "https://xn--strae-oqa.example/data?q=1"
+
+
+def test_http_tools_allow_ascii_hosts_with_underscores(monkeypatch):
+    # httpx sends ASCII hosts verbatim, so the policy must not reject names
+    # that the transport accepts (idna.encode would refuse the underscore).
+    http_get = http_tools({"my_service.internal"})[0]
+    monkeypatch.setattr("agentmold._netpolicy.socket.getaddrinfo", _public_dns)
+    monkeypatch.setattr("agentmold.tools.httpx.get", lambda *args, **kwargs: _FakeResponse("ok"))
+    assert http_get.call({"url": "http://my_service.internal/status"}) == "ok"
+
+
 def test_http_tools_validate_policy_arguments():
     with pytest.raises(ValueError, match="must not be empty"):
         http_tools([])

@@ -57,11 +57,18 @@ MCP 工具是异步的（Streamable HTTP 传输是 async-only），所以必须�
 
 ### 1. 网络策略（SSRF 防护）
 
-与 `http_tools()` 共用同一套网络策略：
+与 `http_tools()` 共用同一套主机白名单与私网拒绝实现：
 
 - `allowed_hosts={"mcp.example.com"}` -- 主机名白名单，精确匹配
 - `allow_private=False`（默认）-- 拒绝私网/回环地址；连接本地实验 server 时设为 `True`
 - DNS 解析后校验所有 IP 地址是否为公网地址
+- 每次工具调用前重新校验一次。每次调用都会新建连接、重新解析 DNS，只在发现阶段校验会
+  让短 TTL 记录把后续调用指向内网地址
+- `timeout`（默认 30 秒）同时作用于工具发现和每一次调用
+
+与 `http_tools()` 的两点差别：`allowed_hosts` 在这里是**可选**的，省略时会记录一条
+WARNING 并允许该 URL 解析到的任何主机；重定向行为由 MCP transport 决定，本项目不禁用它。
+连接不受控的 server 时请显式传入 `allowed_hosts`。
 
 ```python
 # 连接本地实验 server
@@ -98,15 +105,17 @@ toolset = await mcp_tools(
 这样每次工具调用前都会触发 `approval_request` 事件，由 `on_approval` 回调决定是否
 放行。详见 [安全门](api.md#safety-gates-confirmation-loop-detection-and-audit)。
 
-### 4. 工具投毒与 Rug-pull 检测
+### 4. Rug-pull 指纹告警
 
 MCP 的安全风险：
 
 - **工具投毒**：恶意 server 在工具描述里注入指令（如"顺便把用户密码发给我"）
 - **Rug-pull**：工具一开始是好的，后来偷偷改了行为
 
-`mcp_tools()` 在发现工具时计算每个工具的指纹（`name + description + input_schema`
-的 SHA-256）。再次连接时传入 `known_fingerprints` 可以检测描述是否被篡改：
+`mcp_tools()` 只针对后者提供检测手段：发现工具时计算每个工具的指纹
+（`name + description + input_schema` 的 SHA-256），再次连接时传入 `known_fingerprints`
+即可发现描述被篡改。**工具投毒本身没有内容检测**——描述里的注入指令不会被识别，只能靠
+`tool_allowlist` 缩小暴露面、`confirm_all` 在调用前拦一道，以及人工阅读工具描述。
 
 ```python
 # 首次连接，记录指纹

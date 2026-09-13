@@ -9,8 +9,15 @@ from unittest.mock import patch
 
 import pytest
 
+from agentmold import mcp as mcp_module
 from agentmold.exceptions import MCPError
-from agentmold.mcp import MCPToolSet, _extract_text_content, _tool_fingerprint, mcp_tools
+from agentmold.mcp import (
+    MCPToolSet,
+    _build_mcp_tool,
+    _extract_text_content,
+    _tool_fingerprint,
+    mcp_tools,
+)
 from agentmold.tool import Tool
 
 # Skip the entire module when the optional ``mcp`` extra is not installed.
@@ -237,6 +244,77 @@ async def test_mcp_tools_rejects_unallowlisted_host(monkeypatch):
             "https://evil.example.com/mcp",
             allowed_hosts={"safe.example.com"},
         )
+
+
+@pytest.mark.asyncio
+async def test_mcp_tools_warns_when_no_allowlist_is_given(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(
+        "agentmold._netpolicy.socket.getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
+    )
+    with caplog.at_level(logging.WARNING, logger="agentmold.mcp"):
+        with pytest.raises(MCPError):
+            await mcp_tools("https://mcp.example.com/mcp")
+
+    assert any("without allowed_hosts" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_revalidates_the_network_policy_on_every_call(monkeypatch):
+    # Discovery validated the host once.  Each call opens a new connection and
+    # so resolves DNS again, which is where a rebinding attack lands.
+    mcp_tool = _build_mcp_tool(
+        server_url="https://mcp.example.com/mcp",
+        name="search",
+        description="Search.",
+        schema={"type": "object", "properties": {}},
+        confirm=False,
+        timeout=5.0,
+        host_allowlist=frozenset({"mcp.example.com"}),
+        allow_private=False,
+    )
+    monkeypatch.setattr(
+        "agentmold._netpolicy.socket.getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))],
+    )
+    monkeypatch.setattr(
+        "agentmold.mcp._import_mcp_client",
+        lambda: pytest.fail("no connection should be opened"),
+    )
+    with pytest.raises(MCPError, match="blocked by the network policy"):
+        await mcp_tool.func()
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_call_honours_the_timeout():
+    class _HangingClient:
+        def __init__(self, server_url):
+            self.server_url = server_url
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        async def call_tool(self, name, arguments):
+            await asyncio.sleep(30)
+
+    mcp_tool = _build_mcp_tool(
+        server_url="http://127.0.0.1:9/mcp",
+        name="slow",
+        description="Never returns.",
+        schema={"type": "object", "properties": {}},
+        confirm=False,
+        timeout=0.05,
+        host_allowlist=None,
+        allow_private=True,
+    )
+    with patch.object(mcp_module, "_import_mcp_client", return_value=_HangingClient):
+        with pytest.raises(MCPError, match="timed out after"):
+            await mcp_tool.func()
 
 
 # ---------------------------------------------------------------------------
