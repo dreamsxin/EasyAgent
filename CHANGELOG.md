@@ -22,10 +22,14 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
   only during discovery, but each call opens a new connection and therefore performs a new
   DNS lookup, so a short-TTL record could answer with a public address once and with
   `127.0.0.1` or a metadata-service address for every call afterwards — for the lifetime of
-  the process, with `allow_private=False` in effect.
+  the process, with `allow_private=False` in effect. This narrows the rebinding window
+  rather than closing it: the transport resolves the host again when it connects, and that
+  address is not checked.
 - The `timeout` argument to `mcp_tools` is now applied. It was threaded down to
   `_build_mcp_tool` and never used, so a wedged or hostile MCP server could hang a run
-  indefinitely. It now bounds tool discovery and each individual tool call.
+  indefinitely. It now bounds tool discovery and each individual tool call, including the
+  policy's DNS lookup and connection setup, and values `<= 0` are rejected up front.
+
 - `mcp_tools` logs a warning when it is given a URL and no `allowed_hosts`. The parameter
   is optional here, unlike in `http_tools`, and silently permitting any resolved host was
   not obvious from the call site.

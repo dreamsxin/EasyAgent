@@ -248,12 +248,21 @@ async def test_mcp_tools_rejects_unallowlisted_host(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_mcp_tools_warns_when_no_allowlist_is_given(monkeypatch, caplog):
+    """Omitting allowed_hosts must log a WARNING naming the missing restriction."""
     import logging
 
     monkeypatch.setattr(
         "agentmold._netpolicy.socket.getaddrinfo",
         lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
     )
+
+    class _UnreachableClient:
+        def __init__(self, server_url):
+            raise OSError("connection refused")
+
+    # Stub the transport so the test never touches the real network: the host
+    # resolves to a public address, so an unstubbed Client would dial out.
+    monkeypatch.setattr(mcp_module, "_import_mcp_client", lambda: _UnreachableClient)
     with caplog.at_level(logging.WARNING, logger="agentmold.mcp"):
         with pytest.raises(MCPError):
             await mcp_tools("https://mcp.example.com/mcp")
@@ -263,8 +272,11 @@ async def test_mcp_tools_warns_when_no_allowlist_is_given(monkeypatch, caplog):
 
 @pytest.mark.asyncio
 async def test_mcp_tool_revalidates_the_network_policy_on_every_call(monkeypatch):
-    # Discovery validated the host once.  Each call opens a new connection and
-    # so resolves DNS again, which is where a rebinding attack lands.
+    """Every call re-checks the policy, so DNS rebinding after discovery is blocked.
+
+    Discovery validated the host once.  Each call opens a new connection and so
+    resolves DNS again, which is where a rebinding attack lands.
+    """
     mcp_tool = _build_mcp_tool(
         server_url="https://mcp.example.com/mcp",
         name="search",
@@ -288,7 +300,16 @@ async def test_mcp_tool_revalidates_the_network_policy_on_every_call(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_mcp_tools_rejects_non_positive_timeout():
+    """A non-positive timeout is a configuration error, not an instant timeout."""
+    with pytest.raises(ValueError, match="timeout must be greater than 0"):
+        await mcp_tools("https://mcp.example.com/mcp", timeout=0)
+
+
+@pytest.mark.asyncio
 async def test_mcp_tool_call_honours_the_timeout():
+    """A hanging tool call raises MCPError once the per-call timeout elapses."""
+
     class _HangingClient:
         def __init__(self, server_url):
             self.server_url = server_url

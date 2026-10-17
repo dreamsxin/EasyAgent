@@ -58,6 +58,7 @@ agent = Agent(
 实现，并且在每次工具调用前重新校验一次（每次调用都会新建连接、重新解析 DNS）。两处的差别
 需要注意：`http_tools` 强制要求白名单，而 `mcp_tools` 的 `allowed_hosts` 是可选的——省略时会
 记录一条警告并允许该 URL 解析到的任何主机；重定向策略由 MCP transport 决定，不由本项目禁用。
+重新校验缩小了 DNS 重绑定窗口但没有关闭它——transport 建连时会再解析一次，那个地址不受校验。
 `timeout` 同时作用于工具发现和每一次调用。额外提供工具白名单（`tool_allowlist`）、确认门
 （`confirm_all`）和 rug-pull 指纹告警（`known_fingerprints`，只记录警告、不阻断）。详见
 [MCP 工具](mcp.md)。

@@ -63,8 +63,10 @@ MCP 工具是异步的（Streamable HTTP 传输是 async-only），所以必须�
 - `allow_private=False`（默认）-- 拒绝私网/回环地址；连接本地实验 server 时设为 `True`
 - DNS 解析后校验所有 IP 地址是否为公网地址
 - 每次工具调用前重新校验一次。每次调用都会新建连接、重新解析 DNS，只在发现阶段校验会
-  让短 TTL 记录把后续调用指向内网地址
-- `timeout`（默认 30 秒）同时作用于工具发现和每一次调用
+  让短 TTL 记录把后续调用指向内网地址。这缩小了 DNS 重绑定的窗口但没有关闭它：实际建连
+  的 IP 由 transport 独立解析，不逐一校验
+- `timeout`（默认 30 秒）同时作用于工具发现和每一次调用，覆盖 DNS 校验、连接建立与请求本身
+
 
 与 `http_tools()` 的两点差别：`allowed_hosts` 在这里是**可选**的，省略时会记录一条
 WARNING 并允许该 URL 解析到的任何主机；重定向行为由 MCP transport 决定，本项目不禁用它。
