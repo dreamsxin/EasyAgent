@@ -9,28 +9,45 @@ from __future__ import annotations
 import ipaddress
 import socket
 from collections.abc import Iterable
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit, urlunsplit
+
+import idna
 
 __all__ = [
     "normalise_host",
     "normalise_allowed_hosts",
     "resolved_addresses",
+    "safe_request_url",
     "validate_server_url",
 ]
 
 
 def normalise_host(host: str) -> str:
-    """Return a comparable lowercase hostname or IP literal."""
+    """Return a comparable hostname or IP literal, encoded the way httpx sends it.
+
+    The encoding must match the transport exactly.  ``str.encode("idna")`` is
+    the stdlib IDNA2003 codec, whose nameprep mapping disagrees with the
+    IDNA2008/UTS-46 encoding used by ``httpx`` (via the ``idna`` package):
+    ``straße.example`` becomes ``strasse.example`` under IDNA2003 but
+    ``xn--strae-oqa.example`` under UTS-46.  Validating one form while
+    requesting the other would let an allowlisted name reach a different host.
+    """
     value = host.strip().strip("[]").rstrip(".").lower()
     if not value:
         raise ValueError("allowed_hosts must contain non-empty hostnames")
     try:
         return ipaddress.ip_address(value).compressed
     except ValueError:
-        try:
-            return value.encode("idna").decode("ascii")
-        except UnicodeError as exc:
-            raise ValueError(f"invalid host: {host!r}") from exc
+        pass
+    if value.isascii():
+        # httpx sends ASCII hosts verbatim (lowercased) without IDNA encoding,
+        # so re-encoding here would reject hosts the transport accepts, such as
+        # the underscores common in internal DNS names.
+        return value
+    try:
+        return idna.encode(value, uts46=True).decode("ascii")
+    except idna.IDNAError as exc:
+        raise ValueError(f"invalid host: {host!r}") from exc
 
 
 def normalise_allowed_hosts(allowed_hosts: Iterable[str]) -> frozenset[str]:
@@ -67,6 +84,20 @@ def resolved_addresses(host: str, port: int) -> set[ipaddress.IPv4Address | ipad
     if not addresses:
         raise ValueError(f"host {host!r} resolved to no addresses")
     return addresses
+
+
+def safe_request_url(parsed: SplitResult, host: str) -> str:
+    """Rebuild a request URL so the transport contacts the validated *host*.
+
+    Handing the caller's raw URL string to httpx would re-derive the host from
+    the original text, which is not necessarily the host that was allowlisted
+    (see :func:`normalise_host`).  Rebuilding from validated parts also drops
+    userinfo and the fragment, neither of which belongs in an outbound request.
+    """
+    netloc = f"[{host}]" if ":" in host else host
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, ""))
 
 
 def validate_server_url(

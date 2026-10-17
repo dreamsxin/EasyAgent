@@ -33,10 +33,10 @@ from agentmold._netpolicy import (
     normalise_allowed_hosts as _normalise_allowed_hosts,
 )
 from agentmold._netpolicy import (
-    normalise_host as _normalise_host,
+    safe_request_url as _safe_request_url,
 )
 from agentmold._netpolicy import (
-    resolved_addresses as _resolved_addresses,
+    validate_server_url as _validate_server_url,
 )
 from agentmold.tool import Tool, tool
 
@@ -207,21 +207,19 @@ def http_tools(
             return "Error: url must include a hostname"
         if parsed.username is not None or parsed.password is not None:
             return "Error: URL credentials are not allowed"
+        # One shared implementation of the policy (scheme, allowlist, DNS) keeps
+        # http_tools and mcp_tools from drifting apart, which is how the IDNA
+        # encoding mismatch slipped in.
         try:
-            host = _normalise_host(parsed.hostname)
-            port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        except ValueError as exc:
-            return f"Error: invalid URL: {exc}"
-        if host not in hosts:
-            return f"Error: host is not allowlisted: {parsed.hostname}"
-        try:
-            addresses = _resolved_addresses(host, port)
+            host = _validate_server_url(url, hosts, allow_private)
         except ValueError as exc:
             return f"Error: {exc}"
-        if not allow_private and any(not address.is_global for address in addresses):
-            return "Error: private or non-global destination is blocked"
+        # Request the validated host, never the caller's raw URL string: the two
+        # can disagree on the encoded hostname, which would defeat the allowlist.
+        request_url = _safe_request_url(parsed, host)
+
         try:
-            response = httpx.get(url, timeout=timeout, follow_redirects=False)
+            response = httpx.get(request_url, timeout=timeout, follow_redirects=False)
             if 300 <= response.status_code < 400:
                 return "Error: redirects are disabled by the network policy"
             response.raise_for_status()

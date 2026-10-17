@@ -29,6 +29,9 @@ classifiers = [
 ]
 dependencies = [
     "httpx>=0.25",
+    # Pinned explicitly rather than relied on through httpx: the network policy
+    # must encode hostnames with the same IDNA implementation as the transport.
+    "idna>=3.4",
 ]
 
 [project.optional-dependencies]

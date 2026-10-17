@@ -3,7 +3,8 @@
 Connect to any MCP server and use its tools as ordinary ``Tool`` objects.
 The factory :func:`mcp_tools` mirrors :func:`agentmold.tools.http_tools`:
 it validates the network policy up front, discovers tools at connection
-time, and returns ready-to-use ``Tool`` instances.
+time, and returns ready-to-use ``Tool`` instances.  Because every tool call
+opens a fresh connection, the policy is re-checked on each call as well.
 
 MCP tools are asynchronous (the Streamable HTTP transport is async-only),
 so an Agent that uses them must be run with ``await agent.arun(...)`` or
@@ -28,10 +29,12 @@ Example::
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit, urlunsplit
 
 from agentmold._netpolicy import normalise_allowed_hosts, validate_server_url
 from agentmold.exceptions import MCPError
@@ -123,6 +126,28 @@ def _import_mcp_client() -> Any:
     return Client
 
 
+def _log_target(server_url: str | Any) -> str:
+    """Describe *server_url* for logs and errors without leaking credentials.
+
+    MCP endpoints routinely carry a token in the userinfo or the query string,
+    both of which would otherwise be written to the application log.
+    """
+    if not isinstance(server_url, str):
+        return repr(server_url)
+    try:
+        parsed = urlsplit(server_url)
+    except ValueError:
+        return "<unparsable MCP URL>"
+    if not parsed.scheme or not parsed.netloc:
+        return "<unparsable MCP URL>"
+    host = parsed.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    if parsed.port is not None:
+        host = f"{host}:{parsed.port}"
+    return urlunsplit((parsed.scheme, host, parsed.path, "", ""))
+
+
 async def mcp_tools(
     server_url: str | Any,
     *,
@@ -142,12 +167,18 @@ async def mcp_tools(
         in-memory :class:`mcp.server.MCPServer` object for testing.
     allowed_hosts:
         Optional hostname allowlist.  When provided, the server's host must be
-        in this set (mirrors :func:`http_tools`).  Only checked for URL targets.
+        in this set (mirrors :func:`http_tools`, except that ``http_tools``
+        requires an allowlist while here it is optional).  Omitting it logs a
+        warning and permits any host the URL resolves to.  Only checked for
+        URL targets.
     allow_private:
         Allow connections to private/loopback addresses (for local lab
         servers).  Defaults to ``False``.  Only checked for URL targets.
     timeout:
-        Connection and per-call timeout in seconds.
+        Per-operation timeout in seconds, applied to tool discovery and to
+        every tool call, covering the policy's DNS lookup, connection setup
+        and the request itself.  Must be greater than 0.
+
     tool_allowlist:
         Optional set of tool names to expose.  Tools not in this set are
         discovered but not returned, so the model never sees them.
@@ -168,23 +199,44 @@ async def mcp_tools(
     MCPError
         If the ``mcp`` package is missing or the server cannot be reached.
     ValueError
-        If the URL violates the network policy (SSRF guard).
+        If ``timeout`` is not positive, or the URL violates the network policy
+        (SSRF guard).
+
     """
+    if timeout <= 0:
+        raise ValueError("timeout must be greater than 0")
     Client = _import_mcp_client()
 
     # In-memory server objects bypass network policy (no transport).
     # Only string URLs go through SSRF / allowlist validation.
     is_url = isinstance(server_url, str)
     host_allowlist = normalise_allowed_hosts(allowed_hosts) if allowed_hosts is not None else None
-    if is_url:
-        validate_server_url(server_url, host_allowlist, allow_private)
+    target = _log_target(server_url)
+    if is_url and host_allowlist is None:
+        _logger.warning(
+            "mcp_tools(%s) was called without allowed_hosts, so any host this URL "
+            "resolves to will be contacted. Pass allowed_hosts={...} to restrict it.",
+            target,
+        )
+
+    async def _discover() -> Any:
+        # Validation resolves DNS through a blocking socket call, so it runs in a
+        # worker thread; keeping it inside the timeout window means a hanging
+        # resolver or handshake cannot stall the caller indefinitely.
+        if is_url:
+            await asyncio.to_thread(validate_server_url, server_url, host_allowlist, allow_private)
+        async with Client(server_url) as client:
+            return await client.list_tools()
 
     try:
-        async with Client(server_url) as client:
-            result = await client.list_tools()
-            server_tools = getattr(result, "tools", [])
+        result = await asyncio.wait_for(_discover(), timeout)
+        server_tools = getattr(result, "tools", [])
+    except asyncio.TimeoutError as exc:
+        raise MCPError(f"MCP tool discovery on {target} timed out after {timeout:g}s") from exc
+    except ValueError:
+        raise
     except Exception as exc:
-        raise MCPError(f"Failed to connect to MCP server {server_url!r}: {exc}") from exc
+        raise MCPError(f"Failed to connect to MCP server {target}: {exc}") from exc
 
     tools: list[Tool] = []
     fingerprints: dict[str, str] = {}
@@ -202,7 +254,7 @@ async def mcp_tools(
                 "MCP tool %r on %s has changed since last connection (rug-pull detected). "
                 "Description or schema was modified.",
                 name,
-                server_url,
+                target,
             )
 
         if tool_allowlist is not None and name not in tool_allowlist:
@@ -215,6 +267,8 @@ async def mcp_tools(
             schema=schema,
             confirm=confirm_all,
             timeout=timeout,
+            host_allowlist=host_allowlist,
+            allow_private=allow_private,
         )
         tools.append(tool)
 
@@ -229,19 +283,42 @@ def _build_mcp_tool(
     schema: dict[str, Any],
     confirm: bool,
     timeout: float,
+    host_allowlist: frozenset[str] | None,
+    allow_private: bool,
 ) -> Tool:
     """Create one ``Tool`` whose ``func`` calls the MCP server on demand."""
+    target = _log_target(server_url)
 
     async def _call(**arguments: Any) -> str:
         """Call the remote MCP tool and return its text result."""
-        Client = _import_mcp_client()
-        try:
+
+        async def _invoke() -> Any:
+            # Re-validate before connecting.  Each call opens a new connection and
+            # so performs a new DNS lookup; validating only at discovery time would
+            # let a short-TTL record point later calls at a private address.  The
+            # lookup blocks, so it runs in a worker thread, and it sits inside the
+            # timeout window so a stalled resolver cannot hang the call.
+            if isinstance(server_url, str):
+                try:
+                    await asyncio.to_thread(
+                        validate_server_url, server_url, host_allowlist, allow_private
+                    )
+                except ValueError as exc:
+                    raise MCPError(
+                        f"MCP call to {name!r} was blocked by the network policy: {exc}"
+                    ) from exc
+            Client = _import_mcp_client()
             async with Client(server_url) as client:
-                result = await client.call_tool(name, arguments)
+                return await client.call_tool(name, arguments)
+
+        try:
+            result = await asyncio.wait_for(_invoke(), timeout)
+        except asyncio.TimeoutError as exc:
+            raise MCPError(f"MCP call to {name!r} timed out after {timeout:g}s") from exc
         except MCPError:
             raise
         except Exception as exc:
-            raise MCPError(f"MCP call to {name!r} on {server_url!r} failed: {exc}") from exc
+            raise MCPError(f"MCP call to {name!r} on {target} failed: {exc}") from exc
         return _extract_text_content(result)
 
     _call.__name__ = name

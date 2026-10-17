@@ -184,7 +184,8 @@ streamlit run src/agentmold/visual/app.py
 可视化运行还会把成功和失败 Trace 追加到本地 `.agentmold/visual_runs.jsonl`；界面显示的
 Log ID 就是 `run_id`，可用来回查一次失败的输入、事件、模型配置、usage 和诊断摘要。
 展开 **PYTHON EXPORT · agent.py** 可预览并下载当前配置对应的 `build_agent()` 文件；
-API Key 不会写入源码，导出时会改用对应的环境变量。下载后运行 `python agent.py`
+API Key 不会写入源码，导出时会改用对应的环境变量（内置 provider 用它自己的变量名，
+自定义 provider 用 `EASYAGENT_API_KEY`）。下载后运行 `python agent.py`
 即可进入交互模式，也可以用 `python agent.py "你的问题"` 完成一次提问，无需再写启动代码。
 
 侧栏的 **接口提供商** 支持 `Mock`、DeepSeek、OpenAI/Anthropic 兼容接口、Ollama
@@ -440,8 +441,9 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-MCP 复用 `http_tools` 的 SSRF 防护，并提供工具白名单、确认门和工具投毒检测。
-详见 [MCP 工具文档](docs/mcp.md)。
+MCP 复用 `http_tools` 的主机白名单与私网拒绝实现，并在每次调用前重新校验；另有工具白名单、
+确认门和 rug-pull 指纹告警。注意 `allowed_hosts` 在这里是可选的，省略时会记录警告并允许该 URL
+解析到的任何主机。详见 [MCP 工具文档](docs/mcp.md)。
 
 ### 实验性 Agent 组合
 
@@ -602,15 +604,16 @@ pip install "agentmold[all]"
 通用多 Agent 调度器、工作流 DSL 和编排运行时不是目标；研究性组合继续使用显式的
 `agent_as_tool()`，避免扩大核心学习面。
 
-v1.0 之后的前瞻工作按优先级排成四个版本，全部保持在“普通 Python + 可追踪执行事件、
-无 DSL、无强制基础设施”的边界内：
+v1.0 之后的四个版本已经交付，全部保持在“普通 Python + 可追踪执行事件、无 DSL、
+无强制基础设施”的边界内：
 
 - **v1.1 更安全的工具**：人工确认门、重复调用检测、异步路径并行工具调用、工具调用审计日志
-- **v1.2 外部工具生态（MCP）**：把 MCP server 作为工具来源接入，复用现有网络安全策略并防御工具投毒
+- **v1.2 外部工具生态（MCP）**：把 MCP server 作为工具来源接入，复用现有网络安全策略
 - **v1.3 可复现检索**：透明的 RAG 管线（切分/混合检索/rerank）、多用户记忆隔离、实验性摘要压缩记忆
 - **v1.4 成本感知评测与多模型**：多次采样评测、主动 prompt caching、实验性模型路由、成本预算
 
-各版本的发布门槛和与产品边界的关系见 [ROADMAP.md](ROADMAP.md) 的 Forward roadmap 小节。
+各版本的发布门槛和与产品边界的关系见 [ROADMAP.md](ROADMAP.md) 的 Forward roadmap 小节；
+逐版本的交付记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 批量实验与回归评测使用 Agent 工厂隔离每个 case 的记忆：
 

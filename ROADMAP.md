@@ -144,10 +144,11 @@ DeepSeek Anthropic, and Ollama without calling external services.
 
 ## Forward roadmap
 
-The shipped history above is a record of what is done. The versions below are planned,
-ordered by priority and dependency. Each stays inside the product boundaries: plain
-Python, traceable execution events, no DSL, no mandatory infrastructure. Items are
-unchecked because they are not yet shipped.
+The shipped history above is a record of what is done. The versions below are ordered by
+priority and dependency. Each stays inside the product boundaries: plain Python,
+traceable execution events, no DSL, no mandatory infrastructure. Checked items in this
+section have shipped in 0.6-0.14; the release gate under each version records what had to
+be true before it was marked done.
 
 ## v1.1 - Safer, more capable tools
 

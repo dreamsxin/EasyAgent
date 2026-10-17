@@ -59,7 +59,6 @@ COPY . .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV EASYAGENT_LOG_LEVEL=INFO
 
 # Run application
 CMD ["python", "your_agent_application.py"]
@@ -86,6 +85,13 @@ structlog>=23.0.0  # For structured logging
 ## Configuration Management
 
 ### 1. Environment Variables
+
+EasyAgent itself only reads provider credentials from the environment:
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`,
+`DEEPSEEK_ANTHROPIC_BASE_URL`, and `EASYAGENT_API_KEY` for a custom provider in an
+exported `agent.py`. Every other `EASYAGENT_*` name below is a convention **this example
+application** defines and reads itself, through the `AgentConfig` class further down. The
+library will not pick them up on its own.
 
 ```bash
 # LLM Provider Configuration
