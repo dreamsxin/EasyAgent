@@ -34,8 +34,38 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
   is optional here, unlike in `http_tools`, and silently permitting any resolved host was
   not obvious from the call site.
 
+### Added
+
+- `Agent` gained a `tool_timeout` argument that bounds every tool call on the async
+  paths (`arun` / `arun_stream`). `Tool.acall` accepted a `timeout` since it was
+  written but `Agent` never passed one, so a wedged or hostile plain tool could hang
+  the run forever; only MCP tools carried their own bound. A tool that exceeds it now
+  fails with `ToolTimeoutError` (a `ToolError` subclass, so existing handlers keep
+  working), the tool result event carries `status="timeout"` — a value the event
+  contract already reserved — and the error message is fed back to the model like any
+  other failed call. The synchronous paths run tools inline and cannot be interrupted,
+  which the parameter documents.
+- `Agent` gained `max_tool_result_chars` (default 100,000 ≈ 25k tokens, the budget
+  Claude Code applies to tool output). A tool result larger than the cap keeps its head
+  and ends with an explicit `... (truncated, N more chars)` marker, so the model knows
+  the payload was cut instead of silently receiving — and re-sending every round — a
+  megabyte blob. The same text enters the memory, the trace and the audit log, so
+  replays see what the model saw. Built-in tools with their own tighter truncation are
+  unaffected unless their output still exceeds the cap. Pass `None` to disable.
+
 ### Changed
 
+- Tool arguments are now validated against the tool's published JSON schema before
+  execution. Until now `Tool._validate_arguments` only checked that the arguments bind
+  to the function signature, so a model could pass `"3"` for an `int` parameter or a
+  value outside a `Literal` enum and the failure surfaced as an opaque exception from
+  inside the tool. Wrong types and out-of-enum values are now rejected up front with
+  an actionable message that names the parameter, the expected type or allowed values
+  and the received value, so the model can correct itself in the next round. The check
+  is deliberately lenient — properties without a `type` or `enum` constraint (including
+  `Any` and untyped parameters) pass through untouched, and booleans are rejected for
+  the numeric types because `bool` subclasses `int` in Python. MCP tools inherit the
+  check through their server-provided `inputSchema`.
 - Documentation corrections where the text claimed more than the code delivers:
   - README and `ROADMAP.md` presented v1.1-v1.4 as forward work, though the confirmation
     gate, loop detection, parallel async tool calls, the audit log, MCP, the RAG pipeline,

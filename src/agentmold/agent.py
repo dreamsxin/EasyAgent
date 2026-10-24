@@ -31,6 +31,7 @@ from agentmold.exceptions import (
     LoopDetectedError,
     MaxIterationsError,
     ToolError,
+    ToolTimeoutError,
 )
 from agentmold.llm import LLM, LlmResponse, Message, create_llm
 from agentmold.memory import BaseMemory, Memory
@@ -570,6 +571,24 @@ class Agent:
         crossed. Only costs the provider actually reports are counted; EasyAgent
         does not estimate cost from a price table, so providers that report no
         cost can never trip the budget. Defaults to ``None`` (no ceiling).
+    tool_timeout:
+        Per-call timeout in seconds applied to every tool execution on the
+        async paths (:meth:`arun` / :meth:`arun_stream`). A wedged tool — a
+        hung connection, an infinite loop — then fails with
+        ``status="timeout"`` on the tool result event and the error message is
+        fed back to the model instead of hanging the run forever. The
+        synchronous paths run tools inline and cannot be interrupted, so this
+        bound applies only to async runs. Defaults to ``None`` (no timeout;
+        MCP tools keep their own per-call timeout from ``mcp_tools``).
+    max_tool_result_chars:
+        Cap on the text a single tool result may contribute to the context.
+        Longer results are kept up to the cap and end with an explicit
+        ``... (truncated, N more chars)`` marker, so the model knows the
+        payload was cut and can ask for a slimmer view instead of silently
+        receiving — and re-sending — megabytes. Defaults to 100,000 characters
+        (roughly 25k tokens). Pass ``None`` to disable. Built-in tools with
+        their own tighter truncation (``read_file``, ``http_tools``) are
+        unaffected unless their results still exceed this cap.
     """
 
     def __init__(
@@ -585,6 +604,8 @@ class Agent:
         loop_detection_threshold: int | None = 3,
         audit_log: str | Path | None = None,
         cost_budget_usd: float | None = None,
+        tool_timeout: float | None = None,
+        max_tool_result_chars: int | None = 100_000,
     ) -> None:
         self.name = name
         self.instructions = instructions
@@ -609,6 +630,12 @@ class Agent:
         if cost_budget_usd is not None and cost_budget_usd <= 0:
             raise ValueError("cost_budget_usd must be greater than 0")
         self._cost_budget_usd = cost_budget_usd
+        if tool_timeout is not None and tool_timeout <= 0:
+            raise ValueError("tool_timeout must be greater than 0")
+        self._tool_timeout = tool_timeout
+        if max_tool_result_chars is not None and max_tool_result_chars < 1:
+            raise ValueError("max_tool_result_chars must be at least 1")
+        self._max_tool_result_chars = max_tool_result_chars
 
     def _check_cost_budget(self, trace: AgentTrace) -> None:
         """Raise once the provider-reported cost crosses the configured ceiling."""
@@ -1136,6 +1163,7 @@ class Agent:
             error_type = type(exc).__name__
         finally:
             _TRACE_PARENT.reset(parent_token)
+        content = self._truncate_tool_result(content)
         duration_ms = (time.perf_counter() - started) * 1000
         self._audit.record(
             run_id=trace.run_id,
@@ -1211,16 +1239,21 @@ class Agent:
         arguments = call["arguments"]
         parent_token = _TRACE_PARENT.set((trace, call["id"]))
         started = time.perf_counter()
-        status: Literal["success", "error"] = "success"
+        status: Literal["success", "error", "timeout"] = "success"
         error_type: str | None = None
         try:
-            content = await self.registry.acall(tool_name, arguments)
+            content = await self.registry.acall(tool_name, arguments, timeout=self._tool_timeout)
+        except ToolTimeoutError as exc:
+            content = f"Error: {exc}"
+            status = "timeout"
+            error_type = type(exc).__name__
         except ToolError as exc:
             content = f"Error: {exc}"
             status = "error"
             error_type = type(exc).__name__
         finally:
             _TRACE_PARENT.reset(parent_token)
+        content = self._truncate_tool_result(content)
         duration_ms = (time.perf_counter() - started) * 1000
         self._audit.record(
             run_id=trace.run_id,
@@ -1236,6 +1269,17 @@ class Agent:
             duration_ms=duration_ms,
             error_type=error_type,
         )
+
+    def _truncate_tool_result(self, content: str) -> str:
+        """Cap one tool result so it cannot flood the context window.
+
+        The cap keeps the head and appends an explicit marker, so the model
+        sees both the payload start and the fact that it was cut.
+        """
+        limit = self._max_tool_result_chars
+        if limit is None or len(content) <= limit:
+            return content
+        return content[:limit] + f"\n... (truncated, {len(content) - limit} more chars)"
 
     def _stream_llm_response(
         self,

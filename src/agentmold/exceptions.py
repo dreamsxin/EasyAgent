@@ -15,6 +15,14 @@ class ToolError(EasyAgentError):
     """Raised when a tool execution fails."""
 
 
+class ToolTimeoutError(ToolError):
+    """Raised when a tool call exceeds its configured timeout.
+
+    Subclasses :class:`ToolError` so existing handlers keep working; the agent
+    distinguishes it to report ``status="timeout"`` on the tool result event.
+    """
+
+
 class ToolNotFoundError(ToolError):
     """Raised when the agent references a tool that does not exist."""
 

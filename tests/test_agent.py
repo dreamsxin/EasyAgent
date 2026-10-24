@@ -121,3 +121,38 @@ def test_agent_custom_memory_is_used():
     agent.run("hi")
     # The custom memory instance should hold our message.
     assert any(m.content == "hi" for m in mem.messages())
+
+
+def test_sync_run_truncates_oversized_tool_results():
+    """The synchronous path caps huge tool results the same way as arun."""
+
+    from agentmold.llm import LLM, LlmResponse
+
+    class HugeResultLLM(LLM):
+        def _complete(self, messages, tools=None):
+            if messages and messages[-1].role == "tool":
+                return LlmResponse(content="done")
+            return LlmResponse(
+                content="",
+                tool_calls=[{"id": "t3", "name": "dump", "arguments": {}}],
+            )
+
+    @tool
+    def dump() -> str:
+        """Return far more than the context should carry."""
+        return "y" * 30_000
+
+    agent = Agent(
+        tools=[dump],
+        llm=HugeResultLLM(model="dump"),
+        max_tool_result_chars=500,
+        log_level=LogLevel.SILENT,
+    )
+    steps = list(agent.run_stream("go"))
+
+    result_step = steps[1]
+    assert result_step["type"] == "tool_result"
+    assert len(result_step["content"]) < 600
+    assert "(truncated, 29500 more chars)" in result_step["content"]
+    tool_messages = [m for m in agent.memory.messages() if m.role == "tool"]
+    assert "(truncated, 29500 more chars)" in tool_messages[0].content

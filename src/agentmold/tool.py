@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Annotated, Any, Literal, Union, get_args, get_origin, get_type_hints, overload
 
-from agentmold.exceptions import ToolError
+from agentmold.exceptions import ToolError, ToolTimeoutError
 
 __all__ = ["Tool", "tool", "ToolRegistry"]
 
@@ -171,7 +171,7 @@ class Tool:
         try:
             result = await asyncio.wait_for(invoke(), timeout) if timeout else await invoke()
         except asyncio.TimeoutError as exc:
-            raise ToolError(f"Tool {self.name!r} timed out after {timeout:g}s.") from exc
+            raise ToolTimeoutError(f"Tool {self.name!r} timed out after {timeout:g}s.") from exc
         except ToolError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -185,6 +185,43 @@ class Tool:
             inspect.signature(self.func).bind(**arguments)
         except TypeError as exc:
             raise ToolError(f"Invalid arguments for tool {self.name!r}: {exc}") from exc
+        violations = self._schema_violations(arguments)
+        if violations:
+            raise ToolError(f"Invalid arguments for tool {self.name!r}: " + "; ".join(violations))
+
+    def _schema_violations(self, arguments: dict[str, Any]) -> list[str]:
+        """Check arguments against the tool's JSON schema.
+
+        The model's arguments are untrusted input: validate them against the
+        published schema before execution so a wrong type or an out-of-enum
+        value fails with an actionable message the model can correct in the
+        next round, instead of blowing up inside the tool. Validation is
+        deliberately lenient — a property without a ``type`` or ``enum``
+        constraint is skipped, so loosely typed tools keep working.
+        """
+        properties = (self.parameters or {}).get("properties", {})
+        violations: list[str] = []
+        for name, value in arguments.items():
+            schema = properties.get(name)
+            if not isinstance(schema, dict):
+                continue
+            allowed = schema.get("enum")
+            if isinstance(allowed, list) and value not in allowed:
+                violations.append(
+                    f"parameter {name!r} must be one of " f"{allowed!r}; got {value!r}"
+                )
+            json_types = schema.get("type")
+            if isinstance(json_types, str):
+                json_types = [json_types]
+            if not isinstance(json_types, list) or not json_types:
+                continue
+            if not any(_matches_json_type(value, json_type) for json_type in json_types):
+                expected = " | ".join(json_types)
+                violations.append(
+                    f"parameter {name!r} must be of type {expected}; "
+                    f"got {type(value).__name__} {value!r}"
+                )
+        return violations
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """Invoke the original function and preserve its return type."""
@@ -303,6 +340,30 @@ class ToolRegistry:
 
     def __contains__(self, name: object) -> bool:
         return name in self._tools
+
+
+def _matches_json_type(value: Any, json_type: Any) -> bool:
+    """Whether *value* satisfies one JSON Schema type name.
+
+    ``bool`` is a subclass of ``int`` in Python, so booleans are rejected for
+    the numeric types explicitly — a ``True`` passed where the schema asks for
+    an integer is a model mistake, not a creative one.
+    """
+    if json_type == "string":
+        return isinstance(value, str)
+    if json_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if json_type == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if json_type == "boolean":
+        return isinstance(value, bool)
+    if json_type == "array":
+        return isinstance(value, list)
+    if json_type == "object":
+        return isinstance(value, dict)
+    if json_type == "null":
+        return value is None
+    return True  # Unknown type name: lenient, the schema is untrusted too.
 
 
 def _schema_for_type(annotation: Any) -> dict[str, Any]:

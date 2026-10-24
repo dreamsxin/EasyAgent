@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import pytest
 
 from agentmold import tool
-from agentmold.exceptions import ToolError, ToolNotFoundError
+from agentmold.exceptions import ToolError, ToolNotFoundError, ToolTimeoutError
 from agentmold.tool import Tool, ToolRegistry
 
 
@@ -115,3 +117,60 @@ def test_tool_registry_rejects_plain_functions():
 
     with pytest.raises(TypeError):
         ToolRegistry([plain])  # type: ignore[list-item]
+
+
+def test_tool_rejects_out_of_enum_argument_with_actionable_error():
+    @tool
+    def get_order(status: Literal["open", "shipped"]) -> str:
+        """Fetch one order by status."""
+        return f"orders for {status}"
+
+    with pytest.raises(ToolError, match="must be one of.*open.*shipped.*closed"):
+        get_order.call({"status": "closed"})
+
+
+def test_tool_rejects_wrong_argument_type_with_actionable_error():
+    @tool
+    def add(a: int, b: int = 0) -> int:
+        """Add two numbers."""
+        return a + b
+
+    with pytest.raises(ToolError, match="parameter 'a' must be of type integer"):
+        add.call({"a": "3", "b": 4})
+
+
+def test_tool_rejects_bool_where_integer_is_expected():
+    @tool
+    def repeat(text: str, times: int = 1) -> str:
+        """Repeat text."""
+        return text * times
+
+    with pytest.raises(ToolError, match="must be of type integer"):
+        repeat.call({"text": "x", "times": True})
+
+
+def test_tool_accepts_untyped_arguments_without_schema_rejection():
+    @tool
+    def echo(value) -> str:
+        """Echo anything, typed loosely on purpose."""
+        return str(value)
+
+    assert echo.call({"value": object()}).startswith("<object object at")
+
+
+def test_tool_timeout_is_a_tool_error_subclass():
+    import asyncio
+
+    @tool
+    async def hang() -> str:
+        """Never finishes in time."""
+        await asyncio.sleep(5)
+        return "late"
+
+    async def trigger() -> None:
+        with pytest.raises(ToolTimeoutError) as exc_info:
+            await hang.acall({}, timeout=0.01)
+        assert isinstance(exc_info.value, ToolError)
+        assert "timed out" in str(exc_info.value)
+
+    asyncio.run(trigger())

@@ -194,3 +194,81 @@ def test_tool_argument_binding_is_validated_before_execution():
 
     with pytest.raises(ToolError, match="Invalid arguments"):
         greet.call({"unexpected": "value"})
+
+
+@pytest.mark.asyncio
+async def test_arun_tool_timeout_reports_timeout_status():
+    """A wedged tool fails fast and the model sees the timeout as feedback."""
+
+    class TimeoutLoopLLM(LLM):
+        def _complete(self, messages, tools=None):
+            if messages and messages[-1].role == "tool":
+                return LlmResponse(content="recovered from timeout")
+            return LlmResponse(
+                content="",
+                tool_calls=[{"id": "t1", "name": "hang", "arguments": {}}],
+            )
+
+    @tool
+    async def hang() -> str:
+        """Hang forever, simulating a wedged tool."""
+        await asyncio.sleep(30)
+        return "late"
+
+    agent = Agent(
+        tools=[hang],
+        llm=TimeoutLoopLLM(model="timeout"),
+        tool_timeout=0.05,
+        log_level=LogLevel.SILENT,
+    )
+    events = [event async for event in agent.arun_stream("go")]
+
+    result_event = events[1]
+    assert result_event["type"] == "tool_result"
+    assert result_event["status"] == "timeout"
+    assert result_event["error_type"] == "ToolTimeoutError"
+    assert "timed out" in result_event["content"]
+    assert events[-1]["type"] == "answer"
+
+
+@pytest.mark.asyncio
+async def test_arun_truncates_oversized_tool_results():
+    """A huge tool result is capped before it enters the context."""
+
+    class HugeResultLLM(LLM):
+        def _complete(self, messages, tools=None):
+            if messages and messages[-1].role == "tool":
+                return LlmResponse(content="saw a truncated payload")
+            return LlmResponse(
+                content="",
+                tool_calls=[{"id": "t2", "name": "dump", "arguments": {}}],
+            )
+
+    @tool
+    async def dump() -> str:
+        """Return far more than the context should carry."""
+        return "x" * 50_000
+
+    agent = Agent(
+        tools=[dump],
+        llm=HugeResultLLM(model="dump"),
+        max_tool_result_chars=1_000,
+        log_level=LogLevel.SILENT,
+    )
+    events = [event async for event in agent.arun_stream("go")]
+
+    result_event = events[1]
+    assert result_event["type"] == "tool_result"
+    assert len(result_event["content"]) < 1_100
+    assert "(truncated, 49000 more chars)" in result_event["content"]
+    # The memory (and therefore the next model round) sees the capped text.
+    tool_messages = [m for m in agent.memory.messages() if m.role == "tool"]
+    assert "(truncated, 49000 more chars)" in tool_messages[0].content
+
+
+@pytest.mark.asyncio
+async def test_agent_rejects_non_positive_tool_timeout():
+    with pytest.raises(ValueError, match="tool_timeout must be greater than 0"):
+        Agent(tool_timeout=0)
+    with pytest.raises(ValueError, match="max_tool_result_chars must be at least 1"):
+        Agent(max_tool_result_chars=0)
