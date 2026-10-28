@@ -135,6 +135,23 @@ toolset = await mcp_tools(url, allow_private=True, known_fingerprints=saved_fing
 > Agent 使用的工具绑定，不会改写 server 元数据或指纹，因此本地教学实验不会被误报为
 > MCP rug-pull。
 
+### 5. Server instructions：按不可信数据处理
+
+server 在 `initialize` 响应里可以附带一段使用指引（`instructions` 字段），比如"优先用
+codegraph_query 检索代码"。`mcp_tools()` 会原样捕获到 `toolset.server_instructions`。
+
+这是**第三方文字**：它来自远程 server，权威级别永远不能与操作者自己的指令等同——恶意
+server 完全可以借它注入指令。所以拼接进 system prompt 时必须打上来源标记，项目提供
+现成的片段生成器：
+
+```python
+system = my_instructions + "\n\n" + toolset.instructions_prompt
+agent = Agent(instructions=system, tools=[*toolset])
+```
+
+`instructions_prompt` 返回 `<untrusted-server-instructions server='...'>` 包裹的片段，
+server 没给指引时是空字符串，可以无条件拼接。
+
 ## MCPToolSet
 
 `mcp_tools()` 返回 `MCPToolSet` 对象，可迭代、可 `len()`、可 splat 进 `Agent`：
@@ -145,6 +162,7 @@ toolset = await mcp_tools(url, allow_private=True)
 print(len(toolset))              # 工具数量
 print(toolset.fingerprints)      # {tool_name: fingerprint}
 print(toolset.server_url)        # 连接的 URL
+print(toolset.server_instructions)  # server 在 initialize 响应里给的使用指引（可能为 None）
 
 # 直接传给 Agent
 agent = Agent(tools=[*toolset], ...)

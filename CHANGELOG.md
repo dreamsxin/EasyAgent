@@ -36,6 +36,23 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
 
 ### Added
 
+- `Agent` gained an `on_before_tool` policy hook, inspected before every tool execution
+  on both sync and async paths. It returns `None` to allow, `False` or a `str` to deny
+  (the string becomes the tool result content, so write it as an actionable
+  correction), or a `dict` to replace the arguments that actually execute — the trace
+  keeps recording the call the model made. The hook is fail-safe: a hook that raises,
+  returns an unawaited coroutine on the sync path, or returns anything unrecognized
+  denies the call, because a broken gate must never default to open. Denials are
+  audited with `refused=true` and surface as `status="policy_denied"` on the tool
+  result event — a value the event contract reserved until now. In parallel turns the
+  gate itself always runs sequentially, even when the calls it gates execute
+  concurrently.
+- `mcp_tools()` now captures the guidance text an MCP server sends in its initialize
+  response and exposes it as `MCPToolSet.server_instructions`. Server instructions are
+  third-party text and must not carry the authority of the host's own prompt, so
+  `MCPToolSet.instructions_prompt` returns them fenced in an
+  `<untrusted-server-instructions>` block (empty string when the server sent none) for
+  appending to a system prompt.
 - `Agent` gained a `tool_timeout` argument that bounds every tool call on the async
   paths (`arun` / `arun_stream`). `Tool.acall` accepted a `timeout` since it was
   written but `Agent` never passed one, so a wedged or hostile plain tool could hang

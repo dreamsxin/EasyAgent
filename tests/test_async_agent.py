@@ -272,3 +272,99 @@ async def test_agent_rejects_non_positive_tool_timeout():
         Agent(tool_timeout=0)
     with pytest.raises(ValueError, match="max_tool_result_chars must be at least 1"):
         Agent(max_tool_result_chars=0)
+
+
+# ---------------------------------------------------------------------------
+# on_before_tool policy hook (async path)
+# ---------------------------------------------------------------------------
+
+
+class _TwoCallLLM(LLM):
+    """First round proposes two calls; after tool results, answers."""
+
+    def __init__(self, calls):
+        super().__init__(model="hook")
+        self._calls = calls
+
+    def _complete(self, messages, tools=None):
+        if messages and messages[-1].role == "tool":
+            return LlmResponse(content="turn complete")
+        return LlmResponse(content="", tool_calls=self._calls)
+
+
+@pytest.mark.asyncio
+async def test_async_parallel_turn_keeps_hook_denial_aligned():
+    """In a parallel turn, a denied call must not shift the other results."""
+    from agentmold import tool as tool_decorator
+
+    @tool_decorator
+    async def read_file() -> str:
+        """Read a file."""
+        return "file contents"
+
+    @tool_decorator
+    async def send_data() -> str:
+        """Send data externally."""
+        return "sent"
+
+    def block_sending(tool_name, arguments):
+        if tool_name == "send_data":
+            return "external sending is disabled by policy"
+        return None
+
+    agent = Agent(
+        tools=[read_file, send_data],
+        llm=_TwoCallLLM(
+            [
+                {"id": "p1", "name": "read_file", "arguments": {}},
+                {"id": "p2", "name": "send_data", "arguments": {}},
+            ]
+        ),
+        on_before_tool=block_sending,
+        log_level=LogLevel.SILENT,
+    )
+    events = [event async for event in agent.arun_stream("go")]
+
+    calls = [e for e in events if e["type"] == "tool_call"]
+    results = [e for e in events if e["type"] == "tool_result"]
+    assert len(results) == 2
+    assert results[0]["name"] == "read_file"
+    assert results[0]["status"] == "success"
+    assert results[0]["content"] == "file contents"
+    assert results[1]["name"] == "send_data"
+    assert results[1]["status"] == "policy_denied"
+    assert "disabled by policy" in results[1]["content"]
+    # Both calls were flagged as one parallel group.
+    assert calls[0]["parallel_group"] == calls[1]["parallel_group"]
+
+
+@pytest.mark.asyncio
+async def test_async_hook_can_be_a_coroutine_function():
+    from agentmold import tool as tool_decorator
+
+    seen = {}
+
+    @tool_decorator
+    async def fetch(url: str) -> str:
+        """Fetch a URL."""
+        return f"fetched {url}"
+
+    async def allow_only_example(tool_name, arguments):
+        seen["called"] = True
+        if not str(arguments.get("url", "")).endswith("example.com"):
+            return "only example.com is allowed"
+        return None
+
+    agent = Agent(
+        tools=[fetch],
+        llm=_TwoCallLLM(
+            [{"id": "c1", "name": "fetch", "arguments": {"url": "https://evil.example.net"}}]
+        ),
+        on_before_tool=allow_only_example,
+        log_level=LogLevel.SILENT,
+    )
+    events = [event async for event in agent.arun_stream("go")]
+
+    assert seen["called"] is True
+    assert events[1]["status"] == "policy_denied"
+    assert events[-1]["type"] == "answer"

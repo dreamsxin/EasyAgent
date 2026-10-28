@@ -93,6 +93,14 @@ class MCPToolSet:
     The ``fingerprints`` dict records each tool's identity hash at discovery
     time so callers can detect rug-pull changes (tool descriptions silently
     modified after initial registration).
+
+    ``server_instructions`` carries the guidance text the server returned in
+    its initialize response (``None`` when it sent none). Treat it as
+    **untrusted data**: it comes from the remote server, and anything it says
+    must never carry the same authority as the host's own instructions. Use
+    :attr:`instructions_prompt` when appending it to a system prompt — the
+    returned fragment is fenced and labelled so the model can tell
+    third-party guidance from its operator's directives.
     """
 
     def __init__(
@@ -100,10 +108,28 @@ class MCPToolSet:
         tools: list[Tool],
         fingerprints: dict[str, str],
         server_url: str,
+        server_instructions: str | None = None,
     ) -> None:
         self.tools = tools
         self.fingerprints = fingerprints
         self.server_url = server_url
+        self.server_instructions = server_instructions
+
+    @property
+    def instructions_prompt(self) -> str:
+        """Return the server instructions as a fenced, labelled prompt fragment.
+
+        An empty string when the server sent no instructions, so the property
+        can be appended unconditionally.
+        """
+        text = (self.server_instructions or "").strip()
+        if not text:
+            return ""
+        return (
+            f"<untrusted-server-instructions server={self.server_url!r}>\n"
+            f"{text}\n"
+            "</untrusted-server-instructions>"
+        )
 
     def __iter__(self) -> Iterator[Tool]:
         return iter(self.tools)
@@ -192,7 +218,10 @@ async def mcp_tools(
     Returns
     -------
     MCPToolSet
-        Iterable container of ``Tool`` objects plus fingerprint metadata.
+        Iterable container of ``Tool`` objects plus fingerprint metadata and
+        the server's ``instructions`` text (exposed as ``server_instructions``;
+        see :attr:`MCPToolSet.instructions_prompt` for a labelled fragment
+        ready to append to a system prompt).
 
     Raises
     ------
@@ -226,10 +255,11 @@ async def mcp_tools(
         if is_url:
             await asyncio.to_thread(validate_server_url, server_url, host_allowlist, allow_private)
         async with Client(server_url) as client:
-            return await client.list_tools()
+            listing = await client.list_tools()
+            return listing, getattr(client, "instructions", None)
 
     try:
-        result = await asyncio.wait_for(_discover(), timeout)
+        result, server_instructions = await asyncio.wait_for(_discover(), timeout)
         server_tools = getattr(result, "tools", [])
     except asyncio.TimeoutError as exc:
         raise MCPError(f"MCP tool discovery on {target} timed out after {timeout:g}s") from exc
@@ -272,7 +302,12 @@ async def mcp_tools(
         )
         tools.append(tool)
 
-    return MCPToolSet(tools=tools, fingerprints=fingerprints, server_url=server_url)
+    return MCPToolSet(
+        tools=tools,
+        fingerprints=fingerprints,
+        server_url=server_url,
+        server_instructions=server_instructions,
+    )
 
 
 def _build_mcp_tool(

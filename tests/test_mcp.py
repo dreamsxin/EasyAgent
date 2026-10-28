@@ -61,6 +61,20 @@ def _make_in_memory_server_with_error() -> Any:
     return server
 
 
+def _make_in_memory_server_with_instructions() -> Any:
+    """Create a server that sends guidance text in its initialize response."""
+    from mcp.server import MCPServer
+
+    server = MCPServer("GuidedServer", instructions="Prefer the add tool for arithmetic.")
+
+    @server.tool()
+    def add(a: int, b: int) -> int:
+        """Add two numbers."""
+        return a + b
+
+    return server
+
+
 # ---------------------------------------------------------------------------
 # Tool discovery and fingerprinting
 # ---------------------------------------------------------------------------
@@ -76,6 +90,28 @@ async def test_mcp_tools_discovers_tools_from_in_memory_server():
     assert "add" in names
     assert "search" in names
     assert len(toolset) == 2
+
+
+@pytest.mark.asyncio
+async def test_mcp_tools_captures_server_instructions():
+    """The initialize response's guidance text lands on the tool set."""
+    server = _make_in_memory_server_with_instructions()
+    toolset = await mcp_tools(server, allow_private=True)
+
+    assert toolset.server_instructions == "Prefer the add tool for arithmetic."
+    fragment = toolset.instructions_prompt
+    assert "<untrusted-server-instructions" in fragment
+    assert "Prefer the add tool" in fragment
+    assert fragment.rstrip().endswith("</untrusted-server-instructions>")
+
+
+@pytest.mark.asyncio
+async def test_mcp_tools_instructions_prompt_is_empty_without_guidance():
+    """A server without instructions yields an empty, appendable fragment."""
+    toolset = await mcp_tools(_make_in_memory_server(), allow_private=True)
+
+    assert not (toolset.server_instructions or "").strip()
+    assert toolset.instructions_prompt == ""
 
 
 @pytest.mark.asyncio

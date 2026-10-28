@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import enum
+import inspect
 import json
 import logging
 import re
@@ -589,6 +590,27 @@ class Agent:
         (roughly 25k tokens). Pass ``None`` to disable. Built-in tools with
         their own tighter truncation (``read_file``, ``http_tools``) are
         unaffected unless their results still exceed this cap.
+    on_before_tool:
+        Optional policy hook inspected before every tool execution, on both
+        the sync and async paths: called as ``hook(tool_name, arguments)``.
+        The return value decides:
+
+        * ``None`` — allow the call unchanged.
+        * ``False`` — deny it with a generic reason.
+        * a non-empty ``str`` — deny it, and the string becomes the tool
+          result content; write it as an actionable correction so the model
+          can adjust in the next round.
+        * a ``dict`` — replace the arguments that are actually executed. The
+          trace still records the call the model made; the audit log records
+          what ran.
+
+        The hook is the code-level policy gate ("what the model must never
+        do, weld into code"): it runs before the ``confirm`` approval gate,
+        and it is **fail-safe** — a hook that raises, returns an unawaited
+        coroutine on the sync path, or returns anything unrecognized denies
+        the call instead of allowing it. Denials are audited with
+        ``refused=True`` and surface as ``status="policy_denied"`` on the
+        tool result event.
     """
 
     def __init__(
@@ -606,6 +628,7 @@ class Agent:
         cost_budget_usd: float | None = None,
         tool_timeout: float | None = None,
         max_tool_result_chars: int | None = 100_000,
+        on_before_tool: Callable[[str, dict[str, Any]], Any] | None = None,
     ) -> None:
         self.name = name
         self.instructions = instructions
@@ -636,6 +659,44 @@ class Agent:
         if max_tool_result_chars is not None and max_tool_result_chars < 1:
             raise ValueError("max_tool_result_chars must be at least 1")
         self._max_tool_result_chars = max_tool_result_chars
+        self._on_before_tool = on_before_tool
+
+    def _apply_tool_hook_sync(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Run the PreToolUse hook; return ``(modified_arguments, denial_reason)``.
+
+        Exactly one of the two is non-``None``. Fail-safe by design: a hook
+        that raises, or returns anything unrecognized, denies the call — a
+        broken gate must never default to open.
+        """
+        if self._on_before_tool is None:
+            return None, None
+        try:
+            decision = self._on_before_tool(tool_name, arguments)
+        except Exception as exc:  # noqa: BLE001
+            return None, (
+                f"Denied by on_before_tool hook for {tool_name!r}: the hook raised "
+                f"{exc!r}, and a failing policy hook denies the call (fail-safe)."
+            )
+        return _interpret_hook_decision(tool_name, decision)
+
+    async def _apply_tool_hook_async(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Awaitable-capable variant of :meth:`_apply_tool_hook_sync`."""
+        if self._on_before_tool is None:
+            return None, None
+        try:
+            decision = self._on_before_tool(tool_name, arguments)
+            if inspect.isawaitable(decision):
+                decision = await decision
+        except Exception as exc:  # noqa: BLE001
+            return None, (
+                f"Denied by on_before_tool hook for {tool_name!r}: the hook raised "
+                f"{exc!r}, and a failing policy hook denies the call (fail-safe)."
+            )
+        return _interpret_hook_decision(tool_name, decision)
 
     def _check_cost_budget(self, trace: AgentTrace) -> None:
         """Raise once the provider-reported cost crosses the configured ceiling."""
@@ -775,30 +836,49 @@ class Agent:
                         trace.add(loop_event)
                         yield loop_event
                         raise LoopDetectedError(loop_event["message"])
-                    approval_event = self._approval_event(call)
-                    if approval_event is not None:
-                        yield approval_event
-                    approval = (
-                        self._resolve_approval(tool_name, arguments)
-                        if approval_event is not None
-                        else None
-                    )
-                    if approval is not None:
+                    hook_modified, hook_denial = self._apply_tool_hook_sync(tool_name, arguments)
+                    if hook_denial is not None:
                         self._audit.record(
                             run_id=trace.run_id,
                             tool=tool_name,
                             arguments=arguments,
-                            outcome=approval,
+                            outcome=hook_denial,
                             refused=True,
                             duration_ms=0.0,
                         )
                         result = _ToolExecutionResult(
-                            content=approval,
-                            status="refused",
+                            content=hook_denial,
+                            status="policy_denied",
                             duration_ms=0.0,
                         )
                     else:
-                        result = self._call_one_tool_sync(call, trace)
+                        if hook_modified is not None:
+                            call = {**call, "arguments": hook_modified}
+                            arguments = hook_modified
+                        approval_event = self._approval_event(call)
+                        if approval_event is not None:
+                            yield approval_event
+                        approval = (
+                            self._resolve_approval(tool_name, arguments)
+                            if approval_event is not None
+                            else None
+                        )
+                        if approval is not None:
+                            self._audit.record(
+                                run_id=trace.run_id,
+                                tool=tool_name,
+                                arguments=arguments,
+                                outcome=approval,
+                                refused=True,
+                                duration_ms=0.0,
+                            )
+                            result = _ToolExecutionResult(
+                                content=approval,
+                                status="refused",
+                                duration_ms=0.0,
+                            )
+                        else:
+                            result = self._call_one_tool_sync(call, trace)
                     self.log.observation(f"{tool_name} -> {result.content}")
                     result_event = self._tool_result_event(call, result)
                     trace.add(result_event)
@@ -1201,33 +1281,63 @@ class Agent:
         parallel: bool,
         trace: AgentTrace,
     ) -> list[_ToolExecutionResult]:
-        """Execute a turn's tool calls and return results in original order."""
+        """Execute a turn's tool calls and return results in original order.
+
+        The ``on_before_tool`` hook gates every call before execution. The
+        gate itself always runs sequentially — even when the calls then go to
+        ``asyncio.gather`` — so a policy hook is never invoked concurrently.
+        """
+        results: list[_ToolExecutionResult | None] = [None] * len(calls)
+        pending: list[tuple[int, dict[str, Any]]] = []
+        for index, call in enumerate(calls):
+            modified, denial = await self._apply_tool_hook_async(call["name"], call["arguments"])
+            if denial is not None:
+                self._audit.record(
+                    run_id=trace.run_id,
+                    tool=call["name"],
+                    arguments=call["arguments"],
+                    outcome=denial,
+                    refused=True,
+                    duration_ms=0.0,
+                )
+                results[index] = _ToolExecutionResult(
+                    content=denial,
+                    status="policy_denied",
+                    duration_ms=0.0,
+                )
+                continue
+            if modified is not None:
+                call = {**call, "arguments": modified}
+            pending.append((index, call))
+
         if parallel:
-            return await asyncio.gather(*(self._call_one_tool(call, trace) for call in calls))
-        results: list[_ToolExecutionResult] = []
-        for call in calls:
-            approval_event = self._approval_event(call)
-            if approval_event is not None:
-                refusal = self._resolve_approval(call["name"], call["arguments"])
-                if refusal is not None:
-                    self._audit.record(
-                        run_id=trace.run_id,
-                        tool=call["name"],
-                        arguments=call["arguments"],
-                        outcome=refusal,
-                        refused=True,
-                        duration_ms=0.0,
-                    )
-                    results.append(
-                        _ToolExecutionResult(
+            executed = await asyncio.gather(
+                *(self._call_one_tool(call, trace) for _, call in pending)
+            )
+            for (index, _), result in zip(pending, executed):
+                results[index] = result
+        else:
+            for index, call in pending:
+                approval_event = self._approval_event(call)
+                if approval_event is not None:
+                    refusal = self._resolve_approval(call["name"], call["arguments"])
+                    if refusal is not None:
+                        self._audit.record(
+                            run_id=trace.run_id,
+                            tool=call["name"],
+                            arguments=call["arguments"],
+                            outcome=refusal,
+                            refused=True,
+                            duration_ms=0.0,
+                        )
+                        results[index] = _ToolExecutionResult(
                             content=refusal,
                             status="refused",
                             duration_ms=0.0,
                         )
-                    )
-                    continue
-            results.append(await self._call_one_tool(call, trace))
-        return results
+                        continue
+                results[index] = await self._call_one_tool(call, trace)
+        return [result for result in results if result is not None]
 
     async def _call_one_tool(
         self,
@@ -1355,6 +1465,40 @@ def _memory_has_system(memory: BaseMemory) -> bool:
         return any(m.role == "system" for m in memory.messages())
     except Exception:  # noqa: BLE001
         return False
+
+
+def _interpret_hook_decision(
+    tool_name: str,
+    decision: Any,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Translate an ``on_before_tool`` return value into ``(modified, denial)``.
+
+    ``None`` allows the call unchanged; ``False`` denies generically; a
+    non-empty ``str`` denies with that reason (fed back to the model as the
+    tool result); a ``dict`` replaces the executed arguments. Anything else is
+    a configuration mistake and denies the call.
+    """
+    if decision is None:
+        return None, None
+    if decision is False:
+        return None, (
+            f"Denied by on_before_tool hook: tool {tool_name!r} is not allowed by policy."
+        )
+    if isinstance(decision, str):
+        reason = decision.strip()
+        if not reason:
+            return None, (
+                f"Denied by on_before_tool hook for {tool_name!r}: the hook returned an "
+                "empty denial reason."
+            )
+        return None, reason
+    if isinstance(decision, dict):
+        return decision, None
+    return None, (
+        f"Denied by on_before_tool hook for {tool_name!r}: unrecognized decision "
+        f"{decision!r}. Return None to allow, False or a str to deny, or a dict of "
+        "replacement arguments."
+    )
 
 
 def _validate_stream_response(

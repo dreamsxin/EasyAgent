@@ -156,3 +156,121 @@ def test_sync_run_truncates_oversized_tool_results():
     assert "(truncated, 29500 more chars)" in result_step["content"]
     tool_messages = [m for m in agent.memory.messages() if m.role == "tool"]
     assert "(truncated, 29500 more chars)" in tool_messages[0].content
+
+
+# ---------------------------------------------------------------------------
+# on_before_tool policy hook (sync path)
+# ---------------------------------------------------------------------------
+
+
+def _hook_llm(tool_call: dict):
+    from agentmold.llm import LLM, LlmResponse
+
+    class _HookLoopLLM(LLM):
+        def _complete(self, messages, tools=None):
+            if messages and messages[-1].role == "tool":
+                return LlmResponse(content="done after the gate")
+            return LlmResponse(content="", tool_calls=[tool_call])
+
+    return _HookLoopLLM(model="hook")
+
+
+def test_sync_hook_denial_becomes_policy_denied_and_is_audited(tmp_path):
+    from agentmold import tool as tool_decorator
+
+    @tool_decorator
+    def pay(amount: int) -> str:
+        """Pay money."""
+        return f"paid {amount}"
+
+    audit_path = tmp_path / "audit.jsonl"
+    agent = Agent(
+        tools=[pay],
+        llm=_hook_llm({"id": "h1", "name": "pay", "arguments": {"amount": 10_000}}),
+        on_before_tool=lambda name, args: "amounts over 1000 need a human approver",
+        audit_log=audit_path,
+        log_level=LogLevel.SILENT,
+    )
+    steps = list(agent.run_stream("pay"))
+
+    assert steps[1]["type"] == "tool_result"
+    assert steps[1]["status"] == "policy_denied"
+    assert "amounts over 1000 need a human approver" in steps[1]["content"]
+    assert steps[-1]["type"] == "answer"
+    audit_lines = [line for line in audit_path.read_text(encoding="utf-8").splitlines() if line]
+    assert any('"refused": true' in line and "human approver" in line for line in audit_lines)
+
+
+def test_sync_hook_can_modify_arguments():
+    from agentmold import tool as tool_decorator
+
+    executed = {}
+
+    @tool_decorator
+    def pay(amount: int) -> str:
+        """Pay money."""
+        executed["amount"] = amount
+        return f"paid {amount}"
+
+    def cap_amount(tool_name, arguments):
+        if arguments.get("amount", 0) > 100:
+            return {"amount": 100}
+        return None
+
+    agent = Agent(
+        tools=[pay],
+        llm=_hook_llm({"id": "h2", "name": "pay", "arguments": {"amount": 10_000}}),
+        on_before_tool=cap_amount,
+        log_level=LogLevel.SILENT,
+    )
+    steps = list(agent.run_stream("pay"))
+
+    assert executed["amount"] == 100
+    assert steps[1]["content"] == "paid 100"
+    # The trace records the call the model made; the hook changed what ran.
+    assert agent.last_trace is not None
+    assert agent.last_trace.steps[0]["arguments"] == {"amount": 10_000}
+
+
+def test_sync_hook_failure_denies_fail_safe():
+    from agentmold import tool as tool_decorator
+
+    @tool_decorator
+    def read() -> str:
+        """Read something."""
+        return "data"
+
+    def broken_hook(tool_name, arguments):
+        raise RuntimeError("policy engine offline")
+
+    agent = Agent(
+        tools=[read],
+        llm=_hook_llm({"id": "h3", "name": "read", "arguments": {}}),
+        on_before_tool=broken_hook,
+        log_level=LogLevel.SILENT,
+    )
+    steps = list(agent.run_stream("go"))
+
+    assert steps[1]["status"] == "policy_denied"
+    assert "fail-safe" in steps[1]["content"]
+    assert "policy engine offline" in steps[1]["content"]
+
+
+def test_sync_hook_unrecognized_decision_denies():
+    from agentmold import tool as tool_decorator
+
+    @tool_decorator
+    def read() -> str:
+        """Read something."""
+        return "data"
+
+    agent = Agent(
+        tools=[read],
+        llm=_hook_llm({"id": "h4", "name": "read", "arguments": {}}),
+        on_before_tool=lambda name, args: 42,
+        log_level=LogLevel.SILENT,
+    )
+    steps = list(agent.run_stream("go"))
+
+    assert steps[1]["status"] == "policy_denied"
+    assert "unrecognized decision" in steps[1]["content"]

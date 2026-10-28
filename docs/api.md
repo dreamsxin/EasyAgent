@@ -15,6 +15,9 @@ Agent(
     loop_detection_threshold=3,
     audit_log=None,
     cost_budget_usd=None,
+    tool_timeout=None,
+    max_tool_result_chars=100_000,
+    on_before_tool=None,
 )
 ```
 
@@ -54,9 +57,11 @@ The event types are `text_delta`, `tool_call`, `tool_result`, `answer`,
 `approval_request`, and `loop_detected`. Durable Trace v2 events include a one-based model
 `round`. Tool events also include a one-based `call_index` and an internal `execution_id`
 that associates the model request with its result even when the provider call ID is absent.
-`tool_result.status` currently emits `success`, `error`, or `refused`, with `duration_ms` and
-an optional `error_type`. The public type reserves `policy_denied`, `timeout`, and `cancelled`
-for adapters that can report those outcomes; the core Agent does not currently produce them.
+`tool_result.status` currently emits `success`, `error`, `refused` (approval refusal),
+`policy_denied` (a rule from `on_before_tool` blocked the call), or `timeout` (the call
+exceeded `tool_timeout` on an async path), with `duration_ms` and an optional
+`error_type`. The public type reserves `cancelled` for adapters that can report that
+outcome; the core Agent does not currently produce it.
 Existing `id`, `name`, `arguments`, and `content` fields retain their original meanings.
 
 `text_delta` is optional and means a provider
@@ -91,6 +96,38 @@ def write_file(path: str, content: str) -> str:
 
 agent = Agent(tools=[write_file], on_approval=lambda name, args: False)
 ```
+
+**Policy hook before every tool call.** Pass `on_before_tool(name, arguments)` to inspect
+every tool execution — on both sync and async paths — before it runs. The hook is the
+code-level policy gate: rules checked in code, not requests written into the system
+prompt. Its return value decides:
+
+- `None` allows the call unchanged.
+- `False` denies it with a generic reason.
+- a non-empty `str` denies it, and that string becomes the `tool_result` content —
+  write it as an actionable correction the model can act on next round.
+- a `dict` replaces the arguments that are actually executed. The trace still records
+  the call the model made; the audit log records what ran.
+
+```python
+def policy(tool_name, arguments):
+    if tool_name == "send_data" and "example.com" not in str(arguments.get("url")):
+        return "only example.com destinations are allowed by policy"
+    if tool_name == "pay" and arguments.get("amount", 0) > 100:
+        return {"amount": 100}  # cap the amount instead of refusing
+    return None
+
+agent = Agent(tools=[...], on_before_tool=policy)
+```
+
+The gate is **fail-safe**: a hook that raises — or returns anything unrecognized —
+denies the call instead of allowing it, because a broken gate must never default to
+open. Denials are audited with `refused=true` and surface as
+`status="policy_denied"` on the tool result event. The hook runs before the
+`on_approval` confirmation gate; hook denials never reach the human, and approved
+calls still pass through the hook first. On the async paths the hook may be an async
+function; in parallel turns the gate itself always runs sequentially, one call at a
+time, even when the calls it gates then execute concurrently.
 
 **Repeated-call loop detection.** If the model requests the same tool with identical
 arguments `loop_detection_threshold` times in a row (default 3), the run records a durable
