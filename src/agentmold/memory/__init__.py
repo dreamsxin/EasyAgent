@@ -90,11 +90,19 @@ class Memory(BaseMemory):
 class CompactingMemory(BaseMemory):
     """Token-budget-aware memory that summarises old messages instead of dropping them.
 
-    When the total estimated token count exceeds ``max_tokens``, the oldest
-    messages (excluding the system prompt, the first user intent, and the most
-    recent tool results) are passed to the ``summarizer`` callback and replaced
-    with a single summary message.  This preserves context across long
-    conversations without unbounded growth.
+    When the total estimated token count exceeds ``max_tokens``, compaction
+    runs in two stages, cheapest and safest first:
+
+    1. **Tool result clearing.** Tool results outside the recent window are
+       replaced with one-line stubs that keep the tool name and the original
+       size. A tool result has usually been consumed once and is then dead
+       weight — the largest, lowest-value share of a long conversation — so
+       clearing it is the lightest-touch way to reclaim budget without
+       touching any reasoning. Call the tool again if the details matter.
+    2. **Summarisation.** If the budget is still exceeded, the oldest
+       messages (excluding the system prompt, the first user intent, and the
+       most recent window) are passed to the ``summarizer`` callback and
+       replaced with a single summary message.
 
     Token count is estimated as ``len(content) // chars_per_token`` (default
     4 chars/token), which is accurate enough for budget enforcement without
@@ -135,6 +143,7 @@ class CompactingMemory(BaseMemory):
         self._summarizer = summarizer or self._default_summarizer
         self._messages: list[Message] = []
         self._summary: str | None = None
+        self.cleared_tool_results = 0
 
     @staticmethod
     def _default_summarizer(messages: list[Message]) -> str:
@@ -142,6 +151,13 @@ class CompactingMemory(BaseMemory):
         parts = [f"[{m.role}] {m.content}" for m in messages]
         text = " ".join(parts)
         return text[:500] + "…" if len(text) > 500 else text
+
+    @staticmethod
+    def _cleared_stub(message: Message) -> str:
+        return (
+            f"[tool {message.name!r} result cleared: {len(message.content)} chars "
+            "were here; call the tool again if you need the details]"
+        )
 
     def add(self, message: Message) -> None:
         if message.role == "system" and self._system is None:
@@ -164,6 +180,7 @@ class CompactingMemory(BaseMemory):
     def clear(self) -> None:
         self._messages.clear()
         self._summary = None
+        self.cleared_tool_results = 0
 
     def _estimate_tokens(self) -> int:
         total_chars = sum(len(m.content) for m in self._messages)
@@ -172,6 +189,10 @@ class CompactingMemory(BaseMemory):
         return total_chars // self._chars_per_token
 
     def _maybe_compact(self) -> None:
+        if self._estimate_tokens() <= self.max_tokens:
+            return
+        # Stage 1: clear tool results that fell out of the recent window.
+        self._clear_old_tool_results()
         if self._estimate_tokens() <= self.max_tokens:
             return
         if len(self._messages) <= self._keep_recent + 1:
@@ -192,6 +213,29 @@ class CompactingMemory(BaseMemory):
 
         self._summary = self._summarizer(to_summarise)
         self._messages = [first] + recent
+
+    def _clear_old_tool_results(self) -> None:
+        """Stage-1 compaction: stub out tool results outside the recent window.
+
+        Keeping the one-line stub preserves the message structure (and with it
+        the ``tool_call_id`` pairing some providers require) while reclaiming
+        nearly all of the payload's token cost.
+        """
+        recent_start = max(0, len(self._messages) - self._keep_recent)
+        for index in range(recent_start):
+            message = self._messages[index]
+            if message.role != "tool":
+                continue
+            stub = self._cleared_stub(message)
+            if len(stub) >= len(message.content):
+                continue
+            self._messages[index] = Message(
+                role="tool",
+                content=stub,
+                name=message.name,
+                tool_call_id=message.tool_call_id,
+            )
+            self.cleared_tool_results += 1
 
     @property
     def last_summary(self) -> str | None:

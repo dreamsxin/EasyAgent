@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import re
 import types
 from collections.abc import Callable, Iterator
@@ -307,6 +308,16 @@ class ToolRegistry:
             raise TypeError(
                 f"Expected a Tool instance, got {type(tool).__name__}. "
                 "Use the @tool decorator to create one."
+            )
+        if tool.name in self._tools:
+            # A silent overwrite here is hard to notice and easy to trigger:
+            # an MCP server that exports its own `read_file` would quietly
+            # displace the workspace tool with the same name.
+            logging.getLogger("agentmold").warning(
+                "Tool %r was already registered and is being replaced. "
+                "Give one of them a distinct name — or a namespace prefix like "
+                "'server/tool' — if this is unintended.",
+                tool.name,
             )
         self._tools[tool.name] = tool
 

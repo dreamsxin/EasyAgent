@@ -55,6 +55,21 @@ the public API is pre-1.0; experimental APIs may still change between minor rele
 
 ### Changed
 
+- `CompactingMemory` compacts in two stages, cheapest first. When the token budget is
+  exceeded it now clears tool results that fell outside the recent window before it
+  summarises: each becomes a one-line stub that keeps the tool name, the original size
+  and the `tool_call_id` pairing, and tells the model it can call the tool again.
+  Tool results are the largest, lowest-value share of a long conversation — typically
+  consumed once and never read again — so reclaiming them first often fits the budget
+  without touching any reasoning, and summarisation now only runs when clearing was
+  not enough. The number of cleared results is exposed as `cleared_tool_results`.
+  (Anthropic's context-engineering guide calls tool-result clearing the safest,
+  lightest-touch form of compaction.)
+- `ToolRegistry.add` logs a warning when a name that is already registered gets
+  replaced. The overwrite itself stays legal — it remains the way to hot-swap a tool —
+  but it was completely silent, and an MCP server exporting its own `read_file` could
+  quietly displace the workspace tool with the same name. The warning suggests a
+  distinct name or a namespace prefix (`server/tool`).
 - Tool arguments are now validated against the tool's published JSON schema before
   execution. Until now `Tool._validate_arguments` only checked that the arguments bind
   to the function signature, so a model could pass `"3"` for an `int` parameter or a
